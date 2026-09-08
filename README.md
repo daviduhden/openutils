@@ -114,9 +114,7 @@ OpenBSD); this exists so the code can be built and tested elsewhere.
   only with `-r` — likewise chosen from the parsed options.
 - `ee`: `stdio rpath wpath cpath tty proc exec getpw` (files,
   terminal, shell commands, `~` expansion).  `unveil(2)` is not used
-  where an editor must reach arbitrary files; the rationale for each
-  choice is documented in the respective sources and in
-  `ee/MODERNIZATION.md`.
+  where an editor must reach arbitrary files.
 
 Note: on non-OpenBSD hosts GNU make is known to work; some third-party
 BSD make ports come with embedded toolchain defaults for other
