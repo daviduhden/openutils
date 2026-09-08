@@ -139,6 +139,20 @@ to arbitrary files because the write-back is performed with an atomic
 rename in the destination directory, which replaces a symbolic link
 rather than following it.
 See
+.Sh LOCALE
+The interface of
+.Nm
+is U.S. English only, and its output is always UTF-8.
+The only supported locale is
+.Ev en_US.UTF-8 .
+Setting
+.Ev LANG ,
+.Ev LANGUAGE ,
+.Ev LC_ALL ,
+.Ev LC_MESSAGES
+or any other locale variable has no effect on the interface language,
+prompts or diagnostics.
+Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
 .Sh SEE ALSO
 .Xr doas 1 ,
 .Xr doas.conf 5

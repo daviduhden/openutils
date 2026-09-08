@@ -1,3 +1,5 @@
+#include "bsdcompat.h"
+
 #include <sys/stat.h>
 
 #include <ctype.h>
@@ -191,6 +193,12 @@ psize(char *buf, off_t size)
 			;
 		if (idx == 0)
 			return (sprintf(buf, " %4d", (int)size));
+		/*
+		 * LC_NUMERIC is never set (only LC_CTYPE is, to
+		 * en_US.UTF-8), so the "C" locale governs: the decimal
+		 * separator is always '.', whatever LANG/LC_* the
+		 * user sets.
+		 */
 		return (sprintf(buf, (((size + base / 2) / base) >= 10) ?
 		    " %3.0f%c" : " %3.1f%c",
 		    (double)size / (double)base, unit[idx]));
@@ -549,7 +557,12 @@ entcmp(const void *va, const void *vb)
 		break;
 	}
 	if (r == 0)
-		r = strcoll(a->name, b->name);
+		/*
+		 * Byte-wise comparison, deliberately not strcoll(3):
+		 * the ordering must not depend on locale collation
+		 * rules.  For UTF-8 names this is code point order.
+		 */
+		r = strcmp(a->name, b->name);
 	if (rflag)
 		r = -r;
 	return (r);
@@ -1301,9 +1314,24 @@ main(int argc, char *argv[])
 	static char	 *defroot[] = { ".", NULL };
 	static const int  zbars[] = { 0 };
 
-	setlocale(LC_CTYPE, "");
 	setprogname(argv[0]);
-	setlocale(LC_COLLATE, "");
+
+	/*
+	 * The interface language is U.S. English and the only supported
+	 * text encoding is UTF-8.  The locale is therefore selected
+	 * deliberately, never from the environment: LANG, LANGUAGE and
+	 * the LC_* variables cannot change the language, the sorting
+	 * order, the decimal separator or the date format.  LC_CTYPE is
+	 * set to enable the multibyte interpretation of UTF-8 file
+	 * names; every other category stays in the "C" locale.  When
+	 * the host lacks the en_US.UTF-8 locale data, the program
+	 * degrades deliberately to byte-oriented output with ASCII line
+	 * drawing rather than adopting whatever locale the environment
+	 * might suggest.
+	 */
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL)
+		warnx("en_US.UTF-8 locale unavailable; "
+		    "using byte-oriented output");
 	outfile = stdout;
 
 	multibyte = MB_CUR_MAX > 1;

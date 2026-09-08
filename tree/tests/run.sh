@@ -208,6 +208,41 @@ assert_not_out "--prune -P drops non-matching" "big" \
 # multiple roots
 assert_out "multiple roots listed" "afile" "$TREE" sub empty
 
+# ------------------------------------------------ locale
+# The interface is English-only and behaviour is deterministic: the
+# locale environment variables must not change output, sorting, the
+# decimal separator or line drawing.  tree deliberately selects
+# en_US.UTF-8 itself.
+dd if=/dev/zero of=sub/halfk bs=1536 count=1 2>/dev/null
+
+assert_out "human size uses '.' decimal point" "1.5K" \
+	"$TREE" -s -h sub
+
+ref=$(LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 "$TREE" -s -h sub)
+assert_eq "output stable under LC_ALL=en_US.UTF-8" "$ref" \
+	"$(LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 "$TREE" -s -h sub)"
+
+for lc in C POSIX de_DE.UTF-8 es_ES.UTF-8 fr_FR.UTF-8 zz_ZZ.NOPE; do
+	assert_eq "output stable under $lc" "$ref" \
+		"$(LC_ALL=$lc LANG=$lc LC_MESSAGES=$lc "$TREE" -s -h sub)"
+done
+
+assert_eq "output stable with locale variables unset" "$ref" \
+	"$(env -u LANG -u LC_ALL -u LC_MESSAGES -u LANGUAGE \
+	"$TREE" -s -h sub)"
+
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$TREE" sub 2>/dev/null |
+	grep -q "director"
+assert_eq "report is English under de_DE.UTF-8" 0 $?
+
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$TREE" --help >/dev/null 2>&1
+assert_eq "--help works under de_DE.UTF-8" 0 $?
+
+if locale -a 2>/dev/null | grep -qi 'en_US.*utf.*8'; then
+	assert_out "UTF-8 box drawing when locale available" \
+		"$(printf '\342\224\234')" "$TREE" sub
+fi
+
 say
 say "pass: $PASS  fail: $FAIL"
 if [ "$FAIL" -gt 0 ]; then

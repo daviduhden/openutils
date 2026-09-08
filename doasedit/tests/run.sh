@@ -266,6 +266,23 @@ DOAS_FAKE_LOG=$base/dlog6 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
 assert_eq "multi-file: overall success" 0 $?
 assert_out "second file still processed" "install" "$base/dlog6"
 
+# ---------------------------------------------------------------- 12
+# locale: the interface is English-only and independent of the locale
+# environment variables; unusual values must not crash the program
+for lc in en_US.UTF-8 C de_DE.UTF-8 es_ES.UTF-8 zz_ZZ.NOPE; do
+	LC_ALL=$lc LANG=$lc "$DOASEDIT" 2>"$base/usage.$lc" >/dev/null
+	assert_eq "no-args exit under $lc" 1 $?
+	grep -q "usage: doasedit" "$base/usage.$lc"
+	assert_eq "English usage under $lc" 0 $?
+done
+
+env -u LANG -u LC_ALL -u LC_MESSAGES -u LANGUAGE "$DOASEDIT" \
+	--help >/dev/null 2>&1
+assert_eq "unset locale variables" 0 $?
+
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$DOASEDIT" --help >/dev/null 2>&1
+assert_eq "--help works under de_DE.UTF-8" 0 $?
+
 # ----------------------------------------------------------------
 say
 say "pass: $PASS  fail: $FAIL"

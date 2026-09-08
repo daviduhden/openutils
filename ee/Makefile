@@ -2,9 +2,8 @@
 #
 # ee is built against its own bundled terminal library (new_curse.c),
 # a self-contained curses subset with a built-in terminfo reader, so
-# no external curses library is needed.  Since the C17 modernization
-# (see MODERNIZATION.md) the code builds warning-free with strict
-# flags.
+# no external curses library is needed.  The code builds warning-free
+# with strict flags.
 
 PROG = ee
 SRCS = ee.c new_curse.c

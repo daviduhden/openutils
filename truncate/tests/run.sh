@@ -293,6 +293,28 @@ ln -sf real "$work/lnk"
 "$TRUNC" -s 9 "$work/lnk"
 assert_eq "follows symlink" 9 "$(size "$work/real")"
 
+# ------------------------------------------------ locale
+# Size parsing is ASCII-only and diagnostics are English: the locale
+# environment must not change either, and unusual values must not
+# crash the program.
+for lc in en_US.UTF-8 C POSIX de_DE.UTF-8 es_ES.UTF-8 zz_ZZ.NOPE; do
+	LC_ALL=$lc LANG=$lc LC_MESSAGES=$lc "$TRUNC" -s 10K "$work/loc"
+	assert_eq "10K parsed under $lc" 10240 "$(size "$work/loc")"
+done
+
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$TRUNC" -s 5,5 "$work/loc" \
+	>/dev/null 2>&1
+assert_eq "comma decimal rejected" 1 $?
+
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$TRUNC" -s xyz "$work/loc" \
+	>"$work/trunc-loc.err" 2>&1
+grep -q "Invalid number" "$work/trunc-loc.err"
+assert_eq "English diagnostic under de_DE.UTF-8" 0 $?
+
+env -u LANG -u LC_ALL -u LC_MESSAGES -u LANGUAGE "$TRUNC" \
+	-s 5 "$work/loc"
+assert_eq "unset locale variables still parse" 5 "$(size "$work/loc")"
+
 say
 if [ -n "$GNU" ]; then
 	say "(differential mode against $GNU)"

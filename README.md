@@ -60,7 +60,7 @@ Ritschard's tree 0.62 (the historical OpenBSD ports implementation),
 extended with the option set of the tree utility in common use today:
 `-a -d -f -F -i -l -L -r -t -x -s -h -p -u -g -D -C -n -N -Q -q -J
 -U -P -I -o --si --dirsfirst --filelimit --inodes --noreport --prune
---sort --timefmt --help`, colour output, UTF-8/ASCII line
+--sort --timefmt --help`, colour output, UTF-8 line
 drawing, symlink following with loop detection and JSON output.
 Patterns use `fnmatch(3)`; the `|`/`^` extensions of the original
 matcher are deliberately not reproduced.  XML/HTML output, `--du`,
@@ -86,6 +86,29 @@ line compatibility with the truncate utility in common use today:
 K/KB/KiB ... suffix set.  The extended behaviour was reimplemented
 from the documented semantics of that utility; no GNU code was
 copied.
+
+## Locale and encoding
+
+The user interface of every utility is U.S. English only: there is no
+translation infrastructure, no message catalogs, and no support for
+alternative human languages.  The only supported locale is
+`en_US.UTF-8`, and UTF-8 is the only supported text encoding.
+
+`LANG`, `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and the other locale
+environment variables never change the interface language, the
+numeric syntax (the decimal separator is always `.`), the sorting
+order or the date format.  The programs that need libc multibyte
+support (`tree`, `ee`) deliberately select `en_US.UTF-8` themselves
+and ignore the environment; the others never call `setlocale(3)` at
+all and therefore always run in the deterministic "C" locale.  When a
+host lacks the `en_US.UTF-8` locale data, those two programs degrade
+deliberately (with a warning) to byte-oriented output instead of
+adopting whatever encoding the environment might suggest.
+
+Legacy encodings (ISO-8859-*, Windows-1252, Shift-JIS, EUC-JP,
+KOI8-R, Big-5, ...) are not supported.  User data (file names,
+edited text, ...) may contain arbitrary valid Unicode encoded as
+UTF-8; only the interface language is restricted to English.
 
 ## Building
 
@@ -135,8 +158,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   `--noreport` for the historical "no report" behaviour).
 - `truncate`: error messages are similar but not identical; usage
   text differs.
-- `ee`: no message catalogs installed; terminal handling is provided
-  by the bundled `new_curse` library.
+- `ee`: the message-catalog (localization) infrastructure of the
+  original is removed; the interface is hard-coded U.S. English and
+  text is always UTF-8.  Terminal handling is provided by the bundled
+  `new_curse` library.
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

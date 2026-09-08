@@ -105,6 +105,24 @@ utility exits 0 on success and 1 if an error occurred.
 If the operation fails for an argument,
 .Nm
 will issue a diagnostic and continue processing the remaining arguments.
+.Sh LOCALE
+The interface of
+.Nm
+is U.S. English only, and its output is always UTF-8.
+The only supported locale is
+.Ev en_US.UTF-8 .
+Setting
+.Ev LANG ,
+.Ev LANGUAGE ,
+.Ev LC_ALL ,
+.Ev LC_MESSAGES
+or any other locale variable has no effect on the interface language,
+on the accepted
+.Ar size
+syntax
+.Pq always ASCII digits and the documented suffixes
+or on diagnostics.
+Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
 .Sh SEE ALSO
 .Xr dd 1 ,
 .Xr touch 1 ,

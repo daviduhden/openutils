@@ -109,7 +109,6 @@ enum nc_key {
 #define FALSE	0
 
 #define A_STANDOUT	0001	/* standout mode */
-#define A_NC_BIG5	0x0100	/* handle Chinese Big5 characters */
 #define SCROLL		1	/* text has been scrolled */
 #define CLEAR		2	/* window has been cleared */
 #define CHANGE		3	/* window has been changed */

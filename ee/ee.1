@@ -323,9 +323,6 @@ A window showing the keyboard operations that can be performed can be
 displayed or not.
 .IP "\fBemacs keys\fR"
 Control keys may be given bindings similar to emacs, or not.
-.IP "\fB16 bit characters\fR"
-Toggles whether sixteen bit characters are handled as one 16-bit quantity or
-two 8-bit quantities.  This works primarily with the Chinese Big 5 code set.
 .RE
 .PP
 You may set these modes via the initialization file (see below), or with a
@@ -452,10 +449,6 @@ Turns on display of eight bit characters.
 .IP \fBnoeightbit\fR
 Turns off display of eight bit characters (they are displayed as their decimal
 value inside angle brackets, e.g., "<220>").
-.IP \fB16bit\fR
-Turns on handling of 16-bit characters.
-.IP \fBno16bit\fR
-Turns off handling of 16-bit characters.
 .IP \fBemacs\fR
 Turns on emacs key bindings.
 .IP \fBnoemacs\fR
@@ -504,12 +497,26 @@ supported materials.
 .PP
 Always make a copy of files that cannot be easily reproduced before
 editing.  Save files early, and save often.
-.SS "International Code Set Support"
+.SS "Character encoding and locale"
+The interface of
 .I ee
-supports single-byte character code sets (eight-bit clean), or the
-Chinese Big-5 code set.
-(Other multi-byte code sets may function, but the reason Big-5 works is
-that a two-byte character also takes up two columns on the screen.)
+is U.S. English only.
+Text is read, edited and written in the UTF-8 encoding, which is the
+only supported character encoding.
+The only supported locale is en_US.UTF-8, which
+.I ee
+selects itself;
+setting
+.SM LANG ,
+.SM LANGUAGE ,
+.SM LC_ALL ,
+.SM LC_MESSAGES
+or any other locale variable has no effect on the interface language
+or on the character handling of the editor.
+If the system does not provide the en_US.UTF-8 locale data, the
+editor degrades to byte-oriented editing.
+Legacy encodings such as ISO-8859-1, Shift-JIS and Big-5 are not
+supported.
 .SH WARNINGS
 The automatic paragraph formatting operation may be too slow for
 slower systems.

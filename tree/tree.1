@@ -31,9 +31,13 @@ the current directory is displayed.
 If the argument is not a directory,
 it is displayed alone.
 .Pp
-By default, the display is sorted alphabetically, and the tree is
-drawn using box-drawing characters when the current locale uses the
-UTF-8 codeset, and ASCII characters otherwise.
+By default, the display is sorted by the byte values of the entry
+names (code point order for UTF-8), and the tree is drawn with
+box-drawing characters.
+When the system does not provide the
+.Ev en_US.UTF-8
+locale data,
+ASCII characters are used instead and bytes above 127 are escaped.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -219,6 +223,26 @@ Use
 .Fl Fl noreport
 to suppress the trailing report instead.
 .El
+.Sh LOCALE
+The interface of
+.Nm
+is U.S. English only, and its output is always UTF-8.
+The only supported locale is
+.Ev en_US.UTF-8 ,
+which
+.Nm
+selects itself;
+setting
+.Ev LANG ,
+.Ev LANGUAGE ,
+.Ev LC_ALL ,
+.Ev LC_MESSAGES
+or any other locale variable has no effect on the interface language,
+the sorting order, the decimal separator
+.Pq always Sq \&. ,
+or the date format.
+Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
+File names and other user data may contain arbitrary valid UTF-8.
 .Sh SEE ALSO
 .Xr find 1 ,
 .Xr ls 1 ,

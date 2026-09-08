@@ -1,6 +1,9 @@
+#include "bsdcompat.h"
+
 #include "new_curse.h"
 
 #include <ctype.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -17,9 +20,6 @@
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
-
-/* message catalogs are not installed; built-in strings are used */
-#define catgetlocal(a, b) (b)
 
 #define TAB 9
 
@@ -220,10 +220,6 @@ utf8_width(const unsigned char *s)
  |	The first item is the string describing the selection, the second
  |	is the address of the procedure to call when the item is selected,
  |	and the third is the argument for the procedure.
- |
- |	For those systems with i18n, the string should be accompanied by a
- |	catalog number.  The 'int *' should be replaced with 'void *' on
- |	systems with that type.
  |
  |	The first menu item will be the title of the menu, with NULL
  |	parameters for the procedure and argument, followed by the menu items.
@@ -431,7 +427,7 @@ char *init_strings[20];
 #define max_alpha_char 36
 
 /*
- |	Declarations for strings for localization
+ |	Declarations for the interface strings (hard-coded English)
  */
 
 char *com_win_message;		/* to be shown in com_win if no info window */
@@ -3317,12 +3313,22 @@ menu_op(struct menu_entries menu_list[])
 			in = input = (int)win;
 		}
 
-		if (isascii(input) && isalnum(input)) {
-			if (isalpha(input)) {
-				temp = 1 + tolower(input) - 'a';
-			} else if (isdigit(input)) {
-				temp = (2 + 'z' - 'a') + (input - '0');
-			}
+		/*
+		 * Menu entries are selected by their first letter or
+		 * digit, compared with explicit ASCII ranges: the menu
+		 * is an ASCII grammar and must not depend on the
+		 * locale's character classification.
+		 */
+		if ((input >= 'a' && input <= 'z') ||
+		    (input >= 'A' && input <= 'Z') ||
+		    (input >= '0' && input <= '9')) {
+			int c = (input >= 'A' && input <= 'Z') ?
+			    input + ('a' - 'A') : input;
+
+			if (c >= 'a' && c <= 'z')
+				temp = 1 + c - 'a';
+			else
+				temp = (2 + 'z' - 'a') + (c - '0');
 
 			if (temp <= list_size) {
 				input = '\n';
@@ -4788,10 +4794,8 @@ unique_test(char *string, char *list[])
 }
 
 /*
- |	The following is to allow for using message catalogs which allow
- |	the software to be 'localized', that is, to use different languages
- |	all with the same binary.  For more information, see your system
- |	documentation, or the X/Open Internationalization Guide.
+ *	All messages are hard-coded U.S. English: ee is not localized,
+ *	and no message catalogs are read or installed.
  */
 
 static void
@@ -4799,212 +4803,177 @@ strings_init(void)
 {
 	int counter;
 
-	setlocale(LC_ALL, "");
+	/*
+	 * The interface language is U.S. English and the only supported
+	 * text encoding is UTF-8.  The locale is therefore selected
+	 * deliberately, never from the environment: LANG, LANGUAGE and
+	 * the LC_* variables cannot change the language or the
+	 * character handling of the editor.  LC_CTYPE enables the
+	 * multibyte interpretation of UTF-8 text; every other category
+	 * stays in the "C" locale.  When the host lacks the
+	 * en_US.UTF-8 locale data, the editor degrades deliberately to
+	 * byte-oriented editing.
+	 */
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL)
+		fprintf(stderr, "ee: en_US.UTF-8 locale unavailable; "
+		    "editing in byte-oriented mode\n");
 
-	modes_menu[0].item_string = catgetlocal(1, "modes menu");
-	mode_strings[1] = catgetlocal(2, "tabs to spaces       ");
-	mode_strings[2] = catgetlocal(3, "case sensitive search");
-	mode_strings[3] = catgetlocal(4, "margins observed     ");
-	mode_strings[4] = catgetlocal(5, "auto-paragraph format");
-	mode_strings[5] = catgetlocal(6, "eightbit characters  ");
-	mode_strings[6] = catgetlocal(7, "info window          ");
-	mode_strings[8] = catgetlocal(8, "right margin         ");
-	leave_menu[0].item_string = catgetlocal(9, "leave menu");
-	leave_menu[1].item_string = catgetlocal(10, "save changes");
-	leave_menu[2].item_string = catgetlocal(11, "no save");
-	file_menu[0].item_string = catgetlocal(12, "file menu");
-	file_menu[1].item_string = catgetlocal(13, "read a file");
-	file_menu[2].item_string = catgetlocal(14, "write a file");
-	file_menu[3].item_string = catgetlocal(15, "save file");
-	file_menu[4].item_string = catgetlocal(16, "print editor contents");
-	search_menu[0].item_string = catgetlocal(17, "search menu");
-	search_menu[1].item_string = catgetlocal(18, "search for ...");
-	search_menu[2].item_string = catgetlocal(19, "search");
-	spell_menu[0].item_string = catgetlocal(20, "spell menu");
-	spell_menu[1].item_string = catgetlocal(21, "use 'spell'");
-	spell_menu[2].item_string = catgetlocal(22, "use 'ispell'");
-	misc_menu[0].item_string = catgetlocal(23, "miscellaneous menu");
-	misc_menu[1].item_string = catgetlocal(24, "format paragraph");
-	misc_menu[2].item_string = catgetlocal(25, "shell command");
-	misc_menu[3].item_string = catgetlocal(26, "check spelling");
-	main_menu[0].item_string = catgetlocal(27, "main menu");
-	main_menu[1].item_string = catgetlocal(28, "leave editor");
-	main_menu[2].item_string = catgetlocal(29, "help");
-	main_menu[3].item_string = catgetlocal(30, "file operations");
-	main_menu[4].item_string = catgetlocal(31, "redraw screen");
-	main_menu[5].item_string = catgetlocal(32, "settings");
-	main_menu[6].item_string = catgetlocal(33, "search");
-	main_menu[7].item_string = catgetlocal(34, "miscellaneous");
-	help_text[0] = catgetlocal(35,
-	    "Control keys:                                                              ");
-	help_text[1] = catgetlocal(36,
-	    "^a ascii code           ^i tab                  ^r right                   ");
-	help_text[2] = catgetlocal(37,
-	    "^b bottom of text       ^j newline              ^t top of text             ");
-	help_text[3] = catgetlocal(38,
-	    "^c command              ^k delete char          ^u up                      ");
-	help_text[4] = catgetlocal(39,
-	    "^d down                 ^l left                 ^v undelete word           ");
-	help_text[5] = catgetlocal(40,
-	    "^e search prompt        ^m newline              ^w delete word             ");
-	help_text[6] = catgetlocal(41,
-	    "^f undelete char        ^n next page            ^x search                  ");
-	help_text[7] = catgetlocal(42,
-	    "^g begin of line        ^o end of line          ^y delete line             ");
-	help_text[8] = catgetlocal(43,
-	    "^h backspace            ^p prev page            ^z undelete line           ");
-	help_text[9] = catgetlocal(44,
-	    "^[ (escape) menu        ESC-Enter: exit ee                                 ");
-	help_text[10] = catgetlocal(45,
-	    "                                                                           ");
-	help_text[11] = catgetlocal(46,
-	    "Commands:                                                                  ");
-	help_text[12] = catgetlocal(47,
-	    "help    : get this info                 file    : print file name          ");
-	help_text[13] = catgetlocal(48,
-	    "read    : read a file                   char    : ascii code of char       ");
-	help_text[14] = catgetlocal(49,
-	    "write   : write a file                  case    : case sensitive search    ");
-	help_text[15] = catgetlocal(50,
-	    "exit    : leave and save                nocase  : case insensitive search  ");
-	help_text[16] = catgetlocal(51,
-	    "quit    : leave, no save                !cmd    : execute \"cmd\" in shell   ");
-	help_text[17] = catgetlocal(52,
-	    "line    : display line #                0-9     : go to line \"#\"           ");
-	help_text[18] = catgetlocal(53,
-	    "expand  : expand tabs                   noexpand: do not expand tabs         ");
-	help_text[19] = catgetlocal(54,
-	    "                                                                             ");
-	help_text[20] = catgetlocal(55,
-	    "  ee [+#] [-i] [-e] [-h] [file(s)]                                            ");
-	help_text[21] = catgetlocal(56,
-	    "+# :go to line #  -i :no info window  -e : don't expand tabs  -h :no highlight");
-	control_keys[0] = catgetlocal(57,
-	    "^[ (escape) menu  ^e search prompt  ^y delete line    ^u up     ^p prev page  ");
-	control_keys[1] = catgetlocal(58,
-	    "^a ascii code     ^x search         ^z undelete line  ^d down   ^n next page  ");
-	control_keys[2] = catgetlocal(59,
-	    "^b bottom of text ^g begin of line  ^w delete word    ^l left                 ");
-	control_keys[3] = catgetlocal(60,
-	    "^t top of text    ^o end of line    ^v undelete word  ^r right                ");
-	control_keys[4] = catgetlocal(61,
-	    "^c command        ^k delete char    ^f undelete char      ESC-Enter: exit ee  ");
-	command_strings[0] = catgetlocal(62,
-	    "help : get help info  |file  : print file name         |line : print line # ");
-	command_strings[1] = catgetlocal(63,
-	    "read : read a file    |char  : ascii code of char      |0-9 : go to line \"#\"");
-	command_strings[2] = catgetlocal(64,
-	    "write: write a file   |case  : case sensitive search   |exit : leave and save ");
-	command_strings[3] = catgetlocal(65,
-	    "!cmd : shell \"cmd\"    |nocase: ignore case in search   |quit : leave, no save");
-	command_strings[4] = catgetlocal(66,
-	    "expand: expand tabs   |noexpand: do not expand tabs                           ");
-	com_win_message = catgetlocal(67, "    press Escape (^[) for menu");
-	no_file_string = catgetlocal(68, "no file");
-	ascii_code_str = catgetlocal(69, "ascii code: ");
-	printer_msg_str = catgetlocal(70,
-	    "sending contents of buffer to \"%s\" ");
-	command_str = catgetlocal(71, "command: ");
-	file_write_prompt_str = catgetlocal(72, "name of file to write: ");
-	file_read_prompt_str = catgetlocal(73, "name of file to read: ");
-	char_str = catgetlocal(74, "character = %d");
-	unkn_cmd_str = catgetlocal(75, "unknown command \"%s\"");
-	non_unique_cmd_msg = catgetlocal(76, "entered command is not unique");
-	line_num_str = catgetlocal(77, "line %d  ");
-	line_len_str = catgetlocal(78, "length = %d");
-	current_file_str = catgetlocal(79, "current file is \"%s\" ");
-	usage0 = catgetlocal(80,
-	    "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
-	usage1 = catgetlocal(81, "       -i   turn off info window\n");
-	usage2 = catgetlocal(82, "       -e   do not convert tabs to spaces\n");
-	usage3 = catgetlocal(83, "       -h   do not use highlighting\n");
-	file_is_dir_msg = catgetlocal(84, "file \"%s\" is a directory");
-	new_file_msg = catgetlocal(85, "new file \"%s\"");
-	cant_open_msg = catgetlocal(86, "can't open \"%s\"");
-	open_file_msg = catgetlocal(87, "file \"%s\", %d lines");
-	file_read_fin_msg = catgetlocal(88, "finished reading file \"%s\"");
-	reading_file_msg = catgetlocal(89, "reading file \"%s\"");
-	read_only_msg = catgetlocal(90, ", read only");
-	file_read_lines_msg = catgetlocal(91, "file \"%s\", %d lines");
-	save_file_name_prompt = catgetlocal(92, "enter name of file: ");
-	file_not_saved_msg = catgetlocal(93,
-	    "no filename entered: file not saved");
-	changes_made_prompt = catgetlocal(94,
-	    "changes have been made, are you sure? (y/n [n]) ");
-	yes_char = catgetlocal(95, "y");
-	file_exists_prompt = catgetlocal(96,
-	    "file already exists, overwrite? (y/n) [n] ");
-	create_file_fail_msg = catgetlocal(97, "unable to create file \"%s\"");
-	writing_file_msg = catgetlocal(98, "writing file \"%s\"");
-	file_written_msg = catgetlocal(99, "\"%s\" %d lines, %d characters");
-	searching_msg = catgetlocal(100, "           ...searching");
-	str_not_found_msg = catgetlocal(101, "string \"%s\" not found");
-	search_prompt_str = catgetlocal(102, "search for: ");
-	exec_err_msg = catgetlocal(103, "could not exec %s\n");
-	continue_msg = catgetlocal(104, "press return to continue ");
-	menu_cancel_msg = catgetlocal(105, "press Esc to cancel");
-	menu_size_err_msg = catgetlocal(106, "menu too large for window");
-	press_any_key_msg = catgetlocal(107, "press any key to continue ");
-	shell_prompt = catgetlocal(108, "shell command: ");
-	formatting_msg = catgetlocal(109, "...formatting paragraph...");
-	shell_echo_msg = catgetlocal(110,
-	    "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
-	spell_in_prog_msg = catgetlocal(111,
-	    "sending contents of edit buffer to 'spell'");
-	margin_prompt = catgetlocal(112, "right margin is: ");
-	restricted_msg = catgetlocal(113,
-	    "restricted mode: unable to perform requested operation");
-	ON = catgetlocal(114, "ON");
-	OFF = catgetlocal(115, "OFF");
-	HELP = catgetlocal(116, "HELP");
-	WRITE = catgetlocal(117, "WRITE");
-	READ = catgetlocal(118, "READ");
-	LINE = catgetlocal(119, "LINE");
-	FILE_str = catgetlocal(120, "FILE");
-	CHARACTER = catgetlocal(121, "CHARACTER");
-	REDRAW = catgetlocal(122, "REDRAW");
-	RESEQUENCE = catgetlocal(123, "RESEQUENCE");
-	AUTHOR = catgetlocal(124, "AUTHOR");
-	CASE = catgetlocal(126, "CASE");
-	NOCASE = catgetlocal(127, "NOCASE");
-	EXPAND = catgetlocal(128, "EXPAND");
-	NOEXPAND = catgetlocal(129, "NOEXPAND");
-	Exit_string = catgetlocal(130, "EXIT");
-	QUIT_string = catgetlocal(131, "QUIT");
-	INFO = catgetlocal(132, "INFO");
-	NOINFO = catgetlocal(133, "NOINFO");
-	MARGINS = catgetlocal(134, "MARGINS");
-	NOMARGINS = catgetlocal(135, "NOMARGINS");
-	AUTOFORMAT = catgetlocal(136, "AUTOFORMAT");
-	NOAUTOFORMAT = catgetlocal(137, "NOAUTOFORMAT");
-	Echo = catgetlocal(138, "ECHO");
-	PRINTCOMMAND = catgetlocal(139, "PRINTCOMMAND");
-	RIGHTMARGIN = catgetlocal(140, "RIGHTMARGIN");
-	HIGHLIGHT = catgetlocal(141, "HIGHLIGHT");
-	NOHIGHLIGHT = catgetlocal(142, "NOHIGHLIGHT");
-	EIGHTBIT = catgetlocal(143, "EIGHTBIT");
-	NOEIGHTBIT = catgetlocal(144, "NOEIGHTBIT");
+	modes_menu[0].item_string = "modes menu";
+	mode_strings[1] = "tabs to spaces       ";
+	mode_strings[2] = "case sensitive search";
+	mode_strings[3] = "margins observed     ";
+	mode_strings[4] = "auto-paragraph format";
+	mode_strings[5] = "eightbit characters  ";
+	mode_strings[6] = "info window          ";
+	mode_strings[8] = "right margin         ";
+	leave_menu[0].item_string = "leave menu";
+	leave_menu[1].item_string = "save changes";
+	leave_menu[2].item_string = "no save";
+	file_menu[0].item_string = "file menu";
+	file_menu[1].item_string = "read a file";
+	file_menu[2].item_string = "write a file";
+	file_menu[3].item_string = "save file";
+	file_menu[4].item_string = "print editor contents";
+	search_menu[0].item_string = "search menu";
+	search_menu[1].item_string = "search for ...";
+	search_menu[2].item_string = "search";
+	spell_menu[0].item_string = "spell menu";
+	spell_menu[1].item_string = "use 'spell'";
+	spell_menu[2].item_string = "use 'ispell'";
+	misc_menu[0].item_string = "miscellaneous menu";
+	misc_menu[1].item_string = "format paragraph";
+	misc_menu[2].item_string = "shell command";
+	misc_menu[3].item_string = "check spelling";
+	main_menu[0].item_string = "main menu";
+	main_menu[1].item_string = "leave editor";
+	main_menu[2].item_string = "help";
+	main_menu[3].item_string = "file operations";
+	main_menu[4].item_string = "redraw screen";
+	main_menu[5].item_string = "settings";
+	main_menu[6].item_string = "search";
+	main_menu[7].item_string = "miscellaneous";
+	help_text[0] = "Control keys:                                                              ";
+	help_text[1] = "^a ascii code           ^i tab                  ^r right                   ";
+	help_text[2] = "^b bottom of text       ^j newline              ^t top of text             ";
+	help_text[3] = "^c command              ^k delete char          ^u up                      ";
+	help_text[4] = "^d down                 ^l left                 ^v undelete word           ";
+	help_text[5] = "^e search prompt        ^m newline              ^w delete word             ";
+	help_text[6] = "^f undelete char        ^n next page            ^x search                  ";
+	help_text[7] = "^g begin of line        ^o end of line          ^y delete line             ";
+	help_text[8] = "^h backspace            ^p prev page            ^z undelete line           ";
+	help_text[9] = "^[ (escape) menu        ESC-Enter: exit ee                                 ";
+	help_text[10] = "                                                                           ";
+	help_text[11] = "Commands:                                                                  ";
+	help_text[12] = "help    : get this info                 file    : print file name          ";
+	help_text[13] = "read    : read a file                   char    : ascii code of char       ";
+	help_text[14] = "write   : write a file                  case    : case sensitive search    ";
+	help_text[15] = "exit    : leave and save                nocase  : case insensitive search  ";
+	help_text[16] = "quit    : leave, no save                !cmd    : execute \"cmd\" in shell   ";
+	help_text[17] = "line    : display line #                0-9     : go to line \"#\"           ";
+	help_text[18] = "expand  : expand tabs                   noexpand: do not expand tabs         ";
+	help_text[19] = "                                                                             ";
+	help_text[20] = "  ee [+#] [-i] [-e] [-h] [file(s)]                                            ";
+	help_text[21] = "+# :go to line #  -i :no info window  -e : don't expand tabs  -h :no highlight";
+	control_keys[0] = "^[ (escape) menu  ^e search prompt  ^y delete line    ^u up     ^p prev page  ";
+	control_keys[1] = "^a ascii code     ^x search         ^z undelete line  ^d down   ^n next page  ";
+	control_keys[2] = "^b bottom of text ^g begin of line  ^w delete word    ^l left                 ";
+	control_keys[3] = "^t top of text    ^o end of line    ^v undelete word  ^r right                ";
+	control_keys[4] = "^c command        ^k delete char    ^f undelete char      ESC-Enter: exit ee  ";
+	command_strings[0] = "help : get help info  |file  : print file name         |line : print line # ";
+	command_strings[1] = "read : read a file    |char  : ascii code of char      |0-9 : go to line \"#\"";
+	command_strings[2] = "write: write a file   |case  : case sensitive search   |exit : leave and save ";
+	command_strings[3] = "!cmd : shell \"cmd\"    |nocase: ignore case in search   |quit : leave, no save";
+	command_strings[4] = "expand: expand tabs   |noexpand: do not expand tabs                           ";
+	com_win_message = "    press Escape (^[) for menu";
+	no_file_string = "no file";
+	ascii_code_str = "ascii code: ";
+	printer_msg_str = "sending contents of buffer to \"%s\" ";
+	command_str = "command: ";
+	file_write_prompt_str = "name of file to write: ";
+	file_read_prompt_str = "name of file to read: ";
+	char_str = "character = %d";
+	unkn_cmd_str = "unknown command \"%s\"";
+	non_unique_cmd_msg = "entered command is not unique";
+	line_num_str = "line %d  ";
+	line_len_str = "length = %d";
+	current_file_str = "current file is \"%s\" ";
+	usage0 = "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n";
+	usage1 = "       -i   turn off info window\n";
+	usage2 = "       -e   do not convert tabs to spaces\n";
+	usage3 = "       -h   do not use highlighting\n";
+	file_is_dir_msg = "file \"%s\" is a directory";
+	new_file_msg = "new file \"%s\"";
+	cant_open_msg = "can't open \"%s\"";
+	open_file_msg = "file \"%s\", %d lines";
+	file_read_fin_msg = "finished reading file \"%s\"";
+	reading_file_msg = "reading file \"%s\"";
+	read_only_msg = ", read only";
+	file_read_lines_msg = "file \"%s\", %d lines";
+	save_file_name_prompt = "enter name of file: ";
+	file_not_saved_msg = "no filename entered: file not saved";
+	changes_made_prompt = "changes have been made, are you sure? (y/n [n]) ";
+	yes_char = "y";
+	file_exists_prompt = "file already exists, overwrite? (y/n) [n] ";
+	create_file_fail_msg = "unable to create file \"%s\"";
+	writing_file_msg = "writing file \"%s\"";
+	file_written_msg = "\"%s\" %d lines, %d characters";
+	searching_msg = "           ...searching";
+	str_not_found_msg = "string \"%s\" not found";
+	search_prompt_str = "search for: ";
+	exec_err_msg = "could not exec %s\n";
+	continue_msg = "press return to continue ";
+	menu_cancel_msg = "press Esc to cancel";
+	menu_size_err_msg = "menu too large for window";
+	press_any_key_msg = "press any key to continue ";
+	shell_prompt = "shell command: ";
+	formatting_msg = "...formatting paragraph...";
+	shell_echo_msg = "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
+	spell_in_prog_msg = "sending contents of edit buffer to 'spell'";
+	margin_prompt = "right margin is: ";
+	restricted_msg = "restricted mode: unable to perform requested operation";
+	ON = "ON";
+	OFF = "OFF";
+	HELP = "HELP";
+	WRITE = "WRITE";
+	READ = "READ";
+	LINE = "LINE";
+	FILE_str = "FILE";
+	CHARACTER = "CHARACTER";
+	REDRAW = "REDRAW";
+	RESEQUENCE = "RESEQUENCE";
+	AUTHOR = "AUTHOR";
+	CASE = "CASE";
+	NOCASE = "NOCASE";
+	EXPAND = "EXPAND";
+	NOEXPAND = "NOEXPAND";
+	Exit_string = "EXIT";
+	QUIT_string = "QUIT";
+	INFO = "INFO";
+	NOINFO = "NOINFO";
+	MARGINS = "MARGINS";
+	NOMARGINS = "NOMARGINS";
+	AUTOFORMAT = "AUTOFORMAT";
+	NOAUTOFORMAT = "NOAUTOFORMAT";
+	Echo = "ECHO";
+	PRINTCOMMAND = "PRINTCOMMAND";
+	RIGHTMARGIN = "RIGHTMARGIN";
+	HIGHLIGHT = "HIGHLIGHT";
+	NOHIGHLIGHT = "NOHIGHLIGHT";
+	EIGHTBIT = "EIGHTBIT";
+	NOEIGHTBIT = "NOEIGHTBIT";
 	/*
 	 |	additions
 	 */
-	mode_strings[7] = catgetlocal(145, "emacs key bindings   ");
+	mode_strings[7] = "emacs key bindings   ";
 	emacs_help_text[0] = help_text[0];
-	emacs_help_text[1] = catgetlocal(146,
-	    "^a beginning of line    ^i tab                  ^r restore word            ");
-	emacs_help_text[2] = catgetlocal(147,
-	    "^b back 1 char          ^j undel char           ^t top of text             ");
-	emacs_help_text[3] = catgetlocal(148,
-	    "^c command              ^k delete line          ^u bottom of text          ");
-	emacs_help_text[4] = catgetlocal(149,
-	    "^d delete char          ^l undelete line        ^v next page               ");
-	emacs_help_text[5] = catgetlocal(150,
-	    "^e end of line          ^m newline              ^w delete word             ");
-	emacs_help_text[6] = catgetlocal(151,
-	    "^f forward 1 char       ^n next line            ^x search                  ");
-	emacs_help_text[7] = catgetlocal(152,
-	    "^g go back 1 page       ^o ascii char insert    ^y search prompt           ");
-	emacs_help_text[8] = catgetlocal(153,
-	    "^h backspace            ^p prev line            ^z next word               ");
+	emacs_help_text[1] = "^a beginning of line    ^i tab                  ^r restore word            ";
+	emacs_help_text[2] = "^b back 1 char          ^j undel char           ^t top of text             ";
+	emacs_help_text[3] = "^c command              ^k delete line          ^u bottom of text          ";
+	emacs_help_text[4] = "^d delete char          ^l undelete line        ^v next page               ";
+	emacs_help_text[5] = "^e end of line          ^m newline              ^w delete word             ";
+	emacs_help_text[6] = "^f forward 1 char       ^n next line            ^x search                  ";
+	emacs_help_text[7] = "^g go back 1 page       ^o ascii char insert    ^y search prompt           ";
+	emacs_help_text[8] = "^h backspace            ^p prev line            ^z next word               ";
 	emacs_help_text[9] = help_text[9];
 	emacs_help_text[10] = help_text[10];
 	emacs_help_text[11] = help_text[11];
@@ -5018,37 +4987,25 @@ strings_init(void)
 	emacs_help_text[19] = help_text[19];
 	emacs_help_text[20] = help_text[20];
 	emacs_help_text[21] = help_text[21];
-	emacs_control_keys[0] = catgetlocal(154,
-	    "^[ (escape) menu ^y search prompt ^k delete line   ^p prev li     ^g prev page");
-	emacs_control_keys[1] = catgetlocal(155,
-	    "^o ascii code    ^x search        ^l undelete line ^n next li     ^v next page");
-	emacs_control_keys[2] = catgetlocal(156,
-	    "^u end of file   ^a begin of line ^w delete word   ^b back 1 char ^z next word");
-	emacs_control_keys[3] = catgetlocal(157,
-	    "^t top of text   ^e end of line   ^r restore word  ^f forward char            ");
-	emacs_control_keys[4] = catgetlocal(158,
-	    "^c command       ^d delete char   ^j undelete char              ESC-Enter: exit");
-	EMACS_string = catgetlocal(159, "EMACS");
-	NOEMACS_string = catgetlocal(160, "NOEMACS");
-	usage4 = catgetlocal(161, "       +#   put cursor at line #\n");
-	conf_dump_err_msg = catgetlocal(162,
-	    "unable to open .init.ee for writing, no configuration saved!");
-	conf_dump_success_msg = catgetlocal(163,
-	    "ee configuration saved in file %s");
-	modes_menu[9].item_string = catgetlocal(164,
-	    "save editor configuration");
-	config_dump_menu[0].item_string = catgetlocal(165,
-	    "save ee configuration");
-	config_dump_menu[1].item_string = catgetlocal(166,
-	    "save in current directory");
-	config_dump_menu[2].item_string = catgetlocal(167,
-	    "save in home directory");
-	conf_not_saved_msg = catgetlocal(168, "ee configuration not saved");
-	ree_no_file_msg = catgetlocal(169,
-	    "must specify a file when invoking ree");
-	menu_too_lrg_msg = catgetlocal(180, "menu too large for window");
-	more_above_str = catgetlocal(181, "^^more^^");
-	more_below_str = catgetlocal(182, "VVmoreVV");
+	emacs_control_keys[0] = "^[ (escape) menu ^y search prompt ^k delete line   ^p prev li     ^g prev page";
+	emacs_control_keys[1] = "^o ascii code    ^x search        ^l undelete line ^n next li     ^v next page";
+	emacs_control_keys[2] = "^u end of file   ^a begin of line ^w delete word   ^b back 1 char ^z next word";
+	emacs_control_keys[3] = "^t top of text   ^e end of line   ^r restore word  ^f forward char            ";
+	emacs_control_keys[4] = "^c command       ^d delete char   ^j undelete char              ESC-Enter: exit";
+	EMACS_string = "EMACS";
+	NOEMACS_string = "NOEMACS";
+	usage4 = "       +#   put cursor at line #\n";
+	conf_dump_err_msg = "unable to open .init.ee for writing, no configuration saved!";
+	conf_dump_success_msg = "ee configuration saved in file %s";
+	modes_menu[9].item_string = "save editor configuration";
+	config_dump_menu[0].item_string = "save ee configuration";
+	config_dump_menu[1].item_string = "save in current directory";
+	config_dump_menu[2].item_string = "save in home directory";
+	conf_not_saved_msg = "ee configuration not saved";
+	ree_no_file_msg = "must specify a file when invoking ree";
+	menu_too_lrg_msg = "menu too large for window";
+	more_above_str = "^^more^^";
+	more_below_str = "VVmoreVV";
 
 	commands[0] = HELP;
 	commands[1] = WRITE;

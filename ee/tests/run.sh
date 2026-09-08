@@ -113,6 +113,29 @@ TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
 assert_eq "no-save leaves file untouched" "$(printf 'keep\n')" \
 	"$(cat "$file")"
 
+# ----------------------------------------------------------------
+# locale: the interface stays English and UTF-8 editing works under
+# foreign and unusual locale environments
+for lc in C de_DE.UTF-8 es_ES.UTF-8 fr_FR.UTF-8 zz_ZZ.NOPE; do
+	out=$(LC_ALL=$lc LANG=$lc LC_MESSAGES=$lc TERM=xterm \
+		"$ROOT/ee/tests/pty-run.sh" "$EE" -? 2>/dev/null)
+	case "$out" in
+	*"usage:"*"turn off info window"*)
+		ok "usage is English under $lc"
+		;;
+	*)
+		notok "usage is English under $lc"
+		;;
+	esac
+done
+
+file=$work/locfile.txt
+LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 TERM=xterm \
+	"$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
+	'caf\xc3\xa9' '\x1b' 'a' 'a' >/dev/null 2>&1
+assert_eq "UTF-8 edit under de_DE.UTF-8" "$(printf 'café')" \
+	"$(cat "$file" 2>/dev/null)"
+
 say
 say "pass: $PASS  fail: $FAIL"
 if [ "$FAIL" -gt 0 ]; then

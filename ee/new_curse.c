@@ -1,3 +1,5 @@
+#include "bsdcompat.h"
+
 #include "new_curse.h"
 #include <ctype.h>
 #include <signal.h>
@@ -32,12 +34,6 @@ static int
 nc_min(int a, int b)
 {
 	return (a < b ? a : b);
-}
-
-static int
-nc_highbitset(int a)
-{
-	return (a & 0x80);
 }
 
 #define bw__ 0	/* booleans	*/
@@ -2526,12 +2522,7 @@ doupdate(void)
 	char *att1, *att2;
 	char *c1, *c2;
 
-	char NC_chinese = FALSE;	/* flag to indicate handling Chinese */
-
 	window = virtual_scr;
-
-	if ((nc_attributes & A_NC_BIG5) != 0)
-		NC_chinese = TRUE;
 
 	if (Repaint_screen) {
 		if (String_table[cl__])
@@ -2813,8 +2804,7 @@ doupdate(void)
 		 */
 
 		if (((String_table[ic__]) || (String_table[im__])) &&
-		    (String_table[dc__]) && (curr->row[0] != '\0') &&
-		    (!NC_chinese)) {
+		    (String_table[dc__]) && (curr->row[0] != '\0')) {
 			j = 0;
 			first_time = TRUE;
 			vrt_lin = virt->row;
@@ -2904,13 +2894,6 @@ doupdate(void)
 				    (j < window->Num_cols) && (c2[j] != '\0'))
 					j++;
 
-				/*
-				 |	if previous character is an eight bit
-				 |	char, start redraw from that character
-				 */
-
-				if ((NC_chinese) && (nc_highbitset(c1[j - 1])))
-					j--;
 				begin_old = j;
 				if ((j < window->Num_cols) && (c2[j] != '\0')) {
 					Position(window, from_top, begin_old);

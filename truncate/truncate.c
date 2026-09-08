@@ -1,3 +1,5 @@
+#include "bsdcompat.h"
+
 #include <sys/stat.h>
 
 #include <ctype.h>
