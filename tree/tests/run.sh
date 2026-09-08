@@ -5,8 +5,8 @@
 
 set -u
 
-TESTS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT=$(CDPATH= cd -- "$TESTS_DIR/../.." && pwd)
+TESTS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH='' cd -- "$TESTS_DIR/../.." && pwd)
 TREE=${TREE:-$ROOT/tree/tree}
 
 PASS=0

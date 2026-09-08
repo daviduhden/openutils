@@ -15,8 +15,8 @@
 
 set -u
 
-TESTS_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-ROOT=$(CDPATH= cd -- "$TESTS_DIR/../.." && pwd)
+TESTS_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH='' cd -- "$TESTS_DIR/../.." && pwd)
 DOASEDIT=${DOASEDIT:-$ROOT/doasedit/doasedit_test}
 
 PASS=0
@@ -180,7 +180,7 @@ assert_out "install preserves owner" "install -o 1000 -g 1000 -m 440" \
 rm -f "$base/dlog3"
 DOAS_FAKE_LOG=$base/dlog3 DOASEDIT_TEST_UID=9999 \
 	DOAS_EDITOR=fake-editor FAKE_EDITOR_NOCHANGE=1 \
-	"$DOASEDIT" "$base/rootfile" >$base/out3 2>/dev/null
+	"$DOASEDIT" "$base/rootfile" >"$base/out3" 2>/dev/null
 assert_eq "unchanged file exits 0" 0 $?
 assert_out "unchanged reported" "unchanged" "$base/out3"
 assert "no install for unchanged file" \
@@ -207,7 +207,7 @@ chmod 440 "$base/race"
 (
 	DOAS_FAKE_LOG=$base/dlog5 DOASEDIT_TEST_UID=9999 \
 		DOAS_EDITOR=fake-editor FAKE_EDITOR_SLEEP=2 \
-		"$DOASEDIT" "$base/race" >$base/out5 2>&1 &
+		"$DOASEDIT" "$base/race" >"$base/out5" 2>&1 &
 	editor_started=$!
 	sleep 1
 	rm -f "$base/race"
@@ -225,7 +225,7 @@ assert_eq "replacement content untouched" "replaced" \
 # doas.conf syntax check loop
 printf 'a\n' | DOAS_FAKE_CONF_FAIL=1 DOASEDIT_TEST_UID=9999 \
 	DOAS_EDITOR=fake-editor \
-	"$DOASEDIT" /etc/doas.conf >$base/out6 2>/dev/null
+	"$DOASEDIT" /etc/doas.conf >"$base/out6" 2>/dev/null
 assert_eq "doas.conf abort exits 1 after skip" 1 $?
 assert_out "doas.conf warning shown" "break doas" "$base/out6"
 
