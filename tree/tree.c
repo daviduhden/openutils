@@ -20,44 +20,44 @@
 #include <wctype.h>
 
 /* display flags */
-static int	aflag;		/* -a: include hidden entries */
-static int	dflag;		/* -d: directories only */
-static int	fflag;		/* -f: print full path */
-static int	Fflag;		/* -F: classify entries */
-static int	iflag;		/* -i: no indentation */
-static int	lflag;		/* -l: follow directory symlinks */
-static int	rflag;		/* -r: reverse sort */
-static int	xflag;		/* -x: stay on filesystem */
-static int	sflag;		/* -s: print sizes */
-static int	hflag;		/* -h: human sizes (1024) */
-static int	siflag;		/* --si: human sizes (1000) */
-static int	pflag;		/* -p: permissions */
-static int	uflag;		/* -u: user */
-static int	gflag;		/* -g: group */
-static int	Dflag;		/* -D: dates */
-static int	cflag;		/* -c: use ctime with -D */
-static int	inoflag;	/* --inodes */
-static int	Cflag;		/* -C: colours */
-static int	nflag;		/* -n: disable colours */
-static int	Nflag;		/* -N: raw non-printable chars */
-static int	Qflag;		/* -Q: quote names */
-static int	qflag;		/* -q: non-printable as '?' */
-static int	Jflag;		/* -J: JSON output */
-static int	Uflag;		/* -U: unsorted */
-static int	pruneflag;	/* --prune: prune empty directories */
-static int	dirsfirst;	/* --dirsfirst */
-static int	noreport;	/* --noreport */
-static int	filelimit;	/* --filelimit */
-static int	maxdepth;	/* -L */
-static int	sortflag;	/* 0 name, 1 mtime, 2 size, 3 ctime */
-static const char *timefmt;	/* --timefmt */
-static const char *outpath;	/* -o */
-static FILE	*outfile;
+static int		 aflag;		/* -a: include hidden entries */
+static int		 dflag;		/* -d: directories only */
+static int		 fflag;		/* -f: print full path */
+static int		 Fflag;		/* -F: classify entries */
+static int		 iflag;		/* -i: no indentation */
+static int		 lflag;		/* -l: follow directory symlinks */
+static int		 rflag;		/* -r: reverse sort */
+static int		 xflag;		/* -x: stay on filesystem */
+static int		 sflag;		/* -s: print sizes */
+static int		 hflag;		/* -h: human sizes (1024) */
+static int		 siflag;		/* --si: human sizes (1000) */
+static int		 pflag;		/* -p: permissions */
+static int		 uflag;		/* -u: user */
+static int		 gflag;		/* -g: group */
+static int		 Dflag;		/* -D: dates */
+static int		 cflag;		/* -c: use ctime with -D */
+static int		 inoflag;	/* --inodes */
+static int		 Cflag;		/* -C: colours */
+static int		 nflag;		/* -n: disable colours */
+static int		 Nflag;		/* -N: raw non-printable chars */
+static int		 Qflag;		/* -Q: quote names */
+static int		 qflag;		/* -q: non-printable as '?' */
+static int		 Jflag;		/* -J: JSON output */
+static int		 Uflag;		/* -U: unsorted */
+static int		 pruneflag;	/* --prune: prune empty directories */
+static int		 dirsfirst;	/* --dirsfirst */
+static int		 noreport;	/* --noreport */
+static int		 filelimit;	/* --filelimit */
+static int		 maxdepth;	/* -L */
+static int		 sortflag;	/* 0 name, 1 mtime, 2 size, 3 ctime */
+static const char	*timefmt;	/* --timefmt */
+static const char	*outpath;	/* -o */
+static FILE		*outfile;
 
 static char	**patterns;	/* -P */
-static size_t	npatterns;
+static size_t	  npatterns;
 static char	**ipatterns;	/* -I */
-static size_t	nipatterns;
+static size_t	  nipatterns;
 
 /* counters */
 static long	nfiles;
@@ -69,9 +69,9 @@ struct seen {
 	dev_t	 dev;
 	ino_t	 ino;
 };
-static struct seen *seen_dirs;
-static size_t	 seen_cnt;
-static size_t	 seen_alloc;
+static struct seen	*seen_dirs;
+static size_t		 seen_cnt;
+static size_t		 seen_alloc;
 
 /* colour codes modelled on Linux tree */
 #define C_DIR		"\033[01;34m"
@@ -109,29 +109,30 @@ struct ent {
 	int		 isdir;		/* directory or dir symlink */
 };
 
-static void	report(void);
-static void	dirwalk(const char *, const char *, int, const int *, dev_t,
-		    struct ent *, size_t, int);
-static void	jsonwalk(const char *, const char *, int, dev_t, int);
-static void	jsonentries(const char *, int, dev_t, int);
-static int	collect(const char *, struct ent **, size_t *);
-static void	freeents(struct ent *, size_t);
-static void	entryline(const struct ent *, const char *, int,
-		    const int *, int);
-static const char *fillinfo(const struct stat *);
-static int	psize(char *, off_t);
-static const char *do_date(time_t);
-static const char *prot(mode_t);
-static const char *uidtoname(uid_t);
-static const char *gidtoname(gid_t);
-static const char *jtype(mode_t);
-static void	printname(const char *);
-static void	json_enc(const char *);
-static char	ftype(mode_t);
-static int	seen(dev_t, ino_t);
-static void	addseen(dev_t, ino_t);
-static char	*joinpath(const char *, const char *);
-static char	*resolvelink(const char *, const char *);
+static void		 report(void);
+static void		 dirwalk(const char *, const char *, int, const int *,
+    dev_t,
+    struct ent *, size_t, int);
+static void		 jsonwalk(const char *, const char *, int, dev_t, int);
+static void		 jsonentries(const char *, int, dev_t, int);
+static int		 collect(const char *, struct ent **, size_t *);
+static void		 freeents(struct ent *, size_t);
+static void		 entryline(const struct ent *, const char *, int,
+    const int *, int);
+static const char	*fillinfo(const struct stat *);
+static int		 psize(char *, off_t);
+static const char	*do_date(time_t);
+static const char	*prot(mode_t);
+static const char	*uidtoname(uid_t);
+static const char	*gidtoname(gid_t);
+static const char	*jtype(mode_t);
+static void		 printname(const char *);
+static void		 json_enc(const char *);
+static char		 ftype(mode_t);
+static int		 seen(dev_t, ino_t);
+static void		 addseen(dev_t, ino_t);
+static char		*joinpath(const char *, const char *);
+static char		*resolvelink(const char *, const char *);
 
 static int
 patmatch(const char *name, const char *pat)
@@ -176,10 +177,10 @@ patignore(const char *name)
 static int
 psize(char *buf, off_t size)
 {
-	static const char iec_unit[] = "BKMGTPEZY";
-	static const char si_unit[] = "dkMGTPEZY";
-	const char	*unit;
-	int		 idx, base;
+	static const char	 iec_unit[] = "BKMGTPEZY";
+	static const char	 si_unit[] = "dkMGTPEZY";
+	const char		*unit;
+	int			 idx, base;
 
 	unit = siflag ? si_unit : iec_unit;
 	base = siflag ? 1000 : 1024;
@@ -223,13 +224,13 @@ do_date(time_t t)
 static const char *
 prot(mode_t mode)
 {
-	static char	 buf[11];
-	int		 i;
-	static const mode_t bits[] = {
+	static char		buf[11];
+	int			i;
+	static const mode_t	bits[] = {
 		S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP, S_IXGRP,
 		S_IROTH, S_IWOTH, S_IXOTH
 	};
-	static const char letters[] = "rwxrwxrwx";
+	static const char	letters[] = "rwxrwxrwx";
 
 	switch (mode & S_IFMT) {
 	case S_IFDIR:
@@ -267,8 +268,8 @@ prot(mode_t mode)
 static const char *
 uidtoname(uid_t uid)
 {
-	static uid_t	cuid = (uid_t)-1;
-	static char	cbuf[32];
+	static uid_t	 cuid = (uid_t)-1;
+	static char	 cbuf[32];
 	struct passwd	*pw;
 
 	if (uid != cuid || cbuf[0] == '\0') {
@@ -285,8 +286,8 @@ uidtoname(uid_t uid)
 static const char *
 gidtoname(gid_t gid)
 {
-	static gid_t	cgid = (gid_t)-1;
-	static char	cbuf[32];
+	static gid_t	 cgid = (gid_t)-1;
+	static char	 cbuf[32];
 	struct group	*gr;
 
 	if (gid != cgid || cbuf[0] == '\0') {
@@ -312,7 +313,8 @@ fillinfo(const struct stat *st)
 		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %7lld",
 		    (long long)st->st_ino);
 	if (pflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %s", prot(st->st_mode));
+		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %s",
+		    prot(st->st_mode));
 	if (uflag)
 		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %-8.32s",
 		    uidtoname(st->st_uid));
@@ -476,7 +478,8 @@ col_entry(const struct stat *lst, const struct stat *st)
 		return (C_LNK);
 	if (S_ISDIR(st->st_mode))
 		return (C_DIR);
-	if (S_ISREG(st->st_mode) && (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+	if (S_ISREG(st->st_mode) &&
+	    (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
 		return (C_EXE);
 	return ("");
 }
@@ -490,7 +493,8 @@ col_target(const struct stat *st)
 		return (C_BADTGT);
 	if (S_ISDIR(st->st_mode))
 		return (C_DIR);
-	if (S_ISREG(st->st_mode) && (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+	if (S_ISREG(st->st_mode) &&
+	    (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
 		return (C_EXE);
 	return ("");
 }
@@ -525,7 +529,7 @@ static int
 entcmp(const void *va, const void *vb)
 {
 	const struct ent	*a = va, *b = vb;
-	int		 r = 0;
+	int			 r = 0;
 
 	if (dirsfirst && a->isdir != b->isdir)
 		return (a->isdir ? -1 : 1);
@@ -650,7 +654,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 				drop = 1;
 			if (!drop && nipatterns > 0 &&
 			    (patignore(e->name) ||
-			    (e->target != NULL && patignore(e->target))))
+			     (e->target != NULL && patignore(e->target))))
 				drop = 1;
 			if (drop) {
 				free(e->name);
@@ -820,17 +824,17 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 
 		if (e->isdir) {
 			follow = (e->target != NULL && lflag && !dflag &&
-			    !e->broken && seen(e->st.st_dev, e->st.st_ino)
-			    == 0 && (!xflag || e->st.st_dev == xdev));
+			    !e->broken && seen(e->st.st_dev, e->st.st_ino) ==
+			    0 && (!xflag || e->st.st_dev == xdev));
 
 			/* symlink shown but not followed */
 			if (e->target != NULL && !follow) {
 				if (pruneflag && !dflag && e->isdir &&
 				    !e->broken) {
-					char	*cp2 = resolvelink(path,
+					char		*cp2 = resolvelink(path,
 					    e->target);
-					struct ent *ch2 = NULL;
-					size_t	 nch2 = 0;
+					struct ent	*ch2 = NULL;
+					size_t		 nch2 = 0;
 
 					if (collect(cp2, &ch2, &nch2) == 0)
 						freeents(ch2, nch2);
@@ -1020,8 +1024,8 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 			char	*cp = joinpath(path, e->name);
 
 			if (pruneflag && !dflag) {
-				struct ent *ch = NULL;
-				size_t	 nch = 0;
+				struct ent	*ch = NULL;
+				size_t		 nch = 0;
 
 				if (collect(cp, &ch, &nch) == 0)
 					freeents(ch, nch);
@@ -1292,11 +1296,10 @@ setopt(int c, const char *val)
 int
 main(int argc, char *argv[])
 {
-	int	i, nroots = 0;
-	char	**roots;
-	static char *defroot[] = { ".", NULL };
-	static const int zbars[] = { 0 };
-
+	int		  i, nroots = 0;
+	char		**roots;
+	static char	 *defroot[] = { ".", NULL };
+	static const int  zbars[] = { 0 };
 
 	setlocale(LC_CTYPE, "");
 	setprogname(argv[0]);
@@ -1306,7 +1309,7 @@ main(int argc, char *argv[])
 	multibyte = MB_CUR_MAX > 1;
 	if (nl_langinfo(CODESET) != NULL &&
 	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0 ||
-	    strcmp(nl_langinfo(CODESET), "utf8") == 0))
+	     strcmp(nl_langinfo(CODESET), "utf8") == 0))
 		use_unicode = 1;
 
 	for (i = 1; i < argc; i++) {
@@ -1370,11 +1373,11 @@ main(int argc, char *argv[])
 
 			for (j = 1; arg[j] != '\0'; j++) {
 				c = arg[j];
-			switch (c) {
-			case 'L':
-			case 'P':
-			case 'I':
-			case 'o': {
+				switch (c) {
+				case 'L':
+				case 'P':
+				case 'I':
+				case 'o': {
 					char	*val;
 
 					if (arg[j + 1] != '\0')

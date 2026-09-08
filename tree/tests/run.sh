@@ -13,26 +13,22 @@ PASS=0
 FAIL=0
 FAILED_TESTS=
 
-say()
-{
+say() {
 	printf '%s\n' "$*"
 }
 
-ok()
-{
+ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
-notok()
-{
+notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
-assert()
-{
+assert() {
 	desc=$1
 	shift
 	if "$@" >/dev/null 2>&1; then
@@ -42,8 +38,7 @@ assert()
 	fi
 }
 
-assert_out()
-{
+assert_out() {
 	desc=$1
 	pattern=$2
 	shift 2
@@ -55,8 +50,7 @@ assert_out()
 	fi
 }
 
-assert_not_out()
-{
+assert_not_out() {
 	desc=$1
 	pattern=$2
 	shift 2
@@ -67,8 +61,7 @@ assert_not_out()
 	fi
 }
 
-assert_eq()
-{
+assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
 	else
@@ -83,13 +76,13 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 cd "$work" || exit 1
 mkdir -p sub/deep empty
-printf 'one\n' > sub/afile
-printf 'big\n' > sub/big
+printf 'one\n' >sub/afile
+printf 'big\n' >sub/big
 touch sub/.hidden
 ln -s ../sub/deep sub/lnk
 ln -s nowhere sub/broken
 mkfifo sub/pipe 2>/dev/null
-printf 'a\nb\n' > 'sub/with
+printf 'a\nb\n' >'sub/with
 newline'
 touch 'sub/with space'
 dd if=/dev/zero of=sub/tenk bs=1024 count=10 2>/dev/null
@@ -99,7 +92,7 @@ touch sub/zzz
 assert_out "lists directory" "afile" "$TREE" .
 assert_out "lists nested dirs" "deep" "$TREE" .
 assert_eq "report counts" "1 directory, 0 files" \
-    "$("$TREE" empty | tail -1)"
+	"$("$TREE" empty | tail -1)"
 
 assert_out "default hides dotfiles" "afile" "$TREE" sub
 assert_not_out "default hides dotfiles (negative)" ".hidden" "$TREE" sub
@@ -114,7 +107,7 @@ assert_out "-f prints full path" "sub/afile" "$TREE" -f sub
 
 assert_out "-F classifies dirs" "deep/" "$TREE" -F sub
 assert_out "-F classifies symlink target" "lnk -> ../sub/deep/" \
-    "$TREE" -F sub
+	"$TREE" -F sub
 assert_out "-F classifies fifo" "pipe|" "$TREE" -F sub
 assert_out "-F classifies broken link" "broken -> nowhere" "$TREE" -F sub
 
@@ -135,14 +128,14 @@ assert_out "-u shows user" "$(id -un)" "$TREE" -u sub
 assert_out "-g shows group" "$(id -gn)" "$TREE" -g sub
 assert_out "-D shows date" "\[" "$TREE" -D --timefmt '%Y' sub
 assert_out "--timefmt respected" "$(date +%Y)" \
-    "$TREE" -D --timefmt '%Y' sub
+	"$TREE" -D --timefmt '%Y' sub
 
 # sorting
 assert_out "-r reverses" "zzz" "$TREE" -r sub
 assert_out "--sort=size largest first" "tenk" \
-    "$TREE" --sort=size -s sub
+	"$TREE" --sort=size -s sub
 assert_out "--dirsfirst puts dirs first" "deep" \
-    "$TREE" --dirsfirst sub
+	"$TREE" --dirsfirst sub
 
 # patterns
 assert_out "-P filters files" "afile" "$TREE" -P 'afile' sub
@@ -150,19 +143,19 @@ assert_not_out "-P hides non-matching" "big" "$TREE" -P 'afile' sub
 assert_out "-I excludes entries" "afile" "$TREE" -I 'big' sub
 assert_not_out "-I hides matching" "big" "$TREE" -I 'big' sub
 assert_not_out "-I matches symlink targets" "broken" \
-    "$TREE" -I 'nowhere' sub
+	"$TREE" -I 'nowhere' sub
 assert_not_out "-I drops symlink by target" "lnk" \
-    "$TREE" -I 'deep' sub
+	"$TREE" -I 'deep' sub
 
 # pruning / limits
 assert_out "--prune removes empty dirs" "afile" "$TREE" --prune sub
 assert_not_out "--prune drops empty" "empty" "$TREE" --prune .
 assert_out "--filelimit blocks descent" "exceeds filelimit" \
-    "$TREE" --filelimit 2 sub
+	"$TREE" --filelimit 2 sub
 assert_out "--noreport suppresses report" "afile" \
-    "$TREE" --noreport sub
+	"$TREE" --noreport sub
 assert_not_out "--noreport no report" "director" \
-    "$TREE" --noreport sub
+	"$TREE" --noreport sub
 
 # -l follows symlinks
 assert_out "-l follows dir symlink" "lnk" "$TREE" -l sub
@@ -191,7 +184,7 @@ assert_out "output file has content" "afile" grep . "$work/out.txt"
 "$TREE" /nonexistent-tree-test >/dev/null 2>&1
 assert_eq "nonexistent root exits 2" 2 $?
 assert_out "nonexistent root reported" "error opening dir" \
-    "$TREE" /nonexistent-tree-test
+	"$TREE" /nonexistent-tree-test
 "$TREE" -Z >/dev/null 2>&1
 assert_eq "invalid option exits 1" 1 $?
 "$TREE" --help >/dev/null 2>&1
@@ -203,14 +196,14 @@ assert_not_out "-d -L 1 hides deep files" "afile" "$TREE" -d -L 1 .
 assert_out "-a -I shows dotfiles not ignored" ".hidden" "$TREE" -a -I 'nomatch*' sub
 assert_out "-s -h -D combine" "10K" "$TREE" -s -h -D --timefmt '%Y' sub
 assert_out "--dirsfirst -r reverses within groups" "zzz" \
-    "$TREE" --dirsfirst -r sub
+	"$TREE" --dirsfirst -r sub
 assert_out "-f -L 1 shows full paths at depth" "sub/afile" "$TREE" -f -L 1 sub
 assert_out "-J -d reports dirs only" '"directories":' "$TREE" -J -d sub
 assert_out "-a -P matches hidden files" ".hidden" "$TREE" -a -P '.hidden' sub
 assert_out "--prune -P keeps matching files" "afile" \
-    "$TREE" --prune -P 'afile' .
+	"$TREE" --prune -P 'afile' .
 assert_not_out "--prune -P drops non-matching" "big" \
-    "$TREE" --prune -P 'afile' .
+	"$TREE" --prune -P 'afile' .
 
 # multiple roots
 assert_out "multiple roots listed" "afile" "$TREE" sub empty

@@ -16,21 +16,18 @@ FAILED_TESTS=
 work=$(mktemp -d "${TMPDIR:-/tmp}/ee-sig-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-ok()
-{
+ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
-notok()
-{
+notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
-check()
-{
+check() {
 	desc=$1
 	shift
 	if [ "$1" = "1" ]; then
@@ -43,7 +40,7 @@ check()
 # ----------------------------------------------------------------
 # SIGINT while idle: the editor must exit through the normal,
 # terminal-restoring path (no save, clean exit, reset sequence).
-python3 - "$EE" "$work" sigint > "$work/sigint.result" <<'PYEOF'
+python3 - "$EE" "$work" sigint >"$work/sigint.result" <<'PYEOF'
 import os, pty, select, signal, sys, time
 
 ee, work, case = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -81,12 +78,12 @@ except OSError:
 PYEOF
 check "SIGINT exits the editor" "$(grep -c '^exited=1$' "$work/sigint.result")"
 check "SIGINT restores the terminal" \
-    "$(grep -c '^restored=1$' "$work/sigint.result")"
+	"$(grep -c '^restored=1$' "$work/sigint.result")"
 check "SIGINT does not save" "$(grep -c '^saved=0$' "$work/sigint.result")"
 
 # ----------------------------------------------------------------
 # SIGWINCH (repeated) while editing, then save normally.
-python3 - "$EE" "$work" sigwinch > "$work/sigwinch.result" <<'PYEOF'
+python3 - "$EE" "$work" sigwinch >"$work/sigwinch.result" <<'PYEOF'
 import fcntl, os, pty, select, struct, sys, termios, time
 
 ee, work, case = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -126,13 +123,13 @@ except OSError:
     pass
 PYEOF
 check "SIGWINCH keeps the editor working" \
-    "$(grep -c '^saved=1$' "$work/sigwinch.result")"
+	"$(grep -c '^saved=1$' "$work/sigwinch.result")"
 
 # ----------------------------------------------------------------
 # Malformed terminfo: the parser must not crash on hostile input.
 for bad in '%{0}%{0}/%d' '%{0}%{0}%%d' '%{123' '%p9' '%P9' '%g9' \
-    '%{99999999999999999999}' '$<12x'; do
-	python3 - "$EE" "$work" "$bad" > "$work/tinf.result" <<'PYEOF'
+	'%{99999999999999999999}' '$<12x'; do
+	python3 - "$EE" "$work" "$bad" >"$work/tinf.result" <<'PYEOF'
 import os, pty, select, struct, sys, time
 
 ee, work, clear = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -190,11 +187,11 @@ except OSError:
     pass
 PYEOF
 	check "terminfo '$bad' does not crash" \
-	    "$(grep -c '^crashed=0$' "$work/tinf.result")"
+		"$(grep -c '^crashed=0$' "$work/tinf.result")"
 done
 
 # a valid minimal entry must work end to end
-python3 - "$EE" "$work" valid > "$work/tinfv.result" <<'PYEOF'
+python3 - "$EE" "$work" valid >"$work/tinfv.result" <<'PYEOF'
 import os, pty, select, struct, sys, time
 
 ee, work, clear = sys.argv[1], sys.argv[2], sys.argv[3]

@@ -6,21 +6,21 @@
 # (see MODERNIZATION.md) the code builds warning-free with strict
 # flags.
 
-PROG	= ee
-SRCS	= ee.c new_curse.c
+PROG = ee
+SRCS = ee.c new_curse.c
 
-CC	?= cc
-CFLAGS	?= -O2 -pipe
+CC ?= cc
+CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
-CSTD	= -std=c17
-CPPFLAGS+= -I. -I../compat
+CSTD = -std=c17
+CPPFLAGS += -I. -I../compat
 
 # compat shims for non-OpenBSD hosts (they compile to nothing there)
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
 
-PREFIX	?= /usr/local
-BINDIR	?= $(PREFIX)/bin
-MANDIR	?= $(PREFIX)/man/man
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/man/man
 
 all: $(PROG)
 

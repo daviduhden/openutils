@@ -16,26 +16,22 @@ FAILED_TESTS=
 work=$(mktemp -d "${TMPDIR:-/tmp}/ee-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-say()
-{
+say() {
 	printf '%s\n' "$*"
 }
 
-ok()
-{
+ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
-notok()
-{
+notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
-assert_eq()
-{
+assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
 	else
@@ -71,25 +67,25 @@ esac
 # edit, save and exit via menu, with UTF-8 input
 file=$work/testfile.txt
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    'hello world\nsecond line caf\xc3\xa9' '\x1b' 'a' 'a' >/dev/null 2>&1
+	'hello world\nsecond line caf\xc3\xa9' '\x1b' 'a' 'a' >/dev/null 2>&1
 assert_eq "edited file saved" "$(printf 'hello world\nsecond line café')" \
-    "$(cat "$file" 2>/dev/null)"
+	"$(cat "$file" 2>/dev/null)"
 
 # mode preserved for existing files
-printf 'original\n' > "$file"
+printf 'original\n' >"$file"
 chmod 640 "$file"
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    'xx' '\x1b' 'a' 'a' >/dev/null 2>&1
+	'xx' '\x1b' 'a' 'a' >/dev/null 2>&1
 assert_eq "content updated" "$(printf 'xxoriginal\n')" "$(cat "$file")"
 assert_eq "mode preserved" 640 \
-    "$(stat -c %a "$file" 2>/dev/null || stat -f %Lp "$file")"
+	"$(stat -c %a "$file" 2>/dev/null || stat -f %Lp "$file")"
 
 # new file created with normal umask
 file=$work/newfile.txt
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    'data' '\x1b' 'a' 'a' >/dev/null 2>&1
+	'data' '\x1b' 'a' 'a' >/dev/null 2>&1
 assert_eq "new file content" "$(printf 'data\n')" \
-    "$(cat "$file" 2>/dev/null)"
+	"$(cat "$file" 2>/dev/null)"
 
 # long lines (longer than the internal 512-byte read chunks) survive
 # a load/save round trip
@@ -99,23 +95,23 @@ with open(sys.argv[1], 'w') as f:
     f.write('x' * 3000 + '\n' + 'short\n')
 PYEOF2
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    '\x1b' 'a' 'a' >/dev/null 2>&1
+	'\x1b' 'a' 'a' >/dev/null 2>&1
 assert_eq "long line preserved" "$(python3 -c "
 print('x' * 3000)")" "$(head -1 "$file" 2>/dev/null)"
 
 # file without a final newline
-printf 'no trailing newline' > "$file"
+printf 'no trailing newline' >"$file"
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    '\x1b' 'a' 'a' >/dev/null 2>&1
+	'\x1b' 'a' 'a' >/dev/null 2>&1
 assert_eq "file without final newline kept" "no trailing newline" \
-    "$(cat "$file" 2>/dev/null)"
+	"$(cat "$file" 2>/dev/null)"
 
 # "no save" path leaves the file untouched
-printf 'keep\n' > "$file"
+printf 'keep\n' >"$file"
 TERM=xterm "$ROOT/ee/tests/pty-run.sh" "$EE" -i "$file" -- \
-    'junk' '\x1b' 'a' 'b' >/dev/null 2>&1
+	'junk' '\x1b' 'a' 'b' >/dev/null 2>&1
 assert_eq "no-save leaves file untouched" "$(printf 'keep\n')" \
-    "$(cat "$file")"
+	"$(cat "$file")"
 
 say
 say "pass: $PASS  fail: $FAIL"

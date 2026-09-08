@@ -27,26 +27,22 @@ if command -v truncate >/dev/null 2>&1; then
 	esac
 fi
 
-say()
-{
+say() {
 	printf '%s\n' "$*"
 }
 
-ok()
-{
+ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
-notok()
-{
+notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
-assert_eq()
-{
+assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
 	else
@@ -55,15 +51,13 @@ assert_eq()
 	fi
 }
 
-size()
-{
+size() {
 	stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null
 }
 
 # run one size specification through both implementations
 # compare <desc> <size-arg> <initial-size>
-compare()
-{
+compare() {
 	desc=$1
 	sarg=$2
 	init=$3
@@ -81,15 +75,15 @@ compare()
 		if [ "$ra:$sa" != "$rb:$sb" ]; then
 			notok "$desc"
 			printf '# %s -s %s: ref=(%s,%s) ours=(%s,%s)\n' \
-			    "$desc" "$sarg" "$rb" "$sb" "$ra" "$sa"
+				"$desc" "$sarg" "$rb" "$sb" "$ra" "$sa"
 			return
 		fi
 	fi
 	ok "$desc"
 }
 
-: > "$work/a"
-: > "$work/b"
+: >"$work/a"
+: >"$work/b"
 
 # ------------------------------------------------ absolute sizes
 "$TRUNC" -s 100 "$work/a"
@@ -146,15 +140,15 @@ rm -f "$work/new"
 "$TRUNC" -c -s 5 "$work/new" 2>/dev/null
 assert_eq "-c skips missing file silently" 0 $?
 assert_eq "-c does not create" "no" \
-    "$([ -e "$work/new" ] && echo yes || echo no)"
+	"$([ -e "$work/new" ] && echo yes || echo no)"
 
 # -c with an existing file still works
-: > "$work/existing"
+: >"$work/existing"
 "$TRUNC" -c -s 3 "$work/existing"
 assert_eq "-c truncates existing files" 3 "$(size "$work/existing")"
 
 # ------------------------------------------------ reference files
-printf 'refdata' > "$work/ref"
+printf 'refdata' >"$work/ref"
 "$TRUNC" -r "$work/ref" "$work/a"
 assert_eq "-r uses reference size" 7 "$(size "$work/a")"
 
@@ -166,16 +160,16 @@ assert_eq "-r with at-most" 2 "$(size "$work/a")"
 
 # ------------------------------------------------ io blocks
 "$TRUNC" -o -s 1 "$work/a"
-assert_eq "-o scales by block size" "$(stat -c %o "$work/a" 2>/dev/null || echo 4096)" "$(size "$work/a")" 2>/dev/null \
-    || assert_eq "-o produces non-zero size" "0" \
-        "$([ "$(size "$work/a")" -gt 0 ] && echo 1 || echo 0)"
+assert_eq "-o scales by block size" "$(stat -c %o "$work/a" 2>/dev/null || echo 4096)" "$(size "$work/a")" 2>/dev/null ||
+	assert_eq "-o produces non-zero size" "0" \
+		"$([ "$(size "$work/a")" -gt 0 ] && echo 1 || echo 0)"
 
 # ------------------------------------------------ multiple operands
-: > "$work/m1"
-: > "$work/m2"
+: >"$work/m1"
+: >"$work/m2"
 "$TRUNC" -s 20 "$work/m1" "$work/m2"
 assert_eq "multiple files sized" "20 20" \
-    "$(size "$work/m1") $(size "$work/m2")"
+	"$(size "$work/m1") $(size "$work/m2")"
 
 "$TRUNC" -s 20 "$work/m1" "$work/no-such-dir/x" >/dev/null 2>&1
 assert_eq "failure in one operand exits 1" 1 $?
@@ -205,7 +199,7 @@ assert_eq "-o without -s rejected" 1 $?
 assert_eq "unknown option rejected" 1 $?
 
 # ------------------------------------------------ long options
-: > "$work/l1"
+: >"$work/l1"
 "$TRUNC" --size=5 --no-create "$work/l1"
 assert_eq "--size=N works" 5 "$(size "$work/l1")"
 "$TRUNC" --size 7 "$work/l1"
@@ -213,9 +207,9 @@ assert_eq "--size N works" 7 "$(size "$work/l1")"
 "$TRUNC" --reference="$work/ref" "$work/l1"
 assert_eq "--reference=N works" 7 "$(size "$work/l1")"
 "$TRUNC" --io-blocks --size=1 "$work/l1"
-assert_eq "--io-blocks works" "$(stat -c %o "$work/l1" 2>/dev/null || echo 4096)" "$(size "$work/l1")" 2>/dev/null \
-    || assert_eq "--io-blocks produces non-zero size" "0" \
-        "$([ "$(size "$work/l1")" -gt 0 ] && echo 1 || echo 0)"
+assert_eq "--io-blocks works" "$(stat -c %o "$work/l1" 2>/dev/null || echo 4096)" "$(size "$work/l1")" 2>/dev/null ||
+	assert_eq "--io-blocks produces non-zero size" "0" \
+		"$([ "$(size "$work/l1")" -gt 0 ] && echo 1 || echo 0)"
 
 "$TRUNC" --help >/dev/null 2>&1
 assert_eq "--help exits 0" 0 $?
@@ -267,7 +261,7 @@ compare "sign after modifier rejected" '<+5' 5
 compare "modifier after sign rejected" '+<5' 5
 # a relative modifier persists across later -s occurrences without
 # their own modifier (documented GNU quirk)
-: > "$work/q1"
+: >"$work/q1"
 "$TRUNC" -s 3 "$work/q1"
 "$TRUNC" -s +1 -s 5 "$work/q1" >/dev/null 2>&1
 assert_eq "-s +1 -s 5 keeps relative mode" 8 "$(size "$work/q1")"
@@ -281,7 +275,7 @@ rm -f "$work/missing-c"
 "$TRUNC" -c -s 5 "$work/missing-c" >/dev/null 2>&1
 assert_eq "-c missing file exits 0" 0 $?
 assert_eq "-c does not create" "no" \
-    "$([ -e "$work/missing-c" ] && echo yes || echo no)"
+	"$([ -e "$work/missing-c" ] && echo yes || echo no)"
 
 # --size with a separate argument and a modifier
 "$TRUNC" --size +2 "$work/q1" >/dev/null 2>&1
@@ -290,11 +284,11 @@ assert_eq "--size +N works" 10 "$(size "$work/q1")"
 # -o with a reference file is allowed; the size is scaled
 "$TRUNC" -o -r "$work/ref" -s +1 "$work/q1" >/dev/null 2>&1
 assert_eq "-o -r -s +1 scales" \
-    "$(( 7 + $(stat -c %o "$work/q1" 2>/dev/null || echo 4096) ))" \
-    "$(size "$work/q1")"
+	"$((7 + $(stat -c %o "$work/q1" 2>/dev/null || echo 4096)))" \
+	"$(size "$work/q1")"
 
 # ------------------------------------------------ symlinks
-: > "$work/real"
+: >"$work/real"
 ln -sf real "$work/lnk"
 "$TRUNC" -s 9 "$work/lnk"
 assert_eq "follows symlink" 9 "$(size "$work/real")"

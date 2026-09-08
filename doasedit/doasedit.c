@@ -194,10 +194,10 @@ is_doas_conf(const char *path)
 static int
 run_editor(char *const *editor, const char *file)
 {
-	pid_t	pid;
-	int	status;
+	pid_t	  pid;
+	int	  status;
 	char	**argv;
-	size_t	n = 0;
+	size_t	  n = 0;
 
 	while (editor[n] != NULL)
 		n++;
@@ -343,7 +343,7 @@ static char **
 split_editor(const char *cmd)
 {
 	char	**argv = NULL;
-	size_t	 n = 0;
+	size_t	  n = 0;
 
 	while (*cmd != '\0') {
 		char	*word;
@@ -461,7 +461,7 @@ command_exists(const char *cmd)
 	path = getenv("PATH");
 	if (path == NULL)
 		path = "/usr/bin:/bin";
-	for (p = path; *p != '\0'; ) {
+	for (p = path; *p != '\0';) {
 		size_t	len;
 
 		while (*p == ':')
@@ -491,9 +491,9 @@ static int
 check_doas_conf(const char *target, const char *tmpfile,
     char *const *editor)
 {
-	const char *doas_argv[] = { "doas", "-C", tmpfile, NULL };
-	char	 line[16];
-	int	 status;
+	const char	*doas_argv[] = { "doas", "-C", tmpfile, NULL };
+	char		 line[16];
+	int		 status;
 
 	if (!is_doas_conf(target))
 		return (0);
@@ -550,7 +550,8 @@ main(int argc, char *argv[])
 			i++;
 			break;
 		}
-		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
+		if (strcmp(argv[i], "-h") == 0 ||
+		    strcmp(argv[i], "--help") == 0)
 			help();
 		if (argv[i][0] == '-' && argv[i][1] != '\0') {
 			warnx("invalid option: '%s'", argv[i]);
@@ -584,7 +585,7 @@ main(int argc, char *argv[])
 	 */
 	{
 		const char *probe[] = { "doas", "dd", "status=none",
-		    "count=0", "of=/dev/null", NULL };
+			"count=0", "of=/dev/null", NULL };
 
 		if (doas_exec(probe, -1, -1) != 0)
 			errx(1, "unable to run 'doas dd'");
@@ -682,7 +683,7 @@ main(int argc, char *argv[])
 			}
 			/* does not exist: check the parent directory */
 			{
-				char	*dir, *slash;
+				char		*dir, *slash;
 				struct stat	 dstat;
 
 				dir = strdup(target);
@@ -694,7 +695,8 @@ main(int argc, char *argv[])
 				else if (slash != NULL)
 					*slash = '\0';
 				if (stat(dir, &dstat) == -1) {
-					if (errno == ENOENT || errno == ENOTDIR) {
+					if (errno == ENOENT ||
+					    errno == ENOTDIR) {
 						warnx("%s: no such "
 						    "directory", dir);
 						free(dir);
@@ -766,8 +768,8 @@ create_root_only:
 
 		/* create the private temporary files */
 		{
-			size_t	tlen = strlen(tmpdir);
-			size_t	blen = strlen(base);
+			size_t	 tlen = strlen(tmpdir);
+			size_t	 blen = strlen(base);
 			char	*cname;
 
 			cname = malloc(blen + 12);
@@ -846,10 +848,10 @@ create_root_only:
 				 * target was not replaced while cat(1)
 				 * read it, and retry a few times.
 				 */
-				const char *cat_argv[] = {
-				    "doas", "cat", target, NULL
+				const char	*cat_argv[] = {
+					"doas", "cat", target, NULL
 				};
-				int	tries;
+				int		 tries;
 
 				for (tries = 0; tries < 3; tries++) {
 					int	out = open(tmpfile,
@@ -919,11 +921,11 @@ create_root_only:
 
 		/* write back */
 		if (!exists) {
-			const char *inst_argv[] = {
-			    "doas", "install", "-m", "0644", tmpfile,
-			    target, NULL
+			const char	*inst_argv[] = {
+				"doas", "install", "-m", "0644", tmpfile,
+				target, NULL
 			};
-			int	tries;
+			int		 tries;
 
 			/* like the original: retry after failed password
 			 * attempts, three tries in total */
@@ -983,12 +985,12 @@ create_root_only:
 		 * preserves the target's owner, group and mode.
 		 */
 		{
-			const char *inst_argv[] = {
-			    "doas", "install", "-o", NULL, "-g", NULL,
-			    "-m", NULL, tmpfile, target, NULL
+			const char	*inst_argv[] = {
+				"doas", "install", "-o", NULL, "-g", NULL,
+				"-m", NULL, tmpfile, target, NULL
 			};
-			char	 ubuf[32], gbuf[32], mbuf[8];
-			int	 tries;
+			char		 ubuf[32], gbuf[32], mbuf[8];
+			int		 tries;
 
 			snprintf(ubuf, sizeof(ubuf), "%u",
 			    (unsigned)snap.uid);

@@ -31,13 +31,13 @@ enum relmode {
 	RM_RUP		/* '%': round up to multiple of */
 };
 
-static int	no_create;
-static int	block_mode;
-static int	got_size;
-static enum relmode rel_mode = RM_ABS;
-static off_t	rsize = -1;
-static off_t	sizev;
-static const char *ref_file;
+static int		 no_create;
+static int		 block_mode;
+static int		 got_size;
+static enum relmode	 rel_mode = RM_ABS;
+static off_t		 rsize = -1;
+static off_t		 sizev;
+static const char	*ref_file;
 
 static void	usage(void) __dead;
 static int	parse_size(const char *, off_t *, enum relmode *);
@@ -468,9 +468,10 @@ main(int argc, char *argv[])
 						}
 						if (r == -1) {
 							if (errno == ERANGE)
-								err(1, "Invalid "
-								    "number: "
-								    "'%s'", val);
+								err(1,
+								    "Invalid "
+								    "number: " "'%s'",
+								    val);
 							errx(1, "Invalid "
 							    "number: '%s'",
 							    val);

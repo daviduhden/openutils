@@ -7,17 +7,17 @@
 # the environment (not the make command line) so that the
 # per-utility Makefiles can extend them with += as usual.
 
-CC	?= cc
-CFLAGS	?= -O2 -pipe
-CPPFLAGS?=
-LDFLAGS	?=
+CC ?= cc
+CFLAGS ?= -O2 -pipe
+CPPFLAGS ?=
+LDFLAGS ?=
 
-PREFIX	?= /usr/local
-BINDIR	?= $(PREFIX)/bin
-MANDIR	?= $(PREFIX)/man/man
-DESTDIR	?=
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/man/man
+DESTDIR ?=
 
-SUBDIR	= doasedit tree ee truncate
+SUBDIR = doasedit tree ee truncate
 
 MAKE_ENV = env CC="$(CC)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" \
 	LDFLAGS="$(LDFLAGS)" PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" \
@@ -71,9 +71,9 @@ check:
 	fi
 	@for d in doasedit tree truncate; do \
 		$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" \
-		    $(MAKE) -C $$d clean >/dev/null || exit 1; \
+		$(MAKE) -C $$d clean >/dev/null || exit 1; \
 		$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" \
-		    $(MAKE) -C $$d all || exit 1; \
+		$(MAKE) -C $$d all || exit 1; \
 	done
 	@$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" \
 	    $(MAKE) -C ee clean >/dev/null || exit 1

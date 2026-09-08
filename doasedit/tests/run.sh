@@ -32,27 +32,23 @@ ln -s "$TESTS_DIR/fake-doas" "$tmpbase/bin/doas"
 ln -s "$TESTS_DIR/fake-editor" "$tmpbase/bin/fake-editor"
 export PATH="$tmpbase/bin:$PATH"
 
-say()
-{
+say() {
 	printf '%s\n' "$*"
 }
 
-ok()
-{
+ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
-notok()
-{
+notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
 # assert <description> <command...>
-assert()
-{
+assert() {
 	desc=$1
 	shift
 	if "$@"; then
@@ -63,8 +59,7 @@ assert()
 }
 
 # assert_eq <description> <expected> <actual>
-assert_eq()
-{
+assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
 	else
@@ -74,8 +69,7 @@ assert_eq()
 }
 
 # assert_out <description> <expected-substring> <file>
-assert_out()
-{
+assert_out() {
 	if grep -q "$2" "$3" 2>/dev/null; then
 		ok "$1"
 	else
@@ -140,19 +134,19 @@ unset DOAS_EDITOR VISUAL EDITOR
 
 # editor with arguments, DOAS_EDITOR wins over VISUAL/EDITOR
 FAKE_EDITOR_LOG=$base/elog1 DOAS_EDITOR="fake-editor --x" VISUAL=vi \
-    EDITOR=emacs DOASEDIT_TEST_UID=9999 \
-    "$DOASEDIT" "$base/privdir/plain1" 2>/dev/null
+	EDITOR=emacs DOASEDIT_TEST_UID=9999 \
+	"$DOASEDIT" "$base/privdir/plain1" 2>/dev/null
 rc=$?
 assert_eq "DOAS_EDITOR used" 0 $rc
 assert_out "editor got args" "args: --x .*plain1" "$base/elog1"
 
 FAKE_EDITOR_LOG=$base/elog2 VISUAL="fake-editor" DOASEDIT_TEST_UID=9999 \
-    "$DOASEDIT" "$base/privdir/plain2" 2>/dev/null
+	"$DOASEDIT" "$base/privdir/plain2" 2>/dev/null
 assert_eq "VISUAL used when DOAS_EDITOR unset" 0 $?
 assert_out "VISUAL invoked" "args: .*plain2" "$base/elog2"
 
 FAKE_EDITOR_LOG=$base/elog3 EDITOR="fake-editor -z" DOASEDIT_TEST_UID=9999 \
-    "$DOASEDIT" "$base/privdir/plain3" 2>/dev/null
+	"$DOASEDIT" "$base/privdir/plain3" 2>/dev/null
 assert_eq "EDITOR used" 0 $?
 assert_out "EDITOR invoked with arg" "args: -z .*plain3" "$base/elog3"
 unset FAKE_EDITOR_LOG
@@ -161,46 +155,46 @@ unset FAKE_EDITOR_LOG
 # new-file creation via privileged install
 rm -f "$base/privdir/newfile"
 DOAS_FAKE_LOG=$base/dlog1 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
-    "$DOASEDIT" "$base/privdir/newfile" 2>/dev/null
+	"$DOASEDIT" "$base/privdir/newfile" 2>/dev/null
 assert_eq "new file created" 0 $?
 assert_eq "new file has content" "edited by fake editor" \
-    "$(cat "$base/privdir/newfile" 2>/dev/null)"
+	"$(cat "$base/privdir/newfile" 2>/dev/null)"
 assert_out "install -m 0644 used for new file" \
-    "install -o default -g default -m 0644" "$base/dlog1"
+	"install -o default -g default -m 0644" "$base/dlog1"
 
 # ---------------------------------------------------------------- 5
 # existing root-owned file: edit + privileged write-back with
 # preserved metadata
-printf 'original\n' > "$base/rootfile"
+printf 'original\n' >"$base/rootfile"
 chmod 440 "$base/rootfile"
 rm -f "$base/dlog2"
 DOAS_FAKE_LOG=$base/dlog2 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
-    "$DOASEDIT" "$base/rootfile" 2>/dev/null
+	"$DOASEDIT" "$base/rootfile" 2>/dev/null
 assert_eq "root-owned file edited" 0 $?
 assert_eq "content updated" "original
 edited by fake editor" "$(cat "$base/rootfile")"
 assert_out "install preserves owner" "install -o 1000 -g 1000 -m 440" \
-    "$base/dlog2"
+	"$base/dlog2"
 
 # unchanged file: no write-back
 rm -f "$base/dlog3"
 DOAS_FAKE_LOG=$base/dlog3 DOASEDIT_TEST_UID=9999 \
-    DOAS_EDITOR=fake-editor FAKE_EDITOR_NOCHANGE=1 \
-    "$DOASEDIT" "$base/rootfile" >$base/out3 2>/dev/null
+	DOAS_EDITOR=fake-editor FAKE_EDITOR_NOCHANGE=1 \
+	"$DOASEDIT" "$base/rootfile" >$base/out3 2>/dev/null
 assert_eq "unchanged file exits 0" 0 $?
 assert_out "unchanged reported" "unchanged" "$base/out3"
 assert "no install for unchanged file" \
-    [ ! -s "$base/dlog3" ]
+	[ ! -s "$base/dlog3" ]
 
 # ---------------------------------------------------------------- 6
 # unreadable file: content fetched via doas cat
-printf 'secret\n' > "$base/secret"
+printf 'secret\n' >"$base/secret"
 chmod 440 "$base/secret"
 rm -f "$base/dlog4" "$base/elog4"
 FAKE_EDITOR_LOG=$base/elog4 DOAS_FAKE_LOG=$base/dlog4 \
-    DOASEDIT_TEST_UID=9999 DOASEDIT_TEST_UNREADABLE=1 \
-    DOAS_EDITOR=fake-editor \
-    "$DOASEDIT" "$base/secret" 2>/dev/null
+	DOASEDIT_TEST_UID=9999 DOASEDIT_TEST_UNREADABLE=1 \
+	DOAS_EDITOR=fake-editor \
+	"$DOASEDIT" "$base/secret" 2>/dev/null
 assert_eq "unreadable file edited" 0 $?
 assert_out "doas cat used" "cat .*secret" "$base/dlog4"
 assert_out "editor saw contents" "secret" "$base/elog4"
@@ -208,67 +202,67 @@ assert_out "install used for write-back" "install" "$base/dlog4"
 
 # ---------------------------------------------------------------- 7
 # race detection: file replaced while the editor runs
-printf 'target\n' > "$base/race"
+printf 'target\n' >"$base/race"
 chmod 440 "$base/race"
 (
-    DOAS_FAKE_LOG=$base/dlog5 DOASEDIT_TEST_UID=9999 \
-        DOAS_EDITOR=fake-editor FAKE_EDITOR_SLEEP=2 \
-        "$DOASEDIT" "$base/race" >$base/out5 2>&1 &
-    editor_started=$!
-    sleep 1
-    rm -f "$base/race"
-    printf 'replaced\n' > "$base/race"
-    chmod 440 "$base/race"
-    wait "$editor_started"
+	DOAS_FAKE_LOG=$base/dlog5 DOASEDIT_TEST_UID=9999 \
+		DOAS_EDITOR=fake-editor FAKE_EDITOR_SLEEP=2 \
+		"$DOASEDIT" "$base/race" >$base/out5 2>&1 &
+	editor_started=$!
+	sleep 1
+	rm -f "$base/race"
+	printf 'replaced\n' >"$base/race"
+	chmod 440 "$base/race"
+	wait "$editor_started"
 )
 rc=$?
 assert_eq "replaced file: edit loop exits" 1 $rc
 assert_out "replacement detected" "file changed during editing" "$base/out5"
 assert_eq "replacement content untouched" "replaced" \
-    "$(cat "$base/race")"
+	"$(cat "$base/race")"
 
 # ---------------------------------------------------------------- 8
 # doas.conf syntax check loop
 printf 'a\n' | DOAS_FAKE_CONF_FAIL=1 DOASEDIT_TEST_UID=9999 \
-    DOAS_EDITOR=fake-editor \
-    "$DOASEDIT" /etc/doas.conf >$base/out6 2>/dev/null
+	DOAS_EDITOR=fake-editor \
+	"$DOASEDIT" /etc/doas.conf >$base/out6 2>/dev/null
 assert_eq "doas.conf abort exits 1 after skip" 1 $?
 assert_out "doas.conf warning shown" "break doas" "$base/out6"
 
 # ---------------------------------------------------------------- 9
 # temp file hygiene
 FAKE_EDITOR_LOG=$base/elog5 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
-    FAKE_EDITOR_SLEEP=0 \
-    "$DOASEDIT" "$base/privdir/plain9" 2>/dev/null
+	FAKE_EDITOR_SLEEP=0 \
+	"$DOASEDIT" "$base/privdir/plain9" 2>/dev/null
 # the log contains "drwx------" for the tmpdir and "-rw-------" for
 # the file
 assert_out "tmpdir is 0700" "drwx------" "$base/elog5"
 assert_out "tmpfile is 0600" "rw-------" "$base/elog5"
 # no doasedit.* leftovers in the tmp directory after success
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'doasedit.??????' \
-    -user "$(id -u)" 2>/dev/null | wc -l)
+	-user "$(id -u)" 2>/dev/null | wc -l)
 assert_eq "no leftover tmpdirs" "0" "$leftovers"
 
 # ---------------------------------------------------------------- 10
 # signal cleanup
 rm -rf "${TMPDIR:-/tmp}"/doasedit.*
 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor FAKE_EDITOR_SLEEP=5 \
-    "$DOASEDIT" "$base/privdir/sigfile" >/dev/null 2>&1 &
+	"$DOASEDIT" "$base/privdir/sigfile" >/dev/null 2>&1 &
 pid=$!
 sleep 1
 kill -TERM "$pid" 2>/dev/null
 sleep 1
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'doasedit.??????' \
-    -user "$(id -u)" 2>/dev/null | wc -l)
+	-user "$(id -u)" 2>/dev/null | wc -l)
 assert_eq "tmpdir removed on signal" "0" "$leftovers"
 wait "$pid" 2>/dev/null
 
 # ---------------------------------------------------------------- 11
 # multiple files: error in one does not abort the others
-printf 'a\n' > "$base/multi1"
+printf 'a\n' >"$base/multi1"
 chmod 440 "$base/multi1"
 DOAS_FAKE_LOG=$base/dlog6 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
-    "$DOASEDIT" "$base/no-such-dir/x" "$base/multi1" >/dev/null 2>&1
+	"$DOASEDIT" "$base/no-such-dir/x" "$base/multi1" >/dev/null 2>&1
 assert_eq "multi-file: overall success" 0 $?
 assert_out "second file still processed" "install" "$base/dlog6"
 
