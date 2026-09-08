@@ -1,0 +1,21 @@
+#!/bin/sh
+# Fake editor for testing doasedit.  Appends a marker line to the
+# edited file unless $FAKE_EDITOR_NOCHANGE is set, records its
+# arguments and the state of the temporary files, and honours
+# $FAKE_EDITOR_SLEEP to keep running (for signal tests).
+
+if [ -n "$FAKE_EDITOR_LOG" ]; then
+	printf 'args: %s\n' "$*" >> "$FAKE_EDITOR_LOG"
+	ls -ld "$(dirname "$1")" >> "$FAKE_EDITOR_LOG" 2>/dev/null
+	ls -l "$1" >> "$FAKE_EDITOR_LOG" 2>/dev/null
+	cat "$1" >> "$FAKE_EDITOR_LOG" 2>/dev/null
+fi
+
+if [ -n "$FAKE_EDITOR_SLEEP" ]; then
+	sleep "$FAKE_EDITOR_SLEEP"
+fi
+
+if [ -z "$FAKE_EDITOR_NOCHANGE" ]; then
+	printf 'edited by fake editor\n' >> "$1"
+fi
+exit "${FAKE_EDITOR_EXIT:-0}"

@@ -1,0 +1,144 @@
+.Dd September 8, 2026
+.Dt DOASEDIT 1
+.Os
+.Sh NAME
+.Nm doasedit
+.Nd edit files with root privileges using an unprivileged editor
+.Sh SYNOPSIS
+.Nm doasedit
+.Op Fl h
+.Op Fl -
+.Ar file ...
+.Sh DESCRIPTION
+.Nm
+allows editing files that are not editable by the current user.
+.Pp
+For each file,
+.Nm
+creates a private, unreadable temporary directory and copies the file
+into it, then starts the editor on the copy in the user context.
+Once the editor exits, if the temporary file has been modified, the
+changes are written back to the original file with the least amount
+of privilege possible.
+Doas is called only when a privileged operation is actually needed,
+and always with a fixed command invocation
+.Pq never through a shell .
+.Pp
+The write-back replaces the file atomically and preserves its owner,
+group and permission bits.
+If the file is replaced or otherwise altered by another process while
+it is being edited, the changes are refused rather than written over
+the unexpected file.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl h , Fl Fl help
+Prints usage information, then exits.
+.It Fl -
+Indicates that no more options will be provided.
+Everything after the delimiter is treated as a file.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width DOAS_EDITOR
+.It Ev DOAS_EDITOR
+The program used to edit files.
+.It Ev VISUAL
+The program used to edit files if
+.Ev DOAS_EDITOR
+is unset.
+.It Ev EDITOR
+The program used to edit files if
+.Ev DOAS_EDITOR
+and
+.Ev VISUAL
+are unset.
+.It Ev TMPDIR
+Directory for the private temporary files; defaults to
+.Pa /tmp .
+.El
+.Pp
+The editor command may contain arguments, separated by whitespace.
+It is executed directly with
+.Xr execvp 3 ;
+no shell is involved, so shell quoting, globbing and redirections are
+not interpreted.
+If the editor starts an existing instance and returns immediately
+.Pq typical of some graphical editors ,
+.Nm
+will compare the file before the edit finished and report it as
+unchanged.
+Append a command line argument that forces a new instance in that
+case.
+.Sh FILES
+.Bl -tag -width /etc/doas.conf
+.It Pa /etc/doas.conf
+.Xr doas 1
+configuration file.
+After editing it
+.Pq or a file below Pa /etc/doas.d/ ,
+.Nm
+parses the edited copy with
+.Nm doas Fl C
+and, on a syntax error, offers to edit again, overwrite anyway, or
+abort, so that a mistake cannot lock the user out.
+.El
+.Sh EXIT STATUS
+.Nm
+exits 0 if at least one file was edited successfully, and 1
+otherwise, including when:
+.Bl -bullet
+.It
+no arguments are passed,
+.It
+invalid arguments are passed,
+.It
+the program is run as root,
+.It
+no usable editor is found,
+.It
+a file cannot be read, validated or written back,
+.It
+three failed password attempts were made when writing a file.
+.El
+.Sh DOAS PERMISSIONS
+The following doas invocations are used:
+.Bl -bullet
+.It
+.Nm doas Cm dd Ar status=none count=0 of=/dev/null
+.Pq initial privilege check
+.It
+.Nm doas Cm cat Ar file
+.Pq only when the file is not readable by the user
+.It
+.Nm doas Cm install Fl o Ar uid Fl g Ar gid Fl m Ar mode Ar tmpfile Ar file
+.Pq write-back of modified files
+.It
+.Nm doas Fl C Ar tmpfile
+.Pq syntax check of an edited doas configuration
+.El
+.Pp
+Using
+.Cm persist
+in
+.Xr doas.conf 5
+avoids repeated password prompts.
+.Sh SECURITY
+.Nm
+never runs an editor, or any other program, with elevated
+privileges; privilege is confined to the fixed doas invocations
+listed above.
+Temporary files are created with
+.Xr mkdtemp 3
+in a private directory and are not shared with other users; files are
+opened with
+.Dv O_NOFOLLOW
+and their identity
+.Pq device, inode, mode, owner, group
+is verified before and after every privileged step.
+Files in user-writable locations cannot be used to gain write access
+to arbitrary files because the write-back is performed with an atomic
+rename in the destination directory, which replaces a symbolic link
+rather than following it.
+See
+.Sh SEE ALSO
+.Xr doas 1 ,
+.Xr doas.conf 5

@@ -1,0 +1,77 @@
+#!/bin/sh
+# Fake doas(1) for testing doasedit.  Only implements the command
+# invocations doasedit uses.  Logs privileged operations to
+# $DOAS_FAKE_LOG for assertions.
+#
+#   doas dd status=none count=0 of=/dev/null   -> exit 0 (probe)
+#   doas cat <file>                            -> cat <file>
+#   doas install [-o U] [-g G] [-m M] src dst  -> copy with mode,
+#                                                 using a rename in the
+#                                                 destination directory
+#                                                 like install(1)
+#   doas -C <file>                             -> config parse simulation
+
+log() {
+	[ -n "$DOAS_FAKE_LOG" ] && printf '%s\n' "$*" >> "$DOAS_FAKE_LOG"
+}
+
+if [ "$1" = "dd" ]; then
+	exit 0
+fi
+
+if [ "$1" = "-C" ]; then
+	log "-C $2"
+	if [ -n "$DOAS_FAKE_CONF_FAIL" ]; then
+		echo "doas: syntax error at line 1" >&2
+		exit 1
+	fi
+	exit 0
+fi
+
+if [ "$1" = "cat" ]; then
+	log "cat $2"
+	cat "$2"
+	exit $?
+fi
+
+if [ "$1" = "install" ]; then
+	shift
+	uid=""; gid=""; mode=""
+	while [ "$1" = "-o" ] || [ "$1" = "-g" ] || [ "$1" = "-m" ]; do
+		case "$1" in
+		-o) uid="$2" ;;
+		-g) gid="$2" ;;
+		-m) mode="$2" ;;
+		esac
+		shift 2
+	done
+	src="$1"
+	dst="$2"
+	log "install -o ${uid:-default} -g ${gid:-default} -m ${mode:-default} $src $dst"
+	dstdir=$(dirname "$dst")
+	tmp="$dstdir/.doasedit-test.$$"
+	# the real install(1) runs privileged; the test suite owns the
+	# directories it uses, so regain write access for the copy and
+	# restore it afterwards
+	if [ ! -w "$dstdir" ]; then
+		chmod u+w "$dstdir" 2>/dev/null
+		restore=1
+	else
+		restore=0
+	fi
+	cat "$src" > "$tmp" || exit 1
+	if [ -n "$mode" ]; then
+		case "$mode" in
+		*[!0-7]*) ;;
+		*) chmod "$mode" "$tmp" 2>/dev/null ;;
+		esac
+	fi
+	mv -f "$tmp" "$dst" || exit 1
+	if [ "$restore" = 1 ]; then
+		chmod u-w "$dstdir" 2>/dev/null
+	fi
+	exit 0
+fi
+
+echo "doas: fake doas: unknown command: $*" >&2
+exit 1

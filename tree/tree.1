@@ -1,0 +1,226 @@
+.Dd September 8, 2026
+.Dt TREE 1
+.Os
+.Sh NAME
+.Nm tree
+.Nd display a tree of a directory's contents
+.Sh SYNOPSIS
+.Nm tree
+.Op Fl adfFgilnpqrstuxACDJQNU
+.Op Fl L Ar level
+.Op Fl o Ar file
+.Op Fl P Ar pattern
+.Op Fl I Ar pattern
+.Op Fl Fl dirsfirst
+.Op Fl Fl filelimit Ar n
+.Op Fl Fl inodes
+.Op Fl Fl noreport
+.Op Fl Fl prune
+.Op Fl Fl si
+.Op Fl Fl sort Ns = Ns Ar name|size|mtime|ctime
+.Op Fl Fl timefmt Ar fmt
+.Op Fl Fl help
+.Op Ar directory ...
+.Sh DESCRIPTION
+.Nm
+recursively displays the contents of each
+.Ar directory
+in a tree-like format.
+With no arguments,
+the current directory is displayed.
+If the argument is not a directory,
+it is displayed alone.
+.Pp
+By default, the display is sorted alphabetically, and the tree is
+drawn using box-drawing characters when the current locale uses the
+UTF-8 codeset, and ASCII characters otherwise.
+.Pp
+The options are as follows:
+.Bl -tag -width Ds
+.It Fl a
+Include directory entries whose names begin with a dot
+.Pq Sq \&. .
+.It Fl d
+Only show directories.
+Symbolic links to directories are shown, but not followed.
+.It Fl f
+Show the full path of each entry.
+.It Fl F
+Append a slash
+.Pq Sq /
+to directories, an asterisk
+.Pq Sq *
+to executables, an equals sign
+.Pq Sq =
+to sockets, and a vertical bar
+.Pq Sq \&|
+to FIFOs.
+For symbolic links, the marker of the link target is appended to the
+target name instead.
+.It Fl g
+Displays the group name of the file or directory.
+.It Fl h
+Print the size of each entry in a more human readable way (e.g.\&
+appending a size letter for kilobytes: 10K), using powers of 1024.
+Implies
+.Fl s .
+.It Fl i
+Do not print the indentation lines.
+Useful when the output is consumed by scripts.
+.It Fl l
+Follow symbolic links if they point to directories, as if they were
+directories.
+Symbolic links that would result in recursion are displayed with the
+message
+.Sq [recursive, not followed] .
+.It Fl L Ar level
+Maximum display depth of the directory tree.
+Entries at depth
+.Ar level
+are displayed but their contents are not.
+.It Fl n
+Turn colorization off.
+.It Fl o Ar file
+Send output to
+.Ar file
+instead of standard output.
+.It Fl p
+Print the protections for each file.
+.It Fl P Ar pattern
+List only those files that match the wildcard
+.Ar pattern .
+Directories are not affected.
+.It Fl I Ar pattern
+Do not list those files (or directories) that match the wildcard
+.Ar pattern .
+May be specified multiple times.
+.It Fl q
+Print non-printable characters in filenames as question marks instead
+of the default octal escapes.
+.It Fl Q
+Quote the names of files in double quotes, using C-style escapes for
+special characters.
+.It Fl r
+Sort the output in reverse order.
+.It Fl s
+Print the size of each file in bytes along with the name.
+.It Fl t
+Sort the output by last modification time instead of alphabetically.
+.It Fl u
+Print the username, or UID number if no username is available, of the
+file.
+.It Fl x
+Stay on the current file system only, like
+.Xr find 1 Fl xdev .
+.It Fl C
+Turn colorization on, using ANSI escape sequences.
+.It Fl D
+Print the date of the last modification time for the file listed.
+.It Fl J
+Prints out an JSON representation of the tree.
+.It Fl N
+Print non-printable characters as is instead of the default octal
+escapes.
+.It Fl U
+Do not sort.
+Lists files in directory order.
+.It Fl Fl dirsfirst
+List directories before files.
+.It Fl Fl filelimit Ar n
+Do not descend directories that contain more than
+.Ar n
+entries.
+.It Fl Fl inodes
+Prints the inode number of the file or directory.
+Implies
+.Fl s .
+.It Fl Fl noreport
+Omits printing of the file and directory report at the end of the
+tree listing.
+.It Fl Fl prune
+Makes
+.Nm
+prune empty directories from the output, useful when used in
+conjunction with
+.Fl P
+or
+.Fl I .
+Has no effect with
+.Fl d .
+.It Fl Fl si
+Like
+.Fl h ,
+but use powers of 1000 instead of 1024.
+Implies
+.Fl s .
+.It Fl Fl sort Ns = Ns Ar type
+Sort the output by
+.Ar type
+instead of name.
+Possible values are:
+.Cm name ,
+.Cm size ,
+.Cm mtime ,
+.Cm ctime .
+.It Fl Fl timefmt Ar fmt
+Use
+.Ar fmt
+(a
+.Xr strftime 3
+format) for the date output; implies
+.Fl D .
+.It Fl Fl help
+Print usage information and exit.
+.El
+.Sh COMPATIBILITY
+.Nm
+aims for practical compatibility with the tree utility in common use
+today (version 2.x of the original implementation).
+Known differences:
+.Bl -bullet
+.It
+The
+.Fl P
+and
+.Fl I
+patterns use
+.Xr fnmatch 3
+semantics; the
+.Sq \&|
+alternation and
+.Sq ^
+negation extensions of the original matcher are not supported.
+.It
+Patterns are matched against entry names and symbolic link targets,
+but not against full paths of nested entries.
+.It
+The options
+.Fl X
+(XML),
+.Fl H
+(HTML),
+.Fl R ,
+.Fl A ,
+.Fl S ,
+.Fl v ,
+.Fl Fl du ,
+.Fl Fl charset ,
+.Fl Fl matchdirs
+and
+.Fl Fl fromfile
+are not implemented.
+.It
+The behaviour of the
+.Fl s
+option differs from the historical
+.Nm :
+it now prints file sizes like the original utility does.
+Use
+.Fl Fl noreport
+to suppress the trailing report instead.
+.El
+.Sh SEE ALSO
+.Xr find 1 ,
+.Xr ls 1 ,
+.Xr stat 2 ,
+.Xr strftime 3
