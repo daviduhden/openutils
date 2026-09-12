@@ -73,6 +73,9 @@ ee_min(int a, int b)
 #define CONTROL_KEYS 1
 #define COMMANDS     2
 
+#define INFO_STATUS_ROW	5
+#define MENU_ITEM_COL	3
+
 struct text {
 	unsigned char *line;		/* line of characters		*/
 	int line_number;		/* line number			*/
@@ -303,9 +306,10 @@ static void resize_check(void);
 static int menu_op(struct menu_entries *);
 void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int list_size, int top_offset, WINDOW *menu_win, int off_start,
-    int vert_size);
+    int vert_size, int selection);
 static void help(void);
 static void paint_info_win(void);
+static void paint_status_line(void);
 static void no_info_window(void);
 static void create_info_window(void);
 static int file_op(int arg);
@@ -517,7 +521,6 @@ char *ree_no_file_msg;
 char *cancel_string;
 char *menu_too_lrg_msg;
 char *more_above_str, *more_below_str;
-char *separator = "===============================================================================";
 
 /* beginning of main program		*/
 int
@@ -600,14 +603,7 @@ main(int argc, char *argv[])
 		 |  display line and column information
 		 */
 		if (info_window) {
-			if (!nohighlight)
-				wstandout(info_win);
-			wmove(info_win, 5, 0);
-			wprintw(info_win, "%s", separator);
-			wmove(info_win, 5, 5);
-			wprintw(info_win, "line %d col %d lines from top %d ",
-			    curr_line->line_number, scr_horz, absolute_lin);
-			wstandend(info_win);
+			paint_status_line();
 			wrefresh(info_win);
 		}
 
@@ -1827,7 +1823,11 @@ get_string(char *prompt, int advance)
 	g_point = tmp_string = malloc(512);
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
+	if (!nohighlight)
+		wstandout(com_win);
 	waddstr(com_win, prompt);
+	if (!nohighlight)
+		wstandend(com_win);
 	wrefresh(com_win);
 	nam_str = tmp_string;
 	clear_com_win = TRUE;
@@ -2130,6 +2130,8 @@ check_fp(void)
 	temp = stat(tmp_file, &buf);
 	buf.st_mode &= ~07777;
 	if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
 		wprintw(com_win, file_is_dir_msg, tmp_file);
 		wrefresh(com_win);
 		if (input_file) {
@@ -3291,16 +3293,17 @@ menu_op(struct menu_entries menu_list[])
 	temp_win = newwin(max_height, max_width, y_off, x_off);
 	keypad(temp_win, TRUE);
 
-	paint_menu(menu_list, max_width, max_height, list_size, top_offset,
-	    temp_win, off_start, vert_size);
-
 	counter = 1;
+	paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+	    temp_win, off_start, vert_size, counter);
+
 	do {
 		if (off_start > 2)
 			wmove(temp_win, (1 + counter + top_offset - off_start),
-			    3);
+			    MENU_ITEM_COL);
 		else
-			wmove(temp_win, (counter + top_offset - off_start), 3);
+			wmove(temp_win, (counter + top_offset - off_start),
+			    MENU_ITEM_COL);
 
 		wrefresh(temp_win);
 		{
@@ -3362,7 +3365,7 @@ menu_op(struct menu_entries menu_list[])
 			case '\022':	/* ^r, redraw	*/
 				paint_menu(menu_list, max_width, max_height,
 				    list_size, top_offset, temp_win,
-				    off_start, vert_size);
+				    off_start, vert_size, counter);
 				break;
 			default:
 				break;
@@ -3379,7 +3382,7 @@ menu_op(struct menu_entries menu_list[])
 
 			paint_menu(menu_list, max_width, max_height,
 			    list_size, top_offset, temp_win, off_start,
-			    vert_size);
+			    vert_size, counter);
 		} else if ((list_size != vert_size) &&
 		    (counter > (off_start + vert_size - 2))) {
 			if (counter == list_size)
@@ -3391,7 +3394,7 @@ menu_op(struct menu_entries menu_list[])
 
 			paint_menu(menu_list, max_width, max_height,
 			    list_size, top_offset, temp_win, off_start,
-			    vert_size);
+			    vert_size, counter);
 		} else if (counter < off_start) {
 			if (counter <= 2)
 				off_start = 1;
@@ -3400,8 +3403,11 @@ menu_op(struct menu_entries menu_list[])
 
 			paint_menu(menu_list, max_width, max_height,
 			    list_size, top_offset, temp_win, off_start,
-			    vert_size);
+			    vert_size, counter);
 		}
+
+		paint_menu(menu_list, max_width, max_height, list_size,
+		    top_offset, temp_win, off_start, vert_size, counter);
 	} while ((input != '\r') && (input != '\n') && (counter != 0));
 
 	werase(temp_win);
@@ -3426,61 +3432,68 @@ menu_op(struct menu_entries menu_list[])
 	return (counter);
 }
 
+static void
+paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
+    WINDOW *menu_win, int row, int max_width, int highlight)
+{
+	int column;
+
+	wmove(menu_win, row, MENU_ITEM_COL);
+	if (!nohighlight && highlight) {
+		wstandout(menu_win);
+		for (column = MENU_ITEM_COL; column < (max_width - 2);
+		    column++)
+			waddch(menu_win, ' ');
+		wmove(menu_win, row, MENU_ITEM_COL);
+	}
+	if (list_size > 1)
+		wprintw(menu_win, "%c) ",
+		    item_alpha[ee_min((item - 1), max_alpha_char)]);
+	waddstr(menu_win, menu_list[item].item_string);
+	if (!nohighlight && highlight)
+		wstandend(menu_win);
+}
+
 void
 paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int list_size, int top_offset, WINDOW *menu_win, int off_start,
-    int vert_size)
+    int vert_size, int selection)
 {
 	int counter, temp_int;
 
 	werase(menu_win);
 
 	/*
-	 |	output top and bottom portions of menu box only if window
-	 |	large enough
+	 |	output the title and the separating rules only if the
+	 |	window is large enough for the framed layout
 	 */
 
 	if (max_height > vert_size) {
-		wmove(menu_win, 1, 1);
+		wmove(menu_win, 1, MENU_ITEM_COL);
 		if (!nohighlight)
 			wstandout(menu_win);
-		waddch(menu_win, '+');
-		for (counter = 0; counter < (max_width - 4); counter++)
-			waddch(menu_win, '-');
-		waddch(menu_win, '+');
-
-		wmove(menu_win, (max_height - 2), 1);
-		waddch(menu_win, '+');
-		for (counter = 0; counter < (max_width - 4); counter++)
-			waddch(menu_win, '-');
-		waddch(menu_win, '+');
-		wstandend(menu_win);
-		wmove(menu_win, 2, 3);
 		waddstr(menu_win, menu_list[0].item_string);
-		wmove(menu_win, (max_height - 3), 3);
-		if (menu_list[0].argument != MENU_WARN)
+		if (!nohighlight)
+			wstandend(menu_win);
+
+		wmove(menu_win, 2, 1);
+		for (counter = 0; counter < (max_width - 2); counter++)
+			waddch(menu_win, '-');
+
+		if (menu_list[0].argument != MENU_WARN) {
+			wmove(menu_win, (max_height - 4), 1);
+			for (counter = 0; counter < (max_width - 2);
+			    counter++)
+				waddch(menu_win, '-');
+			wmove(menu_win, (max_height - 3), MENU_ITEM_COL);
 			waddstr(menu_win, menu_cancel_msg);
+		}
 	}
-	if (!nohighlight)
-		wstandout(menu_win);
-
-	for (counter = 0; counter < (vert_size + top_offset); counter++) {
-		if (top_offset == 4) {
-			temp_int = counter + 2;
-		} else
-			temp_int = counter;
-
-		wmove(menu_win, temp_int, 1);
-		waddch(menu_win, '|');
-		wmove(menu_win, temp_int, (max_width - 2));
-		waddch(menu_win, '|');
-	}
-	wstandend(menu_win);
 
 	if (list_size > vert_size) {
 		if (off_start >= 3) {
 			temp_int = 1;
-			wmove(menu_win, top_offset, 3);
+			wmove(menu_win, top_offset, MENU_ITEM_COL);
 			waddstr(menu_win, more_above_str);
 		} else
 			temp_int = 0;
@@ -3488,33 +3501,26 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 		for (counter = off_start;
 		    ((temp_int + counter - off_start) < (vert_size - 1));
 		    counter++) {
-			wmove(menu_win, (top_offset + temp_int +
-			    (counter - off_start)), 3);
-			if (list_size > 1)
-				wprintw(menu_win, "%c) ",
-				    item_alpha[
-				    ee_min((counter - 1), max_alpha_char)]);
-			waddstr(menu_win, menu_list[counter].item_string);
+			paint_menu_item(menu_list, counter, list_size,
+			    menu_win,
+			    (top_offset + temp_int + (counter - off_start)),
+			    max_width, (counter == selection));
 		}
 
-		wmove(menu_win, (top_offset + (vert_size - 1)), 3);
-
-		if (counter == list_size) {
-			if (list_size > 1)
-				wprintw(menu_win, "%c) ",
-				    item_alpha[
-				    ee_min((counter - 1), max_alpha_char)]);
-			wprintw(menu_win, "%s", menu_list[counter].item_string);
-		} else
+		if (counter == list_size)
+			paint_menu_item(menu_list, counter, list_size,
+			    menu_win, (top_offset + (vert_size - 1)),
+			    max_width, (counter == selection));
+		else {
+			wmove(menu_win, (top_offset + (vert_size - 1)),
+			    MENU_ITEM_COL);
 			wprintw(menu_win, "%s", more_below_str);
+		}
 	} else {
 		for (counter = 1; counter <= list_size; counter++) {
-			wmove(menu_win, (top_offset + counter - 1), 3);
-			if (list_size > 1)
-				wprintw(menu_win, "%c) ",
-				    item_alpha[
-				    ee_min((counter - 1), max_alpha_char)]);
-			waddstr(menu_win, menu_list[counter].item_string);
+			paint_menu_item(menu_list, counter, list_size,
+			    menu_win, (top_offset + counter - 1),
+			    max_width, (counter == selection));
 		}
 	}
 }
@@ -3528,13 +3534,21 @@ help(void)
 	clearok(help_win, TRUE);
 	for (counter = 0; counter < 22; counter++) {
 		wmove(help_win, counter, 0);
+		if (!nohighlight && ((counter == 0) || (counter == 11)))
+			wstandout(help_win);
 		waddstr(help_win, (emacs_keys_mode) ?
 		    emacs_help_text[counter] : help_text[counter]);
+		if (!nohighlight && ((counter == 0) || (counter == 11)))
+			wstandend(help_win);
 	}
 	wrefresh(help_win);
 	werase(com_win);
 	wmove(com_win, 0, 0);
+	if (!nohighlight)
+		wstandout(com_win);
 	wprintw(com_win, "%s", press_any_key_msg);
+	if (!nohighlight)
+		wstandend(com_win);
 	wrefresh(com_win);
 	{
 		wint_t win;
@@ -3553,6 +3567,122 @@ help(void)
 	redraw();
 }
 
+static int
+iout_chars(int value)
+{
+	int quotient;
+
+	quotient = value / 10;
+	if (quotient != 0)
+		return (1 + iout_chars(quotient));
+	return (1);
+}
+
+static void
+paint_status_line(void)
+{
+	int width;
+	int length;
+	int marker;
+	int margin;
+	int gap;
+	int column;
+
+	if (!info_window)
+		return;
+
+	width = info_win->Num_cols;
+	marker = (int)strlen("[modified]");
+	length = (int)strlen("line ") + iout_chars(curr_line->line_number) +
+	    (int)strlen("  col ") + iout_chars(scr_horz) +
+	    (int)strlen("  lines from top ") + iout_chars(absolute_lin);
+
+	wmove(info_win, INFO_STATUS_ROW, 0);
+	wclrtoeol(info_win);
+	if (!nohighlight) {
+		wstandout(info_win);
+		for (column = 0; column < width; column++)
+			waddch(info_win, ' ');
+	}
+	wmove(info_win, INFO_STATUS_ROW, 1);
+	wprintw(info_win, "line %d  col %d  lines from top %d",
+	    curr_line->line_number, scr_horz, absolute_lin);
+	margin = 1;
+	gap = 1;
+	if (text_changes &&
+	    ((length + marker + margin + gap) < width)) {
+		wmove(info_win, INFO_STATUS_ROW, width - margin - marker);
+		waddstr(info_win, "[modified]");
+	}
+	if (!nohighlight)
+		wstandend(info_win);
+}
+
+static void
+paint_key_line(WINDOW *window, const char *line)
+{
+	const char *token, *ptr;
+	int key;
+
+	ptr = line;
+	while (*ptr != '\0') {
+		if (*ptr == ' ') {
+			waddch(window, ' ');
+			ptr++;
+			continue;
+		}
+		token = ptr;
+		while ((*ptr != '\0') && (*ptr != ' '))
+			ptr++;
+		key = (*token == '^') ||
+		    ((token[0] == 'E') && (token[1] == 'S') &&
+		     (token[2] == 'C'));
+		if (!nohighlight && key) {
+			wstandout(window);
+			while ((token < ptr) && (*token != ':'))
+				waddch(window, (unsigned char)*token++);
+			wstandend(window);
+		}
+		while (token < ptr)
+			waddch(window, (unsigned char)*token++);
+	}
+}
+
+static void
+paint_command_line(WINDOW *window, const char *line)
+{
+	const char *token, *ptr;
+	int is_command;
+
+	is_command = TRUE;
+	ptr = line;
+	while (*ptr != '\0') {
+		if (*ptr == ' ') {
+			waddch(window, ' ');
+			ptr++;
+			continue;
+		}
+		if (*ptr == '|') {
+			waddch(window, '|');
+			ptr++;
+			is_command = TRUE;
+			continue;
+		}
+		token = ptr;
+		while ((*ptr != '\0') && (*ptr != ' ') && (*ptr != '|'))
+			ptr++;
+		if (!nohighlight && is_command) {
+			wstandout(window);
+			while ((token < ptr) && (*token != ':'))
+				waddch(window, (unsigned char)*token++);
+			wstandend(window);
+		}
+		while (token < ptr)
+			waddch(window, (unsigned char)*token++);
+		is_command = FALSE;
+	}
+}
+
 static void
 paint_info_win(void)
 {
@@ -3566,17 +3696,13 @@ paint_info_win(void)
 		wmove(info_win, counter, 0);
 		wclrtoeol(info_win);
 		if (info_type == CONTROL_KEYS)
-			waddstr(info_win, (emacs_keys_mode) ?
+			paint_key_line(info_win, (emacs_keys_mode) ?
 			    emacs_control_keys[counter] :
 			    control_keys[counter]);
 		else if (info_type == COMMANDS)
-			waddstr(info_win, command_strings[counter]);
+			paint_command_line(info_win, command_strings[counter]);
 	}
-	wmove(info_win, 5, 0);
-	if (!nohighlight)
-		wstandout(info_win);
-	waddstr(info_win, separator);
-	wstandend(info_win);
+	paint_status_line();
 	wrefresh(info_win);
 }
 
@@ -4239,6 +4365,7 @@ spell_op(void)
 	command(shell_echo_msg);
 	adv_line();
 	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
 	wprintw(com_win, "%s", spell_in_prog_msg);
 	wrefresh(com_win);
 	command("<>!spell");	/* send contents of buffer to command 'spell'
@@ -4260,6 +4387,7 @@ ispell_op(void)
 	name = template;
 	if (fd < 0) {
 		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
 		wprintw(com_win, create_file_fail_msg, name);
 		wrefresh(com_win);
 		return;
