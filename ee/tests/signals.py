@@ -166,7 +166,7 @@ def main():
         exited, restored, saved = sigint_test(work)
         check("SIGINT exits the editor", exited)
         check("SIGINT restores the terminal", restored)
-        check("SIGINT does not save", saved)
+        check("SIGINT does not save", not saved)
 
         check("SIGWINCH keeps the editor working", sigwinch_test(work))
 
