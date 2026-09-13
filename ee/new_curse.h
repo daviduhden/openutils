@@ -179,6 +179,7 @@ void		 wclrtobot(WINDOW *);
 void		 wstandout(WINDOW *);
 void		 wstandend(WINDOW *);
 void		 waddstr(WINDOW *, const char *);
+void		 curs_set(int);
 void		 clearok(WINDOW *, int);
 void		 echo(void);
 void		 noecho(void);

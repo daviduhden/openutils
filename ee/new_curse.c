@@ -2057,6 +2057,17 @@ waddstr(WINDOW *window, const char *string)	/* write 'string' in window */
 }
 
 void
+curs_set(int visibility)	/* hide (0) or show (1) the cursor */
+{
+	if (visibility == 0) {
+		if (String_table[vi__] != NULL)
+			String_Out(String_table[vi__], NULL, 0);
+	} else if (String_table[ve__] != NULL)
+		String_Out(String_table[ve__], NULL, 0);
+	fflush(stdout);
+}
+
+void
 clearok(WINDOW *window,
     int flag)	/* erase screen and redraw at next refresh */
 {

@@ -3293,6 +3293,7 @@ menu_op(struct menu_entries menu_list[])
 	y_off = (LINES - max_height - 1) / 2;
 	temp_win = newwin(max_height, max_width, y_off, x_off);
 	keypad(temp_win, TRUE);
+	curs_set(0);
 
 	counter = 1;
 	paint_menu(menu_list, max_width, max_height, list_size, top_offset,
@@ -3414,6 +3415,7 @@ menu_op(struct menu_entries menu_list[])
 	werase(temp_win);
 	wrefresh(temp_win);
 	delwin(temp_win);
+	curs_set(1);
 
 	/* dispatch on the exact, non-NULL entry of each menu item */
 	if (menu_list[counter].argument != -1 &&

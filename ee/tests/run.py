@@ -85,6 +85,21 @@ def main():
         assert_eq("edited file saved", "hello world\nsecond line café",
                   read(path))
 
+        # the menu hides the cursor while it is open, so the cursor
+        # block does not leave the first character of the highlighted
+        # entry looking unselected, and restores it on close
+        path = os.path.join(work, "menufile.txt")
+        out = pty_run.run([EE, "-i", path], ["\x1b", "\x1b"],
+                          env={"TERM": "xterm"}).decode("latin-1")
+        if "\x1b[?25l" in out and "\x1b[?25h" in out:
+            ok("menu hides and restores the cursor")
+        else:
+            notok("menu hides and restores the cursor")
+        if "\x1b[0;7ma) leave editor" in out:
+            ok("menu highlights the selected entry")
+        else:
+            notok("menu highlights the selected entry")
+
         # mode preserved for existing files
         with open(path, "w", encoding="utf-8") as f:
             f.write("original\n")
