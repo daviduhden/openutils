@@ -1475,7 +1475,18 @@ Info_Out(char *string, int *p_list,
 							}
 						}
 					}
+				} else if (*Otemp == ';') {
+					/*
+					 |	End of a conditional.  Skip
+					 |	the terminator only, so the
+					 |	text following it is output.
+					 */
+					Otemp++;
 				} else {
+					/*
+					 |	Stray %t or %e.  Skip to the
+					 |	end of the conditional.
+					 */
 					Otemp++;
 					if (*Otemp != ';') {
 						while ((*Otemp != '\0') &&
