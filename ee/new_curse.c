@@ -977,8 +977,9 @@ Key_Get(
 				    String_table[key_def]);
 				Spoint->element->string = malloc(Spoint->element->length +
 				    1);
-				strcpy(Spoint->element->string,
-				    String_table[key_def]);
+				strlcpy(Spoint->element->string,
+				    String_table[key_def],
+				    Spoint->element->length + 1);
 				Spoint->element->value = Key_vals[Counter];
 				Klen = strlen(Spoint->element->string);
 				if (Klen > Max_Key_len)

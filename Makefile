@@ -7,10 +7,12 @@
 # the environment (not the make command line) so that the
 # per-utility Makefiles can extend them with += as usual.
 
-CC ?= cc
+CC = clang
 CFLAGS ?= -O2 -pipe
 CPPFLAGS ?=
 LDFLAGS ?=
+DEBUGGER ?= lldb
+DEBUG_CFLAGS ?= -g -O0
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -21,7 +23,8 @@ SUBDIR = doasedit tree ee truncate
 
 MAKE_ENV = env CC="$(CC)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" \
 	LDFLAGS="$(LDFLAGS)" PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" \
-	MANDIR="$(MANDIR)" DESTDIR="$(DESTDIR)"
+	MANDIR="$(MANDIR)" DESTDIR="$(DESTDIR)" \
+	DEBUGGER="$(DEBUGGER)" DEBUG_CFLAGS="$(DEBUG_CFLAGS)"
 
 all:
 	@for d in $(SUBDIR); do \
@@ -48,6 +51,14 @@ test: all
 	sh ee/tests/run.sh
 	sh ee/tests/signals.sh
 
+# build one utility with -g -O0 and run it under lldb(1)
+debug:
+	@if [ -z "$(PROG)" ]; then \
+		echo "usage: make debug PROG=<doasedit|tree|ee|truncate>" >&2; \
+		exit 1; \
+	fi
+	$(MAKE_ENV) $(MAKE) -C $(PROG) debug
+
 # strict-warning build of every component (developer target).
 #
 # doasedit, tree and truncate build warning-free under the full set
@@ -70,15 +81,15 @@ check:
 		exit 1; \
 	fi
 	@for d in doasedit tree truncate; do \
-		$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" \
-		$(MAKE) -C $$d clean >/dev/null || exit 1; \
-		$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" \
-		$(MAKE) -C $$d all || exit 1; \
+		$(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" \
+		WARNINGS="$(CHECK_WARNINGS)" clean >/dev/null || exit 1; \
+		$(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" \
+		WARNINGS="$(CHECK_WARNINGS)" all || exit 1; \
 	done
-	@$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" \
-	    $(MAKE) -C ee clean >/dev/null || exit 1
-	@$(MAKE_ENV) CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" \
-	    $(MAKE) -C ee all || exit 1
+	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" \
+	    WARNINGS="$(EE_WARNINGS)" clean >/dev/null || exit 1
+	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" \
+	    WARNINGS="$(EE_WARNINGS)" all || exit 1
 	@for d in $(SUBDIR); do \
 		$(MAKE_ENV) $(MAKE) -C $$d clean >/dev/null || exit 1; \
 	done
@@ -99,4 +110,4 @@ clean:
 		$(MAKE_ENV) $(MAKE) -C $$d clean || exit 1; \
 	done
 
-.PHONY: all doasedit tree ee truncate test check install uninstall clean
+.PHONY: all doasedit tree ee truncate test debug check install uninstall clean

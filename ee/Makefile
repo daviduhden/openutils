@@ -8,11 +8,13 @@
 PROG = ee
 SRCS = ee.c new_curse.c
 
-CC ?= cc
+CC = clang
 CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
 CSTD = -std=c17
 CPPFLAGS += -I. -I../compat
+DEBUGGER ?= lldb
+DEBUG_CFLAGS ?= -g -O0
 
 # compat shims for non-OpenBSD hosts (they compile to nothing there)
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
@@ -26,8 +28,15 @@ all: $(PROG)
 $(PROG): $(SRCS) $(COMPAT_SRCS) new_curse.h ../compat/bsdcompat.h
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
+# debug build: unoptimized binary for use with the debugger
+$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) new_curse.h ../compat/bsdcompat.h
+	$(CC) $(CFLAGS) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
+
+debug: $(PROG)_debug
+	$(DEBUGGER) ./$(PROG)_debug
+
 clean:
-	rm -f $(PROG) ee.o new_curse.o
+	rm -f $(PROG) $(PROG)_debug ee.o new_curse.o
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
@@ -44,4 +53,4 @@ test: $(PROG)
 	sh tests/run.sh
 	sh tests/signals.sh
 
-.PHONY: all clean install uninstall test
+.PHONY: all clean install uninstall test debug

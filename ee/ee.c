@@ -354,6 +354,7 @@ struct menu_entries modes_menu[] = {
 char *mode_strings[10];
 
 #define NUM_MODES_ITEMS 9
+#define MODES_ITEM_SIZE 80
 
 struct menu_entries config_dump_menu[] = {
 	{"", NULL, NULL, NULL, NULL, 0},
@@ -992,7 +993,7 @@ out_char(WINDOW *window, int character, int column)
 		if (character == 127)
 			string = "^?";
 		else if (!eightbit) {
-			sprintf(string2, "<%d>",
+			snprintf(string2, sizeof(string2), "<%d>",
 			    (character < 0) ? (character + 256) : character);
 			string = string2;
 		} else {
@@ -1927,7 +1928,7 @@ get_string(char *prompt, int advance)
 	if (((*nam_str == ' ') || (*nam_str == 9)) && (advance))
 		nam_str = next_word(nam_str);
 	string = malloc(strlen(nam_str) + 1);
-	strcpy(string, nam_str);
+	strlcpy(string, nam_str, strlen(nam_str) + 1);
 	free(tmp_string);
 	wrefresh(com_win);
 	return (string);
@@ -4103,19 +4104,21 @@ ee_init(void)
 	char *str1;
 	char *str2;
 	char *home;
+	size_t home_size;
 	int counter;
 	int temp_int;
 
 	string = getenv("HOME");
 	if (string == NULL)
 		string = "/tmp";
-	home = malloc(strlen(string) + 10);
+	home_size = strlen(string) + sizeof("/.init.ee");
+	home = malloc(home_size);
 	if (home == NULL) {
 		wprintw(com_win, "unable to allocate memory\n");
 		return;
 	}
-	strcpy(home, string);
-	strcat(home, "/.init.ee");
+	strlcpy(home, string, home_size);
+	strlcat(home, "/.init.ee", home_size);
 	string = malloc(512);
 	if (string == NULL) {
 		/* init_name[1] is only assigned once all allocations
@@ -4174,8 +4177,9 @@ ee_init(void)
 						str1 = next_word(str1);
 						print_command = malloc(
 						    strlen(str1) + 1);
-						strcpy((char *)print_command,
-						    (char *)str1);
+						strlcpy((char *)print_command,
+						    (char *)str1,
+						    strlen(str1) + 1);
 					} else if (compare(str1, RIGHTMARGIN,
 					    FALSE)) {
 						str1 = next_word(str1);
@@ -4250,7 +4254,7 @@ dump_ee_conf(void)
 	 */
 
 	if (stat(file_name, &buf) != -1) {
-		sprintf(buffer, "%s.old", file_name);
+		snprintf(buffer, sizeof(buffer), "%s.old", file_name);
 		unlink(buffer);
 		link(file_name, buffer);
 		unlink(file_name);
@@ -4382,7 +4386,7 @@ ispell_op(void)
 	if (restrict_mode()) {
 		return;
 	}
-	(void)sprintf(template, "/tmp/ee.XXXXXXXX");
+	(void)snprintf(template, sizeof(template), "/tmp/ee.XXXXXXXX");
 	fd = mkstemp(template);
 	name = template;
 	if (fd < 0) {
@@ -4394,7 +4398,7 @@ ispell_op(void)
 	}
 	close(fd);
 	if (write_file(name, 0)) {
-		sprintf(string, "ispell %s", name);
+		snprintf(string, sizeof(string), "ispell %s", name);
 		sh_command(string);
 		delete_text();
 		tmp_file = name;
@@ -4687,22 +4691,22 @@ modes_op(void)
 	char *string;
 
 	do {
-		sprintf(modes_menu[1].item_string, "%s %s", mode_strings[1],
-		    (expand_tabs ? ON : OFF));
-		sprintf(modes_menu[2].item_string, "%s %s", mode_strings[2],
-		    (case_sen ? ON : OFF));
-		sprintf(modes_menu[3].item_string, "%s %s", mode_strings[3],
-		    (observ_margins ? ON : OFF));
-		sprintf(modes_menu[4].item_string, "%s %s", mode_strings[4],
-		    (auto_format ? ON : OFF));
-		sprintf(modes_menu[5].item_string, "%s %s", mode_strings[5],
-		    (eightbit ? ON : OFF));
-		sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6],
-		    (info_window ? ON : OFF));
-		sprintf(modes_menu[7].item_string, "%s %s", mode_strings[7],
-		    (emacs_keys_mode ? ON : OFF));
-		sprintf(modes_menu[8].item_string, "%s %d", mode_strings[8],
-		    right_margin);
+		snprintf(modes_menu[1].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[1], (expand_tabs ? ON : OFF));
+		snprintf(modes_menu[2].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[2], (case_sen ? ON : OFF));
+		snprintf(modes_menu[3].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[3], (observ_margins ? ON : OFF));
+		snprintf(modes_menu[4].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[4], (auto_format ? ON : OFF));
+		snprintf(modes_menu[5].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[5], (eightbit ? ON : OFF));
+		snprintf(modes_menu[6].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[6], (info_window ? ON : OFF));
+		snprintf(modes_menu[7].item_string, MODES_ITEM_SIZE, "%s %s",
+		    mode_strings[7], (emacs_keys_mode ? ON : OFF));
+		snprintf(modes_menu[8].item_string, MODES_ITEM_SIZE, "%s %d",
+		    mode_strings[8], right_margin);
 
 		ret_value = menu_op(modes_menu);
 
@@ -4786,6 +4790,7 @@ resolve_name(char *name)
 	int index;
 	int counter;
 	struct passwd *user;
+	size_t len;
 
 	if (name[0] == '~') {
 		if (name[1] == '/') {
@@ -4803,11 +4808,12 @@ resolve_name(char *name)
 		if (user == NULL) {
 			return (name);
 		}
-		buffer = malloc(strlen(user->pw_dir) + strlen(slash) + 1);
+		len = strlen(user->pw_dir) + strlen(slash) + 1;
+		buffer = malloc(len);
 		if (buffer == NULL)
 			return (name);
-		strcpy(buffer, user->pw_dir);
-		strcat(buffer, slash);
+		strlcpy(buffer, user->pw_dir, len);
+		strlcat(buffer, slash, len);
 	} else
 		buffer = name;
 
@@ -4853,8 +4859,9 @@ resolve_name(char *name)
 				if ((slash = getenv(short_buffer)) != NULL) {
 					offset = strlen(slash);
 					if ((offset + index) < 1024)
-						strcpy(&long_buffer[index],
-						    slash);
+						strlcpy(&long_buffer[index],
+						    slash,
+						    sizeof(long_buffer) - index);
 					index += offset;
 				} else {
 					while ((start_of_var != tmp) &&
@@ -4877,7 +4884,7 @@ resolve_name(char *name)
 		buffer = malloc(index + 1);
 		if (buffer == NULL)
 			return (name);
-		strcpy(buffer, long_buffer);
+		strlcpy(buffer, long_buffer, index + 1);
 	}
 
 	return (buffer);
@@ -5190,6 +5197,6 @@ strings_init(void)
 	 */
 
 	for (counter = 1; counter < NUM_MODES_ITEMS; counter++) {
-		modes_menu[counter].item_string = malloc(80);
+		modes_menu[counter].item_string = malloc(MODES_ITEM_SIZE);
 	}
 }

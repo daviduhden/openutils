@@ -3,11 +3,13 @@
 PROG = doasedit
 SRCS = doasedit.c
 
-CC ?= cc
+CC = clang
 CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
 CSTD = -std=c17
 CPPFLAGS += -I../compat
+DEBUGGER ?= lldb
+DEBUG_CFLAGS ?= -g -O0
 
 # compat shims for non-OpenBSD hosts (they compile to nothing there)
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
@@ -25,11 +27,18 @@ $(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h
 $(PROG)_test: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DDOASEDIT_TEST -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
+# debug build: unoptimized binary for use with the debugger
+$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h
+	$(CC) $(CFLAGS) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
+
+debug: $(PROG)_debug
+	$(DEBUGGER) ./$(PROG)_debug
+
 test: $(PROG)_test
 	sh tests/run.sh
 
 clean:
-	rm -f $(PROG) $(PROG)_test $(PROG:=.o)
+	rm -f $(PROG) $(PROG)_test $(PROG)_debug $(PROG:=.o)
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
@@ -39,4 +48,4 @@ install: $(PROG)
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG) $(DESTDIR)$(MANDIR)1/$(PROG).1
 
-.PHONY: all clean install uninstall test
+.PHONY: all clean install uninstall test debug

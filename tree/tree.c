@@ -122,7 +122,7 @@ static void		 freeents(struct ent *, size_t);
 static void		 entryline(const struct ent *, const char *, int,
     const int *, int);
 static const char	*fillinfo(const struct stat *);
-static int		 psize(char *, off_t);
+static int		 psize(char *, size_t, off_t);
 static const char	*do_date(time_t);
 static const char	*prot(mode_t);
 static const char	*uidtoname(uid_t);
@@ -177,7 +177,7 @@ patignore(const char *name)
 }
 
 static int
-psize(char *buf, off_t size)
+psize(char *buf, size_t bufsize, off_t size)
 {
 	static const char	 iec_unit[] = "BKMGTPEZY";
 	static const char	 si_unit[] = "dkMGTPEZY";
@@ -192,18 +192,19 @@ psize(char *buf, off_t size)
 		    idx++, size /= base)
 			;
 		if (idx == 0)
-			return (sprintf(buf, " %4d", (int)size));
+			return (snprintf(buf, bufsize, " %4d", (int)size));
 		/*
 		 * LC_NUMERIC is never set (only LC_CTYPE is, to
 		 * en_US.UTF-8), so the "C" locale governs: the decimal
 		 * separator is always '.', whatever LANG/LC_* the
 		 * user sets.
 		 */
-		return (sprintf(buf, (((size + base / 2) / base) >= 10) ?
+		return (snprintf(buf, bufsize,
+		    (((size + base / 2) / base) >= 10) ?
 		    " %3.0f%c" : " %3.1f%c",
 		    (double)size / (double)base, unit[idx]));
 	}
-	return (sprintf(buf, " %11lld", (long long)size));
+	return (snprintf(buf, bufsize, " %11lld", (long long)size));
 }
 
 static const char *
@@ -330,7 +331,7 @@ fillinfo(const struct stat *st)
 		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %-8.32s",
 		    gidtoname(st->st_gid));
 	if (sflag) {
-		psize(nbuf, st->st_size);
+		psize(nbuf, sizeof(nbuf), st->st_size);
 		n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s", nbuf);
 	}
 	if (Dflag)
