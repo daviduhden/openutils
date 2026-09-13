@@ -16,14 +16,21 @@ FAILED_TESTS=
 work=$(mktemp -d "${TMPDIR:-/tmp}/truncate-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
-# the reference implementation, if any
+# the reference implementation, if any: GNU truncate is the
+# compatibility target, so ignore any other truncate(1) that may be
+# installed (including a copy of this program)
 GNU=""
 if command -v truncate >/dev/null 2>&1; then
 	candidate=$(command -v truncate)
 	case "$candidate" in
 	"$TRUNC") ;;
 	"$ROOT/truncate"*) ;;
-	*) GNU=$candidate ;;
+	*)
+		if "$candidate" --version 2>/dev/null |
+		    grep -q 'GNU coreutils'; then
+			GNU=$candidate
+		fi
+		;;
 	esac
 fi
 
@@ -53,6 +60,11 @@ assert_eq() {
 
 size() {
 	stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null
+}
+
+# optimal I/O block size (st_blksize): GNU stat uses %o, BSD stat %k
+blksize() {
+	stat -c %o "$1" 2>/dev/null || stat -f %k "$1" 2>/dev/null
 }
 
 # run one size specification through both implementations
@@ -160,7 +172,7 @@ assert_eq "-r with at-most" 2 "$(size "$work/a")"
 
 # ------------------------------------------------ io blocks
 "$TRUNC" -o -s 1 "$work/a"
-assert_eq "-o scales by block size" "$(stat -c %o "$work/a" 2>/dev/null || echo 4096)" "$(size "$work/a")" 2>/dev/null ||
+assert_eq "-o scales by block size" "$(blksize "$work/a")" "$(size "$work/a")" 2>/dev/null ||
 	assert_eq "-o produces non-zero size" "0" \
 		"$([ "$(size "$work/a")" -gt 0 ] && echo 1 || echo 0)"
 
@@ -207,7 +219,7 @@ assert_eq "--size N works" 7 "$(size "$work/l1")"
 "$TRUNC" --reference="$work/ref" "$work/l1"
 assert_eq "--reference=N works" 7 "$(size "$work/l1")"
 "$TRUNC" --io-blocks --size=1 "$work/l1"
-assert_eq "--io-blocks works" "$(stat -c %o "$work/l1" 2>/dev/null || echo 4096)" "$(size "$work/l1")" 2>/dev/null ||
+assert_eq "--io-blocks works" "$(blksize "$work/l1")" "$(size "$work/l1")" 2>/dev/null ||
 	assert_eq "--io-blocks produces non-zero size" "0" \
 		"$([ "$(size "$work/l1")" -gt 0 ] && echo 1 || echo 0)"
 
@@ -284,7 +296,7 @@ assert_eq "--size +N works" 10 "$(size "$work/q1")"
 # -o with a reference file is allowed; the size is scaled
 "$TRUNC" -o -r "$work/ref" -s +1 "$work/q1" >/dev/null 2>&1
 assert_eq "-o -r -s +1 scales" \
-	"$((7 + $(stat -c %o "$work/q1" 2>/dev/null || echo 4096)))" \
+	"$((7 + $(blksize "$work/q1")))" \
 	"$(size "$work/q1")"
 
 # ------------------------------------------------ symlinks
