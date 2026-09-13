@@ -112,6 +112,7 @@ touch "$base/myfile"
 assert_eq "own file rejected" 1 $?
 
 mkdir -p "$base/mydir"
+chmod 777 "$base/mydir"
 "$DOASEDIT" "$base/mydir/newfile" 2>/dev/null
 assert_eq "own directory rejected" 1 $?
 
@@ -173,8 +174,8 @@ DOAS_FAKE_LOG=$base/dlog2 DOASEDIT_TEST_UID=9999 DOAS_EDITOR=fake-editor \
 assert_eq "root-owned file edited" 0 $?
 assert_eq "content updated" "original
 edited by fake editor" "$(cat "$base/rootfile")"
-assert_out "install preserves owner" "install -o 1000 -g 1000 -m 440" \
-	"$base/dlog2"
+assert_out "install preserves owner" \
+	"install -o $(id -u) -g $(id -g) -m 440" "$base/dlog2"
 
 # unchanged file: no write-back
 rm -f "$base/dlog3"
@@ -240,7 +241,7 @@ assert_out "tmpdir is 0700" "drwx------" "$base/elog5"
 assert_out "tmpfile is 0600" "rw-------" "$base/elog5"
 # no doasedit.* leftovers in the tmp directory after success
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'doasedit.??????' \
-	-user "$(id -u)" 2>/dev/null | wc -l)
+	-user "$(id -u)" 2>/dev/null | wc -l | tr -d '[:space:]')
 assert_eq "no leftover tmpdirs" "0" "$leftovers"
 
 # ---------------------------------------------------------------- 10
@@ -253,7 +254,7 @@ sleep 1
 kill -TERM "$pid" 2>/dev/null
 sleep 1
 leftovers=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'doasedit.??????' \
-	-user "$(id -u)" 2>/dev/null | wc -l)
+	-user "$(id -u)" 2>/dev/null | wc -l | tr -d '[:space:]')
 assert_eq "tmpdir removed on signal" "0" "$leftovers"
 wait "$pid" 2>/dev/null
 

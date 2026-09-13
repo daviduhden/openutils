@@ -37,16 +37,51 @@ force_unreadable(void)
 {
 	return (getenv("DOASEDIT_TEST_UNREADABLE") != NULL);
 }
+
+/*
+ * access(2) evaluates the real uid and lets root bypass the file
+ * permission bits.  When the test suite fakes a user identity, apply
+ * that identity's permission bits instead, so the tests also work
+ * when run as root.  Group permissions are not simulated: the faked
+ * uid never owns the files created by the suite.
+ */
+static int
+our_access(const char *path, int mode)
+{
+	const char	*s = getenv("DOASEDIT_TEST_UID");
+	struct stat	 st;
+	mode_t		 bits;
+
+	if (s == NULL || s[0] == '\0')
+		return (access(path, mode));
+	if (mode == F_OK)
+		return (stat(path, &st));
+	if (stat(path, &st) == -1)
+		return (-1);
+	if (st.st_uid == (uid_t)strtoul(s, NULL, 10))
+		bits = (st.st_mode >> 6) & 07;
+	else
+		bits = st.st_mode & 07;
+	if (((mode & R_OK) != 0 && (bits & 04) == 0) ||
+	    ((mode & W_OK) != 0 && (bits & 02) == 0) ||
+	    ((mode & X_OK) != 0 && (bits & 01) == 0)) {
+		errno = EACCES;
+		return (-1);
+	}
+	return (0);
+}
 #else
 #define our_uid()		(getuid())
 #define force_unreadable()	(0)
+#define our_access(path, mode)	(access(path, mode))
 #endif
 
 /*
  * Path of the doas(1) binary.  The absolute path is preferred so that
  * a malicious PATH cannot substitute another program for the
- * privileged one; execvp(3) is used as a fallback for unusual setups
- * and for the test suite.
+ * privileged one; execvp(3) is used as a fallback for unusual setups.
+ * The test build deliberately resolves doas(1) through PATH only, so
+ * that the suite's fake doas is found even where a system doas exists.
  */
 #define DOAS_PATH	"/usr/bin/doas"
 
@@ -256,8 +291,17 @@ doas_exec(const char *const *argv, int outfd, int infd)
 			if (dup2(infd, STDIN_FILENO) == -1)
 				_exit(126);
 		}
+#ifdef DOASEDIT_TEST
+		/*
+		 * The test suite provides its own fake doas(1) through
+		 * PATH; the system binary, which exists on OpenBSD,
+		 * must not take precedence over it.
+		 */
+		execvp("doas", (char *const *)argv);
+#else
 		execv(DOAS_PATH, (char *const *)argv);
 		execvp("doas", (char *const *)argv);
+#endif
 		_exit(127);
 	default:
 		break;
@@ -459,7 +503,7 @@ command_exists(const char *cmd)
 	char		 buf[PATH_MAX];
 
 	if (strchr(cmd, '/') != NULL)
-		return (access(cmd, X_OK) == 0);
+		return (our_access(cmd, X_OK) == 0);
 	path = getenv("PATH");
 	if (path == NULL)
 		path = "/usr/bin:/bin";
@@ -473,7 +517,7 @@ command_exists(const char *cmd)
 		len = strcspn(p, ":");
 		if (len == 0) {
 			/* empty PATH element means the current directory */
-			if (access(cmd, X_OK) == 0)
+			if (our_access(cmd, X_OK) == 0)
 				return (1);
 			continue;
 		}
@@ -481,7 +525,7 @@ command_exists(const char *cmd)
 			memcpy(buf, p, len);
 			buf[len] = '/';
 			strlcpy(buf + len + 1, cmd, sizeof(buf) - len - 1);
-			if (access(buf, X_OK) == 0)
+			if (our_access(buf, X_OK) == 0)
 				return (1);
 		}
 		p += len;
@@ -578,7 +622,7 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (getuid() == 0)
+	if (our_uid() == 0)
 		errx(1, "using this program as root is not permitted");
 
 	/*
@@ -719,7 +763,7 @@ main(int argc, char *argv[])
 					free(target);
 					continue;
 				}
-				if (access(dir, W_OK) == 0) {
+				if (our_access(dir, W_OK) == 0) {
 					warnx("%s: creating files in a "
 					    "user-writable directory is "
 					    "not permitted", file);
@@ -758,7 +802,7 @@ create_root_only:
 			}
 			if (force_unreadable())
 				readable = 0;
-			writable = (access(target, W_OK) == 0);
+			writable = (our_access(target, W_OK) == 0);
 			if (readable && writable) {
 				warnx("%s: editing user-readable and "
 				    "-writable files is not permitted",
@@ -953,7 +997,9 @@ create_root_only:
 
 		/* direct write path (write-only files the user can
 		 * open): write into the existing inode */
-		fd = open(target, O_WRONLY | O_NOFOLLOW);
+		fd = -1;
+		if (our_access(target, W_OK) == 0)
+			fd = open(target, O_WRONLY | O_NOFOLLOW);
 		if (fd != -1) {
 			struct stat	 fst;
 
