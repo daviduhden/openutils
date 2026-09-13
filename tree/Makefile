@@ -9,7 +9,7 @@ WARNINGS ?= -Wall -Wextra -Wpedantic
 CSTD = -std=c17
 CPPFLAGS += -I../compat
 DEBUGGER ?= lldb
-DEBUG_CFLAGS ?= -g -O0
+DEBUG_CFLAGS ?= -O0 -g
 
 # compat shims for non-OpenBSD hosts (they compile to nothing there)
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
@@ -25,7 +25,7 @@ $(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
 
 # debug build: unoptimized binary for use with the debugger
 $(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
-	$(CC) $(CFLAGS) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
+	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug

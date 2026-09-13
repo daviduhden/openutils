@@ -12,7 +12,7 @@ CFLAGS ?= -O2 -pipe
 CPPFLAGS ?=
 LDFLAGS ?=
 DEBUGGER ?= lldb
-DEBUG_CFLAGS ?= -g -O0
+DEBUG_CFLAGS ?= -O0 -g
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
