@@ -68,11 +68,19 @@ class Session:
         return True
 
     def write(self, data):
-        os.write(self.fd, data)
+        try:
+            os.write(self.fd, data)
+            return True
+        except OSError:
+            return False
 
     def close(self):
         try:
             os.close(self.fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(self.pid, os.WNOHANG)
         except OSError:
             pass
 
@@ -82,7 +90,8 @@ def run(argv, inputs=(), env=None, startup=2.0, delay=1.0, drain=2.0):
     session = Session(argv, env)
     session.pump(startup)
     for seq in inputs:
-        session.write(decode(seq))
+        if not session.write(decode(seq)):
+            break
         session.pump(delay)
     session.pump(drain)
     session.close()

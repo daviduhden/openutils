@@ -80,8 +80,8 @@ def main():
         # edit, save and exit via menu, with UTF-8 input
         path = os.path.join(work, "testfile.txt")
         pty_run.run([EE, "-i", path],
-                    ["hello world\nsecond line caf\xc3\xa9", "\x1b", "a",
-                     "a"], env={"TERM": "xterm"})
+                    ["hello world\nsecond line café", "\x1b", "a", "a"],
+                    env={"TERM": "xterm"})
         assert_eq("edited file saved", "hello world\nsecond line café",
                   read(path))
 
@@ -141,7 +141,7 @@ def main():
                 notok("usage is English under %s" % lc)
 
         path = os.path.join(work, "locfile.txt")
-        pty_run.run([EE, "-i", path], ["caf\xc3\xa9", "\x1b", "a", "a"],
+        pty_run.run([EE, "-i", path], ["café", "\x1b", "a", "a"],
                     env={"LC_ALL": "de_DE.UTF-8",
                          "LANG": "de_DE.UTF-8", "TERM": "xterm"})
         assert_eq("UTF-8 edit under de_DE.UTF-8", "café", read(path))
