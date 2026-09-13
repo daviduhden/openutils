@@ -20,11 +20,11 @@ MANDIR ?= $(PREFIX)/man/man
 
 all: $(PROG)
 
-$(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h
+$(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 # debug build: unoptimized binary for use with the debugger
-$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h
+$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
 	$(CC) $(CFLAGS) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 debug: $(PROG)_debug

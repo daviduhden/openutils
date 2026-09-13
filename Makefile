@@ -31,6 +31,10 @@ all:
 		$(MAKE_ENV) $(MAKE) -C $$d all || exit 1; \
 	done
 
+# force a full rebuild of every component
+rebuild: clean
+	@$(MAKE_ENV) $(MAKE) all
+
 doasedit:
 	$(MAKE_ENV) $(MAKE) -C doasedit all
 
@@ -110,4 +114,4 @@ clean:
 		$(MAKE_ENV) $(MAKE) -C $$d clean || exit 1; \
 	done
 
-.PHONY: all doasedit tree ee truncate test debug check install uninstall clean
+.PHONY: all rebuild doasedit tree ee truncate test debug check install uninstall clean
