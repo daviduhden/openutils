@@ -50,7 +50,7 @@ uninstall:
 	    $(DESTDIR)$(BINDIR)/edit $(DESTDIR)$(MANDIR)1/$(PROG).1
 
 test: $(PROG)
-	sh tests/run.sh
-	sh tests/signals.sh
+	python3 tests/run.py
+	python3 tests/signals.py
 
 .PHONY: all clean install uninstall test debug

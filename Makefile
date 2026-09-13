@@ -52,8 +52,8 @@ test: all
 	sh doasedit/tests/run.sh
 	sh tree/tests/run.sh
 	sh truncate/tests/run.sh
-	sh ee/tests/run.sh
-	sh ee/tests/signals.sh
+	python3 ee/tests/run.py
+	python3 ee/tests/signals.py
 
 # build one utility with -g -O0 and run it under lldb(1)
 debug:
