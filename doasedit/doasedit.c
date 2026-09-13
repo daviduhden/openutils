@@ -421,13 +421,19 @@ split_editor(const char *cmd)
 	return (argv);
 }
 
-/* metadata snapshot used to detect replacement of the target file */
+/*
+ * Metadata snapshot used to detect replacement of the target file.
+ * size and mtime catch a replacement that reuses the inode, which FFS
+ * does for a file removed and recreated in the same directory.
+ */
 struct snapshot {
-	dev_t	dev;
-	ino_t	ino;
-	mode_t	mode;
-	uid_t	uid;
-	gid_t	gid;
+	dev_t		dev;
+	ino_t		ino;
+	mode_t		mode;
+	uid_t		uid;
+	gid_t		gid;
+	off_t		size;
+	struct timespec	mtim;
 };
 
 static int
@@ -442,6 +448,8 @@ snapshot_of(const char *path, struct snapshot *snap)
 	snap->mode = st.st_mode;
 	snap->uid = st.st_uid;
 	snap->gid = st.st_gid;
+	snap->size = st.st_size;
+	snap->mtim = st.st_mtim;
 	return (0);
 }
 
@@ -454,7 +462,9 @@ snapshot_equal(const char *path, const struct snapshot *snap)
 		return (0);
 	return (st.st_dev == snap->dev && st.st_ino == snap->ino &&
 	    st.st_mode == snap->mode && st.st_uid == snap->uid &&
-	    st.st_gid == snap->gid);
+	    st.st_gid == snap->gid && st.st_size == snap->size &&
+	    st.st_mtim.tv_sec == snap->mtim.tv_sec &&
+	    st.st_mtim.tv_nsec == snap->mtim.tv_nsec);
 }
 
 /* copy the content of a source fd into an already-open file */
