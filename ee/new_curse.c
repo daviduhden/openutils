@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -825,6 +826,36 @@ Get_int(void)	/* get a two-byte integer from the terminfo file */
 		return (Low_byte + (High_byte * 256));
 }
 
+/*
+ * Compiled terminfo files come in two flavours: the original format
+ * (magic 282) stores numeric capabilities as 16-bit quantities, while
+ * the ncurses extended-number format (magic 542) stores them as
+ * 32-bit quantities.  The header and the string-offset table remain
+ * 16-bit in both.
+ */
+#define TERMINFO_MAGIC		282
+#define TERMINFO_MAGIC_32BIT	542
+
+int
+Get_long(void)	/* get a 32-bit numeric capability from the terminfo file */
+{
+	uint32_t value = 0;
+	int i;
+
+	for (i = 0; i < 4; i++)
+		value |= (uint32_t)(unsigned char)*TERM_data_ptr++ << (8 * i);
+	if (Flip_Bytes)
+		value = ((value & 0x000000FFU) << 24) |
+		    ((value & 0x0000FF00U) << 8) |
+		    ((value & 0x00FF0000U) >> 8) |
+		    ((value & 0xFF000000U) >> 24);
+	if (value == 0xFFFFFFFFU)	/* absent */
+		return (-1);
+	if (value == 0xFFFFFFFEU)	/* cancelled */
+		return (-2);
+	return ((int)value);
+}
+
 int
 INFO_PARSE(void)	/* parse off the data in the terminfo data file	*/
 {
@@ -836,11 +867,16 @@ INFO_PARSE(void)	/* parse off the data in the terminfo data file	*/
 	int Num_ints = 0;
 	int Num_strings = 0;
 	int string_table_len = 0;
+	int num_size;
+	int pad;
+	int needed;
 	char *temp_ptr;
 
 	TERM_data_ptr = Data_Line = malloc((10240 * (sizeof(char))));
+	if (Data_Line == NULL)
+		return (0);
 	Data_Line_len = read(Fildes, Data_Line, 10240);
-	if ((Data_Line_len >= 10240) || (Data_Line_len < 0))
+	if ((Data_Line_len >= 10240) || (Data_Line_len < 12))
 		return (0);
 	/*
 	 |	get magic number
@@ -849,14 +885,17 @@ INFO_PARSE(void)	/* parse off the data in the terminfo data file	*/
 	/*
 	 |	if magic number not right, reverse byte order and check again
 	 */
-	if (magic_number != 282) {
+	if (magic_number != TERMINFO_MAGIC &&
+	    magic_number != TERMINFO_MAGIC_32BIT) {
 		Flip_Bytes = TRUE;
 		TERM_data_ptr--;
 		TERM_data_ptr--;
 		magic_number = Get_int();
-		if (magic_number != 282)
+		if (magic_number != TERMINFO_MAGIC &&
+		    magic_number != TERMINFO_MAGIC_32BIT)
 			return (0);
 	}
+	num_size = (magic_number == TERMINFO_MAGIC_32BIT) ? 4 : 2;
 	/*
 	 |	get the number of each type in the terminfo data file
 	 */
@@ -865,7 +904,29 @@ INFO_PARSE(void)	/* parse off the data in the terminfo data file	*/
 	Num_ints = Get_int();
 	Num_strings = Get_int();
 	string_table_len = Get_int();
-	Strings = malloc(string_table_len);
+	/*
+	 |	Reject counts that no well-formed entry can carry: 0xFFFF
+	 |	decodes as -1, and counts beyond the tables below would
+	 |	overflow them.
+	 */
+	if (Num_names < 0 || Num_bools < 0 || Num_ints < 0 ||
+	    Num_strings < 0 || string_table_len < 0 ||
+	    Num_bools > (int)(sizeof(Booleans) / sizeof(Booleans[0])) ||
+	    Num_ints > (int)(sizeof(Numbers) / sizeof(Numbers[0])) ||
+	    Num_strings > (int)(sizeof(String_table) /
+	    sizeof(String_table[0])))
+		return (0);
+	/*
+	 |	the number section starts on a two-byte boundary
+	 */
+	pad = (Num_names + Num_bools) & 1;
+	needed = 12 + Num_names + Num_bools + pad +
+	    Num_ints * num_size + Num_strings * 2 + string_table_len;
+	if (needed > Data_Line_len)
+		return (0);
+	Strings = malloc(string_table_len > 0 ? string_table_len : 1);
+	if (Strings == NULL)
+		return (0);
 	while (Num_names > 0) {
 		TERM_data_ptr++;
 		Num_names--;
@@ -875,21 +936,27 @@ INFO_PARSE(void)	/* parse off the data in the terminfo data file	*/
 		Num_bools--;
 		Booleans[counter++] = *TERM_data_ptr++;
 	}
-	/* Get_int() reads single bytes, so no alignment is needed
-	 * here; aligning the *pointer address* (as the old code did)
-	 * misparses entries whose name section has an odd size. */
+	if (pad)
+		TERM_data_ptr++;
 	counter = 0;
 	while (Num_ints) {
 		Num_ints--;
-		Numbers[counter] = Get_int();
+		Numbers[counter] = (num_size == 4) ? Get_long() : Get_int();
 		counter++;
 	}
 	temp_ptr = TERM_data_ptr + Num_strings + Num_strings;
 	memcpy(Strings, temp_ptr, string_table_len);
+	/*
+	 |	the string table is NUL-terminated, so this guarantees that
+	 |	every in-range offset below yields a terminated string.
+	 */
+	if (string_table_len > 0 && Strings[string_table_len - 1] != '\0')
+		return (0);
 	counter = bt__;
 	while (Num_strings) {
 		Num_strings--;
-		if ((offset = Get_int()) != -1) {
+		offset = Get_int();
+		if (offset >= 0 && offset < string_table_len) {
 			if (String_table[counter] == NULL)
 				String_table[counter] = Strings + offset;
 		} else

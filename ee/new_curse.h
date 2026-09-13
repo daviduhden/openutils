@@ -150,6 +150,7 @@ void		 copy_window(WINDOW *, WINDOW *);
 void		 reinitscr(int);
 void		 initscr(void);
 int		 Get_int(void);
+int		 Get_long(void);
 int		 INFO_PARSE(void);
 int		 AtoI(void);
 void		 Key_Get(void);
