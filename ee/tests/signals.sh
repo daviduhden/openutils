@@ -67,8 +67,14 @@ os.write(fd, b'unsaved')
 pump(1)
 os.kill(pid, signal.SIGINT)
 pump(2.5)
-exited, status = os.waitpid(pid, os.WNOHANG)
-print('exited=%d' % (status != 0))
+exited = 0
+for _ in range(25):
+    wpid, status = os.waitpid(pid, os.WNOHANG)
+    if wpid != 0:
+        exited = 1
+        break
+    time.sleep(0.1)
+print('exited=%d' % exited)
 print('restored=%d' % (b'\x1b[?1l\x1b>' in buf))
 print('saved=%d' % os.path.exists(work + '/sigint.txt'))
 try:
