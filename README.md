@@ -60,7 +60,7 @@ Ritschard's tree 0.62 (the historical OpenBSD ports implementation),
 extended with the option set of the tree utility in common use today:
 `-a -d -f -F -i -l -L -r -t -x -s -h -p -u -g -D -C -n -N -Q -q -J
 -U -P -I -o --si --dirsfirst --filelimit --inodes --noreport --prune
---sort --timefmt --help`, colour output, UTF-8 line
+--sort --timefmt --help`, UTF-8 line
 drawing, symlink following with loop detection and JSON output.
 Patterns use `fnmatch(3)`; the `|`/`^` extensions of the original
 matcher are deliberately not reproduced.  XML/HTML output, `--du`,

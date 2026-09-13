@@ -39,8 +39,6 @@ static int		 gflag;		/* -g: group */
 static int		 Dflag;		/* -D: dates */
 static int		 cflag;		/* -c: use ctime with -D */
 static int		 inoflag;	/* --inodes */
-static int		 Cflag;		/* -C: colours */
-static int		 nflag;		/* -n: disable colours */
 static int		 Nflag;		/* -N: raw non-printable chars */
 static int		 Qflag;		/* -Q: quote names */
 static int		 qflag;		/* -q: non-printable as '?' */
@@ -75,15 +73,6 @@ static struct seen	*seen_dirs;
 static size_t		 seen_cnt;
 static size_t		 seen_alloc;
 
-/* colour codes modelled on Linux tree */
-#define C_DIR		"\033[01;34m"
-#define C_EXE		"\033[01;32m"
-#define C_LNK		"\033[01;36m"
-#define C_BADLNK	"\033[40;31;01m"
-#define C_BADTGT	"\033[01;37;41m"
-#define C_RESET		"\033[0m"
-
-static int	use_color;
 static int	use_unicode;
 static int	multibyte;
 
@@ -476,38 +465,6 @@ jtype(mode_t mode)
 	}
 }
 
-static const char *
-col_entry(const struct stat *lst, const struct stat *st)
-{
-	if (!use_color)
-		return ("");
-	if (st == NULL)
-		return (C_BADLNK);
-	if (S_ISLNK(lst->st_mode))
-		return (C_LNK);
-	if (S_ISDIR(st->st_mode))
-		return (C_DIR);
-	if (S_ISREG(st->st_mode) &&
-	    (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
-		return (C_EXE);
-	return ("");
-}
-
-static const char *
-col_target(const struct stat *st)
-{
-	if (!use_color)
-		return ("");
-	if (st == NULL)
-		return (C_BADTGT);
-	if (S_ISDIR(st->st_mode))
-		return (C_DIR);
-	if (S_ISREG(st->st_mode) &&
-	    (st->st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
-		return (C_EXE);
-	return ("");
-}
-
 static int
 seen(dev_t dev, ino_t ino)
 {
@@ -751,8 +708,6 @@ entryline(const struct ent *e, const char *path, int depth,
 			fputs(VLINE[bars[j]], outfile);
 		fputs(HIER[last], outfile);
 	}
-	if (use_color)
-		fputs(col_entry(&e->lst, e->broken ? NULL : &e->st), outfile);
 	fputs(fillinfo(&e->lst), outfile);
 	if (fillinfo(&e->lst)[0] != '\0')
 		fputs("  ", outfile);
@@ -775,11 +730,7 @@ entryline(const struct ent *e, const char *path, int depth,
 	}
 
 	if (e->target != NULL) {
-		if (use_color)
-			fputs(C_RESET, outfile);
 		fputs(" -> ", outfile);
-		if (use_color)
-			fputs(col_target(e->broken ? NULL : &e->st), outfile);
 		printname(e->target);
 		if (Fflag && !e->broken) {
 			char c = ftype(e->st.st_mode);
@@ -788,8 +739,6 @@ entryline(const struct ent *e, const char *path, int depth,
 				putc(c, outfile);
 		}
 	}
-	if (use_color)
-		fputs(C_RESET, outfile);
 }
 
 /*
@@ -1209,10 +1158,8 @@ setopt(int c, const char *val)
 		Dflag = 1;
 		break;
 	case 'C':
-		Cflag = 1;
-		break;
 	case 'n':
-		nflag = 1;
+		/* accepted for compatibility; output is always monochrome */
 		break;
 	case 'N':
 		Nflag = 1;
@@ -1460,8 +1407,6 @@ main(int argc, char *argv[])
 			err(1, "%s", outpath);
 	}
 
-	use_color = Cflag || (isatty(fileno(outfile)) && !nflag);
-
 	if (Jflag) {
 		int	j, first = 1;
 
@@ -1566,8 +1511,6 @@ main(int argc, char *argv[])
 		fputs(fillinfo(&st), outfile);
 		if (fillinfo(&st)[0] != '\0')
 			fputs("  ", outfile);
-		if (use_color)
-			fputs(C_DIR, outfile);
 		printname(roots[i]);
 		if (Fflag) {
 			char c = ftype(st.st_mode);
@@ -1575,8 +1518,6 @@ main(int argc, char *argv[])
 			if (c != 0)
 				putc(c, outfile);
 		}
-		if (use_color)
-			fputs(C_RESET, outfile);
 
 		if (collect(roots[i], &ents, &n) == -1) {
 			fprintf(outfile, "  [error opening dir]\n");
