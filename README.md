@@ -150,8 +150,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 - OpenBSD base system (`doas(1)`, `install(1)`, libc, curses-free).
 - For doasedit, a `doas.conf` that permits `dd`, `cat` and `install`
   (e.g. `permit persist :wheel`).
-- Python 3 for the ee behavioural test suite (`make test`); the
-  doasedit, tree and truncate test suites are POSIX shell.
+- Perl 5 with the IO::Pty module for the ee behavioural test suite
+  (`make test`); install it on OpenBSD with `doas pkg_add p5-IO-Tty`
+  (devel/p5-IO-TTY).  The doasedit, tree and truncate test suites are
+  POSIX shell and need no extra packages.
 
 ## Known differences from the reference utilities
 
