@@ -64,8 +64,8 @@ sub build_terminfo {
     my @numbers = (0xFFFF) x 40;
     $numbers[0] = 80;
     $numbers[2] = 24;
-    my @soff  = (0xFFFF) x $NS;
-    my $table = '';
+    my @soff   = (0xFFFF) x $NS;
+    my $table  = '';
     my $addstr = sub {
         my ( $idx, $s ) = @_;
         $soff[$idx] = length $table;
@@ -75,8 +75,8 @@ sub build_terminfo {
     $addstr->( 5,   $clear );
     $addstr->( 10,  "\033[%i%d;%dH" );
     $addstr->( 104, '' );
-    my $hdr = pack( 'v6', 282, length($names), 0, scalar(@numbers),
-        $NS, length($table) );
+    my $hdr = pack( 'v6',
+        282, length($names), 0, scalar(@numbers), $NS, length($table) );
     my $pad = ( length($names) % 2 ) ? "\0" : '';
     open my $fh, '>', $path or die "open $path: $!";
     binmode $fh;
@@ -90,16 +90,15 @@ sub build_terminfo {
 
 sub sigint_test {
     my ($work) = @_;
-    my $session = Session->new(
-        [ $EE, '-i', "$work/sigint.txt" ],
-        { TERM => 'xterm' }
-    );
+    my $session =
+      Session->new( [ $EE, '-i', "$work/sigint.txt" ], { TERM => 'xterm' } );
     $session->pump(2.5);
     $session->write('unsaved');
     $session->pump(1);
     kill 'INT', $session->pid;
     $session->pump(2.5);
     my $exited = 0;
+
     for ( 1 .. 25 ) {
         my $wpid = waitpid( $session->pid, WNOHANG );
         if ( $wpid != 0 ) {
@@ -109,17 +108,15 @@ sub sigint_test {
         sleep 0.1;
     }
     my $restored = index( $session->buf, "\x1b[?1l\x1b>" ) >= 0 ? 1 : 0;
-    my $saved    = -e "$work/sigint.txt" ? 1 : 0;
+    my $saved    = -e "$work/sigint.txt"                        ? 1 : 0;
     $session->close;
     return ( $exited, $restored, $saved );
 }
 
 sub sigwinch_test {
     my ($work) = @_;
-    my $session = Session->new(
-        [ $EE, '-i', "$work/resize.txt" ],
-        { TERM => 'xterm' }
-    );
+    my $session =
+      Session->new( [ $EE, '-i', "$work/resize.txt" ], { TERM => 'xterm' } );
     $session->pump(2.5);
     $session->write('kept text');
     $session->pump(1);
@@ -137,6 +134,7 @@ sub sigwinch_test {
     $session->write('a');
     $session->pump(2);
     my $data = '';
+
     if ( -e "$work/resize.txt" ) {
         open my $fh, '<', "$work/resize.txt" or die "open: $!";
         binmode $fh;
@@ -155,10 +153,8 @@ sub tinfo_test {
     make_path("$tdir/o");
     build_terminfo( "$tdir/o/openutils-test", $clear,
         "openutils-test|t|malformed terminfo test\0" );
-    my $session = Session->new(
-        [ $EE, '-i', "$work/tinf.txt" ],
-        { TERM => 'openutils-test', TERMINFO => $tdir }
-    );
+    my $session = Session->new( [ $EE, '-i', "$work/tinf.txt" ],
+        { TERM => 'openutils-test', TERMINFO => $tdir } );
     $session->pump(2.5);
     $session->write('x');
     $session->pump(1.5);
@@ -166,9 +162,9 @@ sub tinfo_test {
     my $status = $?;
     my $sig    = $status & 0x7f;
     my $crashed =
-        ( $wpid != 0 && $status != 0 && $sig != 0 && $sig != 0x7f )
-        ? 1
-        : 0;
+      ( $wpid != 0 && $status != 0 && $sig != 0 && $sig != 0x7f )
+      ? 1
+      : 0;
     $session->close;
     return $crashed;
 }
@@ -179,10 +175,8 @@ sub tinfo_valid_test {
     make_path("$tdir/o");
     build_terminfo( "$tdir/o/openutils-test", "\033[H\033[2J",
         "openutils-test|t|minimal terminfo\0" );
-    my $session = Session->new(
-        [ $EE, '-i', "$work/tinfv.txt" ],
-        { TERM => 'openutils-test', TERMINFO => $tdir }
-    );
+    my $session = Session->new( [ $EE, '-i', "$work/tinfv.txt" ],
+        { TERM => 'openutils-test', TERMINFO => $tdir } );
     $session->pump(2.5);
     $session->write('hello');
     $session->pump(1);
@@ -193,6 +187,7 @@ sub tinfo_valid_test {
     $session->write('a');
     $session->pump(2);
     my $data = '';
+
     if ( -e "$work/tinfv.txt" ) {
         open my $fh, '<', "$work/tinfv.txt" or die "open: $!";
         binmode $fh;
@@ -206,20 +201,18 @@ sub tinfo_valid_test {
 
 sub main {
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $work =
-        tempdir( 'ee-sig-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $work   = tempdir( 'ee-sig-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
     my ( $exited, $restored, $saved ) = sigint_test($work);
-    check( 'SIGINT exits the editor', $exited );
+    check( 'SIGINT exits the editor',      $exited );
     check( 'SIGINT restores the terminal', $restored );
-    check( 'SIGINT does not save', !$saved );
+    check( 'SIGINT does not save',         !$saved );
 
     check( 'SIGWINCH keeps the editor working', sigwinch_test($work) );
 
     for my $bad ( '%{0}%{0}/%d', '%{0}%{0}%%d', '%{123', '%p9', '%P9',
         '%g9', '%{99999999999999999999}', '$<12x' )
     {
-        check( "terminfo '$bad' does not crash",
-            !tinfo_test( $work, $bad ) );
+        check( "terminfo '$bad' does not crash", !tinfo_test( $work, $bad ) );
     }
 
     check( 'minimal valid terminfo saves', tinfo_valid_test($work) );

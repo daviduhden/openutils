@@ -229,7 +229,7 @@ done
 
 assert_eq "output stable with locale variables unset" "$ref" \
 	"$(env -u LANG -u LC_ALL -u LC_MESSAGES -u LANGUAGE \
-	"$TREE" -s -h sub)"
+		"$TREE" -s -h sub)"
 
 LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8 "$TREE" sub 2>/dev/null |
 	grep -q "director"

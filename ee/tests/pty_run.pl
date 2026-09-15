@@ -17,7 +17,7 @@
 use strict;
 use warnings;
 
-use Encode      ();
+use Encode ();
 use IO::Pty;
 use IO::Select;
 use POSIX       ();

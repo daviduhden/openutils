@@ -27,7 +27,7 @@ if command -v truncate >/dev/null 2>&1; then
 	"$ROOT/truncate"*) ;;
 	*)
 		if "$candidate" --version 2>/dev/null |
-		    grep -q 'GNU coreutils'; then
+			grep -q 'GNU coreutils'; then
 			GNU=$candidate
 		fi
 		;;

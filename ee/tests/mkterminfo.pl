@@ -26,7 +26,7 @@ my $NS = 190;    # total number of string capabilities (see new_curse.c)
 
 sub build {
     my ( $path, $clear, $cup, $pad ) = @_;
-    $clear = "\033[H\033[2J"  unless defined $clear;
+    $clear = "\033[H\033[2J" unless defined $clear;
     $cup   = "\033[%i%d;%dH" unless defined $cup;
     $pad   = "\0"            unless defined $pad;
     my @numbers = (0xFFFF) x 40;
@@ -34,7 +34,7 @@ sub build {
     $numbers[$LI] = 24;
     my @soff  = (0xFFFF) x $NS;
     my $table = '';
-    my $add = sub {
+    my $add   = sub {
         my ( $idx, $s ) = @_;
         $soff[$idx] = length $table;
         $table .= $s . "\0";
@@ -44,8 +44,8 @@ sub build {
     $add->( $CM, $cup );
     $add->( $PC, $pad );
     my $names = "openutils-test|x|test terminal for ee tests\0";
-    my $hdr   = pack( 'v6', 282, length($names), 0, scalar(@numbers),
-        $NS, length($table) );
+    my $hdr   = pack( 'v6',
+        282, length($names), 0, scalar(@numbers), $NS, length($table) );
     open my $fh, '>', $path or die "open $path: $!";
     binmode $fh;
     print {$fh} $hdr . $names;

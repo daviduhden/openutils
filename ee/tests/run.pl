@@ -130,8 +130,8 @@ sub main {
     # block does not leave the first character of the highlighted
     # entry looking unselected, and restores it on close
     $path = "$work/menufile.txt";
-    my $out = run( [ $EE, '-i', $path ], [ "\x1b", "\x1b" ],
-        { TERM => 'xterm' } );
+    my $out =
+      run( [ $EE, '-i', $path ], [ "\x1b", "\x1b" ], { TERM => 'xterm' } );
     if (   index( $out, "\x1b[?25l" ) >= 0
         && index( $out, "\x1b[?25h" ) >= 0 )
     {
@@ -155,13 +155,16 @@ sub main {
     run( [ $EE, '-i', $path ], [ 'xx', "\x1b", 'a', 'a' ],
         { TERM => 'xterm' } );
     assert_eq( 'content updated', 'xxoriginal', read_text($path) );
-    assert_eq( 'mode preserved', '640',
-        sprintf( '%o', ( stat $path )[2] & 0777 ) );
+    assert_eq( 'mode preserved',
+        '640', sprintf( '%o', ( stat $path )[2] & 0777 ) );
 
     # new file created with normal umask
     $path = "$work/newfile.txt";
-    run( [ $EE, '-i', $path ], [ 'data', "\x1b", 'a', 'a' ],
-        { TERM => 'xterm' } );
+    run(
+        [ $EE,    '-i',   $path ],
+        [ 'data', "\x1b", 'a', 'a' ],
+        { TERM => 'xterm' }
+    );
     assert_eq( 'new file content', 'data', read_text($path) );
 
     # long lines (longer than the internal 512-byte read chunks)
@@ -182,26 +185,33 @@ sub main {
     print {$noeol} 'no trailing newline';
     close $noeol;
     run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
-    assert_eq( 'file without final newline kept', 'no trailing newline',
-        read_text($path) );
+    assert_eq(
+        'file without final newline kept',
+        'no trailing newline',
+        read_text($path)
+    );
 
     # "no save" path leaves the file untouched
     open my $keep, '>', $path or die "open $path: $!";
     print {$keep} "keep\n";
     close $keep;
-    run( [ $EE, '-i', $path ], [ 'junk', "\x1b", 'a', 'b' ],
-        { TERM => 'xterm' } );
+    run(
+        [ $EE,    '-i',   $path ],
+        [ 'junk', "\x1b", 'a', 'b' ],
+        { TERM => 'xterm' }
+    );
     assert_eq( 'no-save leaves file untouched', 'keep', read_text($path) );
 
     # locale: the interface stays English and UTF-8 editing works
     # under foreign and unusual locale environments
-    for my $lc ( 'C', 'de_DE.UTF-8', 'es_ES.UTF-8', 'fr_FR.UTF-8',
-        'zz_ZZ.NOPE' )
+    for
+      my $lc ( 'C', 'de_DE.UTF-8', 'es_ES.UTF-8', 'fr_FR.UTF-8', 'zz_ZZ.NOPE' )
     {
         my $locale_out = run(
             [ $EE, '-?' ],
             [],
-            {   LC_ALL      => $lc,
+            {
+                LC_ALL      => $lc,
                 LANG        => $lc,
                 LC_MESSAGES => $lc,
                 TERM        => 'xterm'
@@ -219,10 +229,13 @@ sub main {
 
     $path = "$work/locfile.txt";
     run(
-        [ $EE, '-i', $path ],
+        [ $EE,    '-i',   $path ],
         [ "café", "\x1b", 'a', 'a' ],
-        { LC_ALL => 'de_DE.UTF-8', LANG => 'de_DE.UTF-8',
-            TERM => 'xterm' }
+        {
+            LC_ALL => 'de_DE.UTF-8',
+            LANG   => 'de_DE.UTF-8',
+            TERM   => 'xterm'
+        }
     );
     assert_eq( 'UTF-8 edit under de_DE.UTF-8', 'café', read_text($path) );
 
