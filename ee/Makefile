@@ -6,7 +6,7 @@
 # strict flags.
 
 PROG = ee
-SRCS = ee.c
+SRCS = ee.c utf8.c help.c
 
 CC = clang
 CFLAGS ?= -O2 -pipe
@@ -62,5 +62,6 @@ uninstall:
 test: $(PROG)
 	perl tests/run.pl
 	perl tests/signals.pl
+	perl tests/modern.pl
 
 .PHONY: all clean install uninstall test debug

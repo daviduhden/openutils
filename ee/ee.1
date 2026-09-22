@@ -359,9 +359,6 @@ Lines can either be truncated at the right margin, or extend on forever.
 .IP "\fBauto paragraph formatting\fR"
 While typing in text, the editor can try to keep it looking reasonably well
 within the width of the screen.
-.IP "\fBeightbit characters\fR"
-Toggles whether eight bit characters are displayed as their value in angle
-brackets (e.g. "<220>") or as a character.
 .IP "\fBinfo window\fR"
 The shortcut bar showing the keyboard operations that can be performed
 can be displayed or not.
@@ -489,11 +486,6 @@ Turns on reverse video in the title, status, shortcut bars and menus
 (default).
 .IP \fBnohighlight\fR
 Turns off reverse video.
-.IP \fBeightbit\fR
-Turns on display of eight bit characters.
-.IP \fBnoeightbit\fR
-Turns off display of eight bit characters (they are displayed as their decimal
-value inside angle brackets, e.g., "<220>").
 .IP \fBemacs\fR
 Turns on emacs key bindings.
 .IP \fBnoemacs\fR
@@ -550,20 +542,33 @@ Text is read, edited and written in the UTF-8 encoding, which is the
 only supported character encoding.
 .IR ee
 distinguishes between byte offsets into the buffer, Unicode characters
-and terminal display columns, so multibyte characters and double-width
+and terminal display columns, so multibyte, double-width and combining
 characters are moved over and displayed correctly.
-The only supported locale is en_US.UTF-8, which
-.I ee
-selects itself;
-setting
+Cursor movement and deletion operate on whole Unicode code points, not
+on grapheme clusters.
+.PP
+Files are considered text only if they are valid UTF-8 and contain no
+NUL byte.
+A file containing a NUL byte is reported as "not a text file"; a file
+containing malformed UTF-8 is reported as "not valid UTF-8" and is not
+opened.
+The same validation is applied to text read from a shell pipe.
+This keeps the buffer invariant "every line is valid UTF-8" true at all
+times, so the editor can never corrupt a file by silently accepting
+bytes it cannot represent.
+.PP
+The locale is selected for multibyte support only: a UTF-8 locale is
+chosen (the environment is used when it already names a UTF-8 codeset),
+never one that would change the interface language.
+Setting
 .SM LANG ,
 .SM LANGUAGE ,
 .SM LC_ALL ,
 .SM LC_MESSAGES
 or any other locale variable has no effect on the interface language
 or on the character handling of the editor.
-If the system does not provide the en_US.UTF-8 locale data, the
-editor degrades to byte-oriented editing and says so on standard error.
+If no UTF-8 locale is available, the editor degrades to byte-oriented
+editing and says so on standard error.
 Legacy encodings such as ISO-8859-1, Shift-JIS and Big-5 are not
 supported.
 .SH WARNINGS

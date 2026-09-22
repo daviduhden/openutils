@@ -76,8 +76,10 @@ tree (Hugh Mahon's ee 1.5.2) and modernized: terminal handling now uses
 buffer semantics and configuration file format are unchanged; the
 presentation is new, with a monochrome title/status bar, a contextual
 shortcut bar, unambiguous prompts and a paged help screen.  The editor
-is UTF-8 only and its interface is U.S. English only.  Also installed
-as `ree` (restricted mode) and `edit`, as upstream does.
+is UTF-8 only and its interface is U.S. English only; text is validated
+before it is loaded, so a file containing a NUL byte or malformed UTF-8
+is rejected instead of being silently accepted.  Also installed as
+`ree` (restricted mode) and `edit`, as upstream does.
 
 ### truncate
 
@@ -176,7 +178,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   is new (title/status bar, shortcut bar, structured help), and the
   save/quit confirmations are explicit, but the editing commands and
   their semantics are preserved.  `-i` now hides the shortcut bar only
-  (the status bar is always shown).
+  (the status bar is always shown).  Files that are not valid UTF-8, or
+  that contain a NUL byte, are rejected rather than edited.  The
+  historical `eightbit`/`noeightbit` settings are accepted but have no
+  effect (text is always UTF-8).
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

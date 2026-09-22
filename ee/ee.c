@@ -1,5 +1,8 @@
 #include "bsdcompat.h"
 
+#include "help.h"
+#include "utf8.h"
+
 /*
  * Terminal handling is provided by ncursesw.  The editor deliberately
  * uses no colour, no mouse and no panels; only the standard monochrome
@@ -11,11 +14,13 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <langinfo.h>
 #include <limits.h>
 #include <locale.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,7 +111,6 @@ int input_file;			/* indicate to read input file		*/
 int recv_file;			/* indicate reading a file		*/
 int edit;			/* continue executing while true	*/
 int gold;			/* 'gold' function key pressed		*/
-int fildes;			/* file descriptor			*/
 int case_sen;			/* case sensitive search flag		*/
 int last_line;			/* last line for text display		*/
 int last_col;			/* last column for text display		*/
@@ -120,7 +124,6 @@ int expand_tabs = TRUE;		/* flag for expanding tabs		*/
 int right_margin = 0;		/* the right margin 			*/
 int observ_margins = TRUE;	/* flag for whether margins are observed */
 int shell_fork;
-int temp_stdin;			/* temporary storage for stdin		*/
 int temp_stdout;		/* temp storage for stdout descriptor	*/
 int temp_stderr;		/* temp storage for stderr descriptor	*/
 int pipe_out[2];		/* pipe file desc for output		*/
@@ -131,7 +134,6 @@ int formatted = FALSE;		/* flag indicating paragraph formatted	*/
 int auto_format = FALSE;	/* flag for auto_format mode		*/
 int restricted = FALSE;		/* flag to indicate restricted mode	*/
 int nohighlight = FALSE;	/* turns off highlighting		*/
-int eightbit = TRUE;		/* eight bit character flag		*/
 int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
 int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
 int curses_initialized = FALSE;	/* flag indicating if curses has been started*/
@@ -174,7 +176,7 @@ char *tmp_file;	/* temporary file name			*/
 unsigned char d_char[5];	/* deleted character			*/
 unsigned char *d_word;		/* deleted word				*/
 unsigned char *d_line;		/* deleted line				*/
-char in_string[513];	/* buffer for reading a file		*/
+
 unsigned char *print_command = (unsigned char *)"lpr";	/* string to use for the print command 	*/
 unsigned char *start_at_line = NULL;	/* move to this line at start of session*/
 int in;				/* input character			*/
@@ -204,51 +206,32 @@ static const char *shortcut_items[SHORTCUT_MAX];
 static int shortcut_count = 0;
 
 /*
- |	UTF-8 utility functions.
+ * Thin adapters over the strict UTF-8 module (utf8.c).  The names are
+ * historical; all of the decisions live in utf8.c so that the editor
+ * has exactly one implementation of "what is a character".
  */
 
-/* Return the number of bytes in the UTF-8 character starting at s. */
+/* Byte length of the character at s (1 for an invalid lead byte). */
 static int
 utf8_len(const unsigned char *s)
 {
-	if (*s < 0x80)
-		return 1;
-	if ((*s & 0xE0) == 0xC0)
-		return 2;
-	if ((*s & 0xF0) == 0xE0)
-		return 3;
-	if ((*s & 0xF8) == 0xF0)
-		return 4;
-	return 1;	/* invalid byte: treat as single byte */
+	size_t len = ee_utf8_seqlen(s);
+
+	return ((len == 0) ? 1 : (int)len);
 }
 
-/* Return a pointer to the start of the previous UTF-8 character. */
+/* Pointer to the first byte of the previous character. */
 static unsigned char *
 utf8_prev(const unsigned char *start, const unsigned char *ptr)
 {
-	if (ptr <= start)
-		return (unsigned char *)start;
-	ptr--;
-	while (ptr > start && (*ptr & 0xC0) == 0x80)
-		ptr--;
-	return (unsigned char *)ptr;
+	return ((unsigned char *)ee_utf8_prev(start, ptr));
 }
 
-/* Return the display width of the UTF-8 character starting at s. */
+/* Display width of the character at s (1 if it cannot be decoded). */
 static int
 utf8_width(const unsigned char *s)
 {
-	wchar_t wc;
-	mbstate_t mbs;
-	int w;
-
-	if (*s < 0x80)
-		return 1;
-	memset(&mbs, 0, sizeof(mbs));
-	if (mbrtowc(&wc, (const char *)s, utf8_len(s), &mbs) == (size_t)-1)
-		return 1;
-	w = wcwidth(wc);
-	return (w >= 0) ? w : 1;
+	return (ee_utf8_width(s));
 }
 
 /* Return the number of terminal columns occupied by a UTF-8 string. */
@@ -259,12 +242,17 @@ utf8_strwidth(const char *s)
 	int width = 0;
 
 	while (*p != '\0') {
+		size_t len = ee_utf8_seqlen(p);
+
 		if (*p < 0x80) {
+			width++;
+			p++;
+		} else if (len == 0) {
 			width++;
 			p++;
 		} else {
 			width += utf8_width(p);
-			p += utf8_len(p);
+			p += len;
 		}
 	}
 	return (width);
@@ -346,6 +334,7 @@ static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
 static void check_fp(void);
 static void get_file(char *file_name);
+static int read_all(int fd, unsigned char **out, size_t *outlen);
 static void get_line(int length, unsigned char *input, int *append);
 static void draw_screen(void);
 static void finish(void);
@@ -398,10 +387,12 @@ static void ispell_op(void);
 static int first_word_len(struct text *test_line);
 static void Auto_Format(void);
 static void modes_op(void);
-static char *is_in_string(char *string, char *substring);
+static int append_mem(char **buf, size_t *len, size_t *cap, const char *s,
+    size_t n);
 static char *resolve_name(char *name);
 static int restrict_mode(void);
 static int unique_test(char *string, char *list[]);
+static void select_utf8_locale(void);
 static void strings_init(void);
 
 #undef P_
@@ -415,17 +406,16 @@ struct menu_entries modes_menu[] = {
 	{"", NULL, NULL, NULL, NULL, -1}, 	/* 2. case sensitive search*/
 	{"", NULL, NULL, NULL, NULL, -1}, 	/* 3. margins observed	*/
 	{"", NULL, NULL, NULL, NULL, -1}, 	/* 4. auto-paragraph	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 5. eightbit characters*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 6. info window	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 7. emacs key bindings*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 8. right margin	*/
-	{"", NULL, NULL, NULL, dump_ee_conf, -1}, /* 9. save editor config */
+	{"", NULL, NULL, NULL, NULL, -1}, 	/* 5. info window	*/
+	{"", NULL, NULL, NULL, NULL, -1}, 	/* 6. emacs key bindings*/
+	{"", NULL, NULL, NULL, NULL, -1}, 	/* 7. right margin	*/
+	{"", NULL, NULL, NULL, dump_ee_conf, -1}, /* 8. save editor config */
 	{NULL, NULL, NULL, NULL, NULL, -1}	/* terminator		*/
 };
 
-char *mode_strings[10];
+char *mode_strings[9];
 
-#define NUM_MODES_ITEMS 9
+#define NUM_MODES_ITEMS 8
 #define MODES_ITEM_SIZE 80
 
 struct menu_entries config_dump_menu[] = {
@@ -489,22 +479,6 @@ struct menu_entries main_menu[] = {
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
-/*
- * Built-in help is generated from tables so that it can be laid out to
- * the current terminal size and can reflect the active key bindings.
- */
-struct help_entry {
-	const char *key;	/* key in normal mode			*/
-	const char *emacs;	/* key in emacs mode (NULL if same)	*/
-	const char *text;	/* description				*/
-};
-
-struct help_section {
-	const char *title;
-	const struct help_entry *items;
-	int count;
-};
-
 char *commands[30];
 char *init_strings[20];
 
@@ -532,6 +506,8 @@ char *current_file_str;
 char *file_is_dir_msg;
 char *new_file_msg;
 char *cant_open_msg;
+char *not_text_file_msg;
+char *invalid_utf8_msg;
 char *file_read_fin_msg;
 char *reading_file_msg;
 char *read_only_msg;
@@ -580,8 +556,6 @@ char *PRINTCOMMAND;
 char *RIGHTMARGIN;
 char *HIGHLIGHT;
 char *NOHIGHLIGHT;
-char *EIGHTBIT;
-char *NOEIGHTBIT;
 char *EMACS_string;
 char *NOEMACS_string;
 char *conf_dump_err_msg;
@@ -921,8 +895,7 @@ insert_utf8(const unsigned char *mb, int len)
 static void
 insert_code(int code)
 {
-	char mb[MB_LEN_MAX + 1];
-	mbstate_t mbs;
+	unsigned char mb[4];
 	size_t n;
 
 	if (code < 0)
@@ -933,14 +906,16 @@ insert_code(int code)
 		insert(code);
 		return;
 	}
-	if (code > 0x10FFFF)
-		return;
-	memset(&mbs, 0, sizeof(mbs));
-	n = wcrtomb(mb, (wchar_t)code, &mbs);
-	if (n == (size_t)-1)
+	/*
+	 * ee_utf8_encode() rejects surrogates (U+D800..U+DFFF) and code
+	 * points above U+10FFFF, so the editor can never insert an
+	 * invalid sequence here.
+	 */
+	n = ee_utf8_encode((uint32_t)code, mb);
+	if (n == 0)
 		return;
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-	insert_utf8((unsigned char *)mb, (int)n);
+	insert_utf8(mb, (int)n);
 }
 
 /* delete character		*/
@@ -1089,7 +1064,6 @@ out_char(WINDOW *window, int character, int column)
 {
 	int i1, i2;
 	char *string;
-	char string2[16];
 
 	if (character == TAB) {
 		i1 = tabshift(column);
@@ -1102,13 +1076,15 @@ out_char(WINDOW *window, int character, int column)
 	} else if ((character >= '\0') && (character < ' ')) {
 		string = table[(int)character];
 	} else if ((character < 0) || (character >= 127)) {
-		if (character == 127)
+		if (character == 127) {
 			string = "^?";
-		else if (!eightbit) {
-			snprintf(string2, sizeof(string2), "<%d>",
-			    (character < 0) ? (character + 256) : character);
-			string = string2;
 		} else {
+			/*
+			 * A byte outside the printable range should not
+			 * reach here any more: valid UTF-8 is rendered by
+			 * draw_line() and only control characters use this
+			 * path.  Print the raw byte defensively.
+			 */
 			waddch(window, (unsigned char)character);
 			return (1);
 		}
@@ -1137,8 +1113,6 @@ len_char(int character, int column)
 		length = 1;
 	else if (character == 127)
 		length = 2;
-	else if (((character > 126) || (character < 0)) && (!eightbit))
-		length = 5;
 	else
 		length = 1;
 
@@ -1188,7 +1162,17 @@ draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 			int clen = utf8_len(temp);
 			int dw = utf8_width(temp);
 			char buf[5];
-			memcpy(buf, temp, clen);
+
+			/*
+			 * Never start a character that would not fit
+			 * entirely inside the usable columns: a width-2
+			 * character is not drawn half-way at the edge.
+			 */
+			if ((column + dw) > (last_col + 1))
+				break;
+			if (clen > (int)sizeof(buf) - 1)
+				clen = (int)sizeof(buf) - 1;
+			memcpy(buf, temp, (size_t)clen);
 			buf[clen] = '\0';
 			waddstr(text_win, buf);
 			abs_column += dw;
@@ -1739,14 +1723,24 @@ function_key(void)
 static void
 print_buffer(void)
 {
-	char buffer[256];
+	size_t len = strlen((char *)print_command);
+	char *buffer;
 
-	snprintf(buffer, sizeof(buffer), ">!%s", print_command);
+	if (len > (SIZE_MAX - 3))
+		return;
+	buffer = malloc(len + 3);
+	if (buffer == NULL)
+		return;
+	buffer[0] = '>';
+	buffer[1] = '!';
+	memcpy(buffer + 2, print_command, len + 1);
+
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
 	wprintw(com_win, printer_msg_str, print_command);
 	wrefresh(com_win);
 	command(buffer);
+	free(buffer);
 }
 
 static void
@@ -2439,15 +2433,73 @@ check_fp(void)
 	wrefresh(text_win);
 }
 
-/* read specified file into current buffer	*/
+/*
+ * Read the whole of fd into a freshly allocated buffer.  The buffer is
+ * grown geometrically with reallocarray(3); overflow and allocation
+ * failure are reported as an error rather than silently truncating.
+ */
+static int
+read_all(int fd, unsigned char **out, size_t *outlen)
+{
+	unsigned char *buf = NULL;
+	size_t cap = 0;
+	size_t len = 0;
+
+	for (;;) {
+		ssize_t n;
+
+		if (len == cap) {
+			size_t ncap = (cap == 0) ? 8192 : cap * 2;
+			unsigned char *nb;
+
+			if (ncap < cap) {
+				free(buf);
+				return (-1);
+			}
+			nb = reallocarray(buf, ncap, 1);
+			if (nb == NULL) {
+				free(buf);
+				return (-1);
+			}
+			buf = nb;
+			cap = ncap;
+		}
+		n = read(fd, buf + len, cap - len);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			free(buf);
+			return (-1);
+		}
+		if (n == 0)
+			break;
+		len += (size_t)n;
+	}
+	*out = buf;
+	*outlen = len;
+	return (0);
+}
+
+/*
+ * Read specified file into current buffer.
+ *
+ * The whole input is read and validated before any of it is copied into
+ * the buffer.  This is what makes the "UTF-8 only" policy enforceable:
+ * a file that contains a NUL byte or a malformed UTF-8 sequence is
+ * rejected as a whole, so the buffer can never end up holding a mix of
+ * valid text and stray bytes, and a failed read leaves the previous
+ * contents untouched.
+ */
 static void
 get_file(char *file_name)
 {
-	int can_read;		/* file has at least one character	*/
-	int length;		/* length of line read by read		*/
 	int append;		/* should text be appended to current line */
+	int can_read;		/* file has at least one character	*/
 	struct text *temp_line;
 	char ro_flag = FALSE;
+	unsigned char *data = NULL;
+	size_t len = 0;
+	size_t bad;
 
 	if (recv_file) {		/* if reading a file			*/
 		wmove(com_win, 0, 0);
@@ -2463,19 +2515,63 @@ get_file(char *file_name)
 		}
 		wrefresh(com_win);
 	}
-	if (curr_line->line_length >
-	    1) {	/* if current line is not blank	*/
+
+	if (read_all(get_fd, &data, &len) < 0) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, cant_open_msg, file_name);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		return;
+	}
+
+	if ((len > 0) && (memchr(data, 0, len) != NULL)) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, not_text_file_msg, file_name);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		free(data);
+		if (input_file)
+			quit(0);
+		return;
+	}
+
+	bad = ee_utf8_validate(data, len);
+	if (bad != len) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, invalid_utf8_msg, file_name,
+		    (unsigned long)bad);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		free(data);
+		if (input_file)
+			quit(0);
+		return;
+	}
+
+	can_read = (len > 0);
+	if (curr_line->line_length > 1) {	/* if current line not blank */
 		insert_line(FALSE);
 		left(FALSE);
 		append = FALSE;
 	} else
 		append = TRUE;
-	can_read = FALSE;		/* test if file has any characters  */
-	while (((length = read(get_fd, in_string, 512)) != 0) &&
-	    (length != -1)) {
-		can_read = TRUE;  /* if set file has at least 1 character   */
-		get_line((int)length, (unsigned char *)in_string, &append);
+	{
+		size_t pos = 0;
+
+		while (pos < len) {
+			size_t chunk = len - pos;
+
+			if (chunk > 512)
+				chunk = 512;
+			get_line((int)chunk, data + pos, &append);
+			pos += chunk;
+		}
 	}
+	free(data);
+
 	if ((can_read) && (curr_line->line_length == 1)) {
 		temp_line = curr_line->prev_line;
 		temp_line->next_line = curr_line->next_line;
@@ -2719,11 +2815,11 @@ write_file(char *file_name, int warn_if_exists)
 	char cr;
 	char *tmp_point;
 	struct text *out_line;
-	int lines, charac;
+	int lines;
 	int temp_pos;
 	int write_flag = TRUE;
 
-	charac = lines = 0;
+	lines = 0;
 	if (warn_if_exists &&
 	    ((in_file_name == NULL) ||
 	     strcmp((char *)in_file_name, file_name))) {
@@ -2759,7 +2855,6 @@ write_file(char *file_name, int warn_if_exists)
 					tmp_point++;
 					temp_pos++;
 				}
-				charac += out_line->line_length;
 				out_line = out_line->next_line;
 				putc(cr, temp_fp);
 				lines++;
@@ -2767,8 +2862,7 @@ write_file(char *file_name, int warn_if_exists)
 			fclose(temp_fp);
 			wmove(com_win, 0, 0);
 			wclrtoeol(com_win);
-			wprintw(com_win, file_written_msg, file_name, lines,
-			    charac);
+			wprintw(com_win, file_written_msg, file_name, lines);
 			wrefresh(com_win);
 			return (TRUE);
 		}
@@ -2893,7 +2987,7 @@ static void
 search_prompt(void)
 {
 	char *query;
-	size_t alloc, used;
+	size_t alloc, used, qlen;
 
 	if (srch_str != NULL) {
 		free(srch_str);
@@ -2916,7 +3010,13 @@ search_prompt(void)
 	 * per input byte at most) so that no expansion of a character
 	 * can overflow it.
 	 */
-	alloc = strlen(query) * (size_t)MB_LEN_MAX + 1;
+	qlen = strlen(query);
+	if (qlen > ((SIZE_MAX - 1) / (size_t)MB_LEN_MAX)) {
+		/* An impossible query length; treat as "not found". */
+		search(TRUE);
+		return;
+	}
+	alloc = qlen * (size_t)MB_LEN_MAX + 1;
 	u_srch_str = malloc(alloc);
 	if (u_srch_str == NULL) {
 		search(TRUE);
@@ -3454,7 +3554,14 @@ sh_command(char *string)
 		raw();
 		keypad(text_win, TRUE);
 		keypad(com_win, TRUE);
-		clearok(text_win, TRUE);
+		/*
+		 * The terminal may have been resized while the shell was
+		 * running.  Force a layout rebuild so that the restored
+		 * screen matches the current size.
+		 */
+		local_LINES = -1;
+		local_COLS = -1;
+		resize_check();
 	}
 
 	redraw();
@@ -3540,28 +3647,51 @@ set_up_term(void)
 
 	idlok(stdscr, TRUE);
 
-	title_win = newwin(1, cols, 0, 0);
-	keypad(title_win, TRUE);
-	idlok(title_win, TRUE);
+	/*
+	 * Create only the windows the layout actually uses.  On a tiny
+	 * terminal the title or the shortcut bar may not fit; creating
+	 * them anyway would make two windows overlap.
+	 */
+	if (title) {
+		title_win = newwin(1, cols, 0, 0);
+		if (title_win != NULL) {
+			keypad(title_win, TRUE);
+			idlok(title_win, TRUE);
+		}
+	}
 
 	text_win = newwin(text_rows, cols, text_top, 0);
-	keypad(text_win, TRUE);
-	idlok(text_win, TRUE);
+	if (text_win != NULL) {
+		keypad(text_win, TRUE);
+		idlok(text_win, TRUE);
+	}
 
 	com_win = newwin(1, cols, rows - 1 - bar, 0);
-	keypad(com_win, TRUE);
-	idlok(com_win, TRUE);
-	wrefresh(com_win);
+	if (com_win != NULL) {
+		keypad(com_win, TRUE);
+		idlok(com_win, TRUE);
+		wrefresh(com_win);
+	}
 
 	if (bar) {
 		key_win = newwin(1, cols, rows - 1, 0);
-		keypad(key_win, TRUE);
-		idlok(key_win, TRUE);
+		if (key_win != NULL) {
+			keypad(key_win, TRUE);
+			idlok(key_win, TRUE);
+		}
 	}
 
 	help_win = newwin(rows, cols, 0, 0);
-	keypad(help_win, TRUE);
-	idlok(help_win, TRUE);
+	if (help_win != NULL) {
+		keypad(help_win, TRUE);
+		idlok(help_win, TRUE);
+	}
+
+	if ((text_win == NULL) || (com_win == NULL) || (help_win == NULL)) {
+		endwin();
+		fprintf(stderr, "ee: unable to create terminal windows\n");
+		exit(1);
+	}
 
 	if (shortcut_count == 0)
 		default_shortcuts();
@@ -3594,14 +3724,85 @@ resize_check(void)
 
 static char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
 
+/*
+ * Geometry of a pop-up menu.  Computed from the current terminal size so
+ * that a menu always fits: on a narrow terminal the item text is clipped
+ * rather than the menu being refused.
+ */
+struct menu_geometry {
+	int list_size;
+	int max_width, max_height;
+	int x_off, y_off;
+	int top_offset, vert_size;
+};
+
+static void
+menu_geometry(struct menu_entries menu_list[], struct menu_geometry *g)
+{
+	int counter, length;
+
+	g->list_size = 1;
+	while (menu_list[g->list_size + 1].item_string != NULL)
+		g->list_size++;
+	g->max_width = 0;
+	for (counter = 0; counter <= g->list_size; counter++) {
+		length = (int)strlen(menu_list[counter].item_string);
+		if (length > g->max_width)
+			g->max_width = length;
+	}
+	g->max_width += 3;
+	length = (int)strlen(menu_cancel_msg);
+	if (length > g->max_width)
+		g->max_width = length;
+	length = (int)strlen(more_above_str);
+	if (length > g->max_width)
+		g->max_width = length;
+	length = (int)strlen(more_below_str);
+	if (length > g->max_width)
+		g->max_width = length;
+	g->max_width += 6;
+
+	if (g->max_width > COLS)
+		g->max_width = COLS;
+	if (g->max_width < 1)
+		g->max_width = 1;
+
+	g->top_offset = 0;
+	if (g->list_size > LINES) {
+		g->max_height = LINES;
+		g->vert_size = (g->max_height > 11) ?
+		    g->max_height - 8 : g->max_height;
+	} else {
+		g->vert_size = g->list_size;
+		g->max_height = g->list_size;
+	}
+	if (LINES >= (g->vert_size + 8)) {
+		if (menu_list[0].argument != MENU_WARN)
+			g->max_height = g->vert_size + 8;
+		else
+			g->max_height = g->vert_size + 7;
+		g->top_offset = 4;
+	}
+	if (g->max_height > LINES)
+		g->max_height = LINES;
+	if (g->max_height < 1)
+		g->max_height = 1;
+
+	g->x_off = (COLS - g->max_width) / 2;
+	if (g->x_off < 0)
+		g->x_off = 0;
+	g->y_off = (LINES - g->max_height - 1) / 2;
+	if (g->y_off < 0)
+		g->y_off = 0;
+}
+
 static int
 menu_op(struct menu_entries menu_list[])
 {
 	WINDOW *temp_win;
+	struct menu_geometry g;
 	int max_width, max_height;
-	int x_off, y_off;
 	int counter;
-	int length;
 	int input;
 	int temp = 0;
 	int list_size;
@@ -3609,70 +3810,14 @@ menu_op(struct menu_entries menu_list[])
 	int vert_size;		/* vertical size for menu list item display */
 	int off_start = 1;	/* offset from start of menu items to start display */
 
-	/*
-	 |	determine number and width of menu items
-	 */
+	menu_geometry(menu_list, &g);
+	list_size = g.list_size;
+	max_width = g.max_width;
+	max_height = g.max_height;
+	top_offset = g.top_offset;
+	vert_size = g.vert_size;
 
-	list_size = 1;
-	while (menu_list[list_size + 1].item_string != NULL)
-		list_size++;
-	max_width = 0;
-	for (counter = 0; counter <= list_size; counter++) {
-		if ((length = strlen(menu_list[counter].item_string)) >
-		    max_width)
-			max_width = length;
-	}
-	max_width += 3;
-	max_width = ee_max(max_width, strlen(menu_cancel_msg));
-	max_width = ee_max(max_width,
-	    ee_max(strlen(more_above_str), strlen(more_below_str)));
-	max_width += 6;
-
-	/*
-	 |	make sure that window is large enough to handle menu
-	 |	if not, print error message and return to calling function
-	 */
-
-	if (max_width > COLS) {
-		wmove(com_win, 0, 0);
-		werase(com_win);
-		wprintw(com_win, "%s", menu_too_lrg_msg);
-		wrefresh(com_win);
-		clear_com_win = TRUE;
-		return (0);
-	}
-
-	top_offset = 0;
-
-	if (list_size > LINES) {
-		max_height = LINES;
-		if (max_height > 11)
-			vert_size = max_height - 8;
-		else
-			vert_size = max_height;
-	} else {
-		vert_size = list_size;
-		max_height = list_size;
-	}
-
-	if (LINES >= (vert_size + 8)) {
-		if (menu_list[0].argument != MENU_WARN)
-			max_height = vert_size + 8;
-		else
-			max_height = vert_size + 7;
-		top_offset = 4;
-	}
-	if (max_height > LINES)
-		max_height = LINES;
-	if (max_height < 1)
-		max_height = 1;
-	x_off = (COLS - max_width) / 2;
-	y_off = (LINES - max_height - 1) / 2;
-	if (y_off < 0)
-		y_off = 0;
-	if (x_off < 0)
-		x_off = 0;
-	temp_win = newwin(max_height, max_width, y_off, x_off);
+	temp_win = newwin(max_height, max_width, g.y_off, g.x_off);
 	if (temp_win == NULL) {
 		wmove(com_win, 0, 0);
 		werase(com_win);
@@ -3705,6 +3850,44 @@ menu_op(struct menu_entries menu_list[])
 				if (ee_intr_flag)
 					edit_abort(0);
 				exit(0);
+			}
+			if ((wret == KEY_CODE_YES) && (win == KEY_RESIZE)) {
+				/*
+				 * Rebuild the menu for the new terminal
+				 * size, keeping the current selection and
+				 * scroll position.
+				 */
+				delwin(temp_win);
+				resize_check();
+				menu_geometry(menu_list, &g);
+				list_size = g.list_size;
+				max_width = g.max_width;
+				max_height = g.max_height;
+				top_offset = g.top_offset;
+				vert_size = g.vert_size;
+				if (counter > list_size)
+					counter = list_size;
+				if (counter < 1)
+					counter = 1;
+				if (off_start > list_size)
+					off_start = 1;
+				temp_win = newwin(max_height, max_width,
+				    g.y_off, g.x_off);
+				if (temp_win == NULL) {
+					wmove(com_win, 0, 0);
+					werase(com_win);
+					wprintw(com_win, "%s",
+					    menu_too_lrg_msg);
+					wrefresh(com_win);
+					clear_com_win = TRUE;
+					return (0);
+				}
+				keypad(temp_win, TRUE);
+				curs_set(0);
+				paint_menu(menu_list, max_width, max_height,
+				    list_size, top_offset, temp_win, off_start,
+				    vert_size, counter);
+				continue;
 			}
 			if ((wret == KEY_CODE_YES) && (win == KEY_ENTER))
 				in = input = '\n';
@@ -3833,7 +4016,7 @@ static void
 paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
     WINDOW *menu_win, int row, int max_width, int highlight)
 {
-	int column;
+	int column, avail;
 
 	wmove(menu_win, row, MENU_ITEM_COL);
 	if (!nohighlight && highlight) {
@@ -3843,10 +4026,22 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 			waddch(menu_win, ' ');
 		wmove(menu_win, row, MENU_ITEM_COL);
 	}
-	if (list_size > 1)
-		wprintw(menu_win, "%c) ",
+	avail = max_width - MENU_ITEM_COL - 1;
+	if (avail < 0)
+		avail = 0;
+	if (list_size > 1) {
+		char prefix[8];
+		int plen;
+
+		snprintf(prefix, sizeof(prefix), "%c) ",
 		    item_alpha[ee_min((item - 1), max_alpha_char)]);
-	waddstr(menu_win, menu_list[item].item_string);
+		plen = (int)strlen(prefix);
+		waddnstr(menu_win, prefix, avail);
+		if (plen < avail)
+			waddnstr(menu_win, menu_list[item].item_string,
+			    avail - plen);
+	} else
+		waddnstr(menu_win, menu_list[item].item_string, avail);
 	if (!nohighlight && highlight)
 		wstandend(menu_win);
 }
@@ -3922,178 +4117,6 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 	}
 }
 
-/*
- * Help is generated from these tables so that it fits the terminal and
- * mirrors the active key bindings.  An entry lists the key in normal
- * mode, the key in emacs mode (NULL if identical) and the description.
- */
-static const struct help_entry help_navigation[] = {
-	{"^B", "^U", "Bottom of file"},
-	{"^T", "^T", "Top of file"},
-	{"^D", "^N", "Down one line"},
-	{"^U", "^P", "Up one line"},
-	{"^N", "^V", "Next page"},
-	{"^P", "^G", "Previous page"},
-	{"^L", "^B", "Left one character"},
-	{"^R", "^F", "Right one character"},
-	{"^G", "^A", "Beginning of line"},
-	{"^O", "^E", "End of line"},
-	{"Arrows", "Arrows", "Move the cursor"},
-	{"Home/End", "Home/End", "Beginning/end of line"},
-	{"PgUp/PgDn", "PgUp/PgDn", "Scroll one page"},
-};
-
-static const struct help_entry help_editing[] = {
-	{"^A", "^O", "Insert a character by code"},
-	{"^J", "^M", "Insert a line break"},
-	{"^I", "^I", "Insert a tab (or spaces)"},
-	{"^K", "^D", "Delete the character at the cursor"},
-	{"^F", "^J", "Restore the last deleted character"},
-	{"^W", "^W", "Delete the word at the cursor"},
-	{"^V", "^R", "Restore the last deleted word"},
-	{"^Y", "^K", "Delete from the cursor to end of line"},
-	{"^Z", "^L", "Restore the last deleted line"},
-	{"Bksp", "Bksp", "Delete the character before the cursor"},
-	{"Del", "Del", "Delete the character at the cursor"},
-};
-
-static const struct help_entry help_files[] = {
-	{"^S", "^S", "Save the buffer to its file"},
-	{"^C", "^C", "Command prompt (write, read, exit, ...)"},
-	{"^[ then f", "^[ then f", "File menu: read, write, save, print"},
-	{"^[ then a", "^[ then a", "Leave: save, discard or cancel"},
-};
-
-static const struct help_entry help_search[] = {
-	{"^E", "^Y", "Prompt for a search string"},
-	{"^X", "^X", "Repeat the last search"},
-	{"case", "case", "Command: case sensitive search"},
-	{"nocase", "nocase", "Command: ignore case in search"},
-};
-
-static const struct help_entry help_cutpaste[] = {
-	{"^K", "^D", "Cut the current character"},
-	{"^F", "^J", "Paste the last cut character"},
-	{"^W", "^W", "Cut the current word"},
-	{"^V", "^R", "Paste the last cut word"},
-	{"^Y", "^K", "Cut to the end of the line"},
-	{"^Z", "^L", "Paste the last cut line"},
-};
-
-static const struct help_entry help_commands[] = {
-	{"write", NULL, "Command: write the buffer to a file"},
-	{"read", NULL, "Command: read a file into the buffer"},
-	{"exit", NULL, "Command: save and leave"},
-	{"quit", NULL, "Command: leave (asks to save if modified)"},
-	{"file", NULL, "Command: print the file name"},
-	{"line", NULL, "Command: print the current line number"},
-	{"character", NULL, "Command: print the code of the current character"},
-	{"0-9", NULL, "Command: go to the given line"},
-	{"case", NULL, "Command: case sensitive search"},
-	{"nocase", NULL, "Command: ignore case in search"},
-	{"expand", NULL, "Command: expand tabs to spaces"},
-	{"noexpand", NULL, "Command: keep tabs as tabs"},
-	{"help", NULL, "Command: show this screen"},
-	{"!cmd", NULL, "Command: run \"cmd\" in the shell"},
-	{"<cmd", NULL, "Command: pipe the buffer into \"cmd\""},
-	{">cmd", NULL, "Command: pipe the buffer to \"cmd\""},
-	{"author", NULL, "Command: print the author"},
-	{"redraw", NULL, "Command: repaint the screen"},
-	{"resequence", NULL, "Command: renumber the lines"},
-};
-
-static const struct help_entry help_exit[] = {
-	{"^Q", "^Q", "Quit; asks to save when modified"},
-	{"^[ then a", "^[ then a", "Leave editor (save / no save / cancel)"},
-	{"Esc Enter", "Esc Enter", "Leave the editor (historical shortcut)"},
-};
-
-static const struct help_entry help_advanced[] = {
-	{"Esc", "Esc", "Open the main menu"},
-	{"F1", "F1", "Select the gold (alternate) function set"},
-	{"F2-F8", "F2-F8", "Function keys (gold variants undo)"},
-	{"margins", "margins", "Init file: truncate at the right margin"},
-	{"nomargins", "nomargins", "Init file: let lines run past the margin"},
-	{"autoformat", "autoformat", "Init file: format paragraphs while typing"},
-	{"noautoformat", "noautoformat", "Init file: stop automatic formatting"},
-	{"printcommand", "printcommand", "Init file: print command (default lpr)"},
-	{"rightmargin", "rightmargin", "Init file: right margin column"},
-};
-
-static const struct help_section help_sections[] = {
-	{"Navigation", help_navigation,
-	    (int)(sizeof(help_navigation) / sizeof(help_navigation[0]))},
-	{"Editing", help_editing,
-	    (int)(sizeof(help_editing) / sizeof(help_editing[0]))},
-	{"Files", help_files,
-	    (int)(sizeof(help_files) / sizeof(help_files[0]))},
-	{"Search", help_search,
-	    (int)(sizeof(help_search) / sizeof(help_search[0]))},
-	{"Cut and paste", help_cutpaste,
-	    (int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0]))},
-	{"Exit", help_exit,
-	    (int)(sizeof(help_exit) / sizeof(help_exit[0]))},
-	{"Commands (press ^C, then type the name)", help_commands,
-	    (int)(sizeof(help_commands) / sizeof(help_commands[0]))},
-	{"Advanced commands and settings", help_advanced,
-	    (int)(sizeof(help_advanced) / sizeof(help_advanced[0]))},
-};
-
-struct help_line {
-	char *text;
-	int header;
-};
-
-static void
-help_add_line(struct help_line *lines, int *count, int max, const char *text,
-    int header)
-{
-	size_t len;
-
-	if (*count >= max)
-		return;
-	len = strlen(text);
-	lines[*count].text = malloc(len + 1);
-	if (lines[*count].text == NULL)
-		return;
-	strlcpy(lines[*count].text, text, len + 1);
-	lines[*count].header = header;
-	(*count)++;
-}
-
-static int
-build_help(struct help_line *lines, int max)
-{
-	char buf[256];
-	int count = 0;
-	size_t s;
-
-	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++) {
-		const struct help_section *sec = &help_sections[s];
-		int i;
-
-		help_add_line(lines, &count, max, sec->title, TRUE);
-		for (i = 0; i < sec->count; i++) {
-			const char *key = sec->items[i].key;
-
-			if (emacs_keys_mode && (sec->items[i].emacs != NULL))
-				key = sec->items[i].emacs;
-			snprintf(buf, sizeof(buf), "  %-12s %s", key,
-			    sec->items[i].text);
-			help_add_line(lines, &count, max, buf, FALSE);
-		}
-		help_add_line(lines, &count, max, "", FALSE);
-	}
-
-	help_add_line(lines, &count, max, "Command line", TRUE);
-	help_add_line(lines, &count, max,
-	    "  ee [+#] [-i] [-e] [-h] [file(s)]", FALSE);
-	help_add_line(lines, &count, max,
-	    "  +#  start at line #        -i  no shortcut bar", FALSE);
-	help_add_line(lines, &count, max,
-	    "  -e  do not expand tabs     -h  no reverse video", FALSE);
-	return (count);
-}
 
 static void
 paint_help_hint(int row, int top, int total, int pagesize)
@@ -4118,13 +4141,11 @@ paint_help_hint(int row, int top, int total, int pagesize)
 static void
 help(void)
 {
-	struct help_line lines[256];
-	int total = 0;
-	int top = 0;
-	int rows, cols, pagesize;
-	int i, done = 0;
+	char line[256];
+	int total, top = 0, rows, cols, pagesize;
+	int i, done = 0, header;
 
-	total = build_help(lines, (int)(sizeof(lines) / sizeof(lines[0])));
+	total = ee_help_count(emacs_keys_mode);
 
 	for (;;) {
 		rows = getmaxy(help_win);
@@ -4140,17 +4161,14 @@ help(void)
 		werase(help_win);
 		clearok(help_win, TRUE);
 		for (i = 0; (i < pagesize) && ((top + i) < total); i++) {
+			ee_help_line(emacs_keys_mode, top + i, line,
+			    sizeof(line), &header);
 			wmove(help_win, i, 0);
-			if (lines[top + i].header) {
-				if (!nohighlight)
-					wstandout(help_win);
-				waddnstr(help_win, lines[top + i].text,
-				    cols - 1);
-				if (!nohighlight)
-					wstandend(help_win);
-			} else
-				waddnstr(help_win, lines[top + i].text,
-				    cols - 1);
+			if (header && !nohighlight)
+				wstandout(help_win);
+			waddnstr(help_win, line, cols - 1);
+			if (header && !nohighlight)
+				wstandend(help_win);
 		}
 		paint_help_hint(rows - 1, top, total, pagesize);
 		wrefresh(help_win);
@@ -4176,9 +4194,6 @@ help(void)
 					top -= pagesize;
 					if (top < 0)
 						top = 0;
-				} else if ((win == KEY_NPAGE) ||
-				    (win == KEY_PPAGE)) {
-					/* ignored */
 				} else if (win == KEY_ENTER) {
 					done = 1;
 					break;
@@ -4210,8 +4225,6 @@ help(void)
 			break;
 	}
 
-	for (i = 0; i < total; i++)
-		free(lines[i].text);
 	werase(help_win);
 	wrefresh(help_win);
 	redraw();
@@ -4226,10 +4239,9 @@ help(void)
 static void
 paint_status_line(void)
 {
-	char left[300];
 	char right[120];
 	const char *name;
-	int cols, width, right_col;
+	int cols, width, right_col, avail;
 	int percent;
 
 	if (title_win == NULL)
@@ -4238,12 +4250,16 @@ paint_status_line(void)
 	cols = getmaxx(title_win);
 	name = ((in_file_name != NULL) && (*in_file_name != '\0')) ?
 	    (const char *)in_file_name : no_file_string;
-	snprintf(left, sizeof(left), "%s  %s", prog_name, name);
 
-	percent = 0;
-	if (total_lines > 0)
-		percent = (int)(((long)curr_line->line_number * 100) /
-		    total_lines);
+	/*
+	 * The percentage runs from 0 on the first line to 100 on the last
+	 * line of a multi-line file; a single-line (or empty) buffer is
+	 * reported as 100%.  This is line-based, not byte-based.
+	 */
+	percent = 100;
+	if (total_lines > 1)
+		percent = (int)(((long)(curr_line->line_number - 1) * 100) /
+		    (total_lines - 1));
 	if (percent < 0)
 		percent = 0;
 	if (percent > 100)
@@ -4274,8 +4290,24 @@ paint_status_line(void)
 			waddch(title_win, ' ');
 		wstandend(title_win);
 	}
+	/*
+	 * Draw the program and file name directly, clipped against the
+	 * right-aligned status, so that no fixed-size path buffer is
+	 * involved and a long name cannot overrun the bar.
+	 */
 	wmove(title_win, 0, 0);
-	waddnstr(title_win, left, cols - 1);
+	avail = right_col - 2;
+	if (avail < 0)
+		avail = 0;
+	waddnstr(title_win, prog_name, avail);
+	avail -= (int)strlen(prog_name);
+	if (avail > 0) {
+		waddch(title_win, ' ');
+		waddch(title_win, ' ');
+		avail -= 2;
+	}
+	if (avail > 0)
+		waddnstr(title_win, name, avail);
 	if (right_col > 0) {
 		wmove(title_win, 0, right_col);
 		if (!nohighlight)
@@ -4852,12 +4884,15 @@ ee_init(void)
 					else if (compare(str1, NOHIGHLIGHT,
 					    FALSE))
 						nohighlight = TRUE;
-					else if (compare(str1, EIGHTBIT, FALSE))
-						eightbit = TRUE;
-					else if (compare(str1, NOEIGHTBIT,
-					    FALSE)) {
-						eightbit = FALSE;
-					} else if (compare(str1, EMACS_string,
+					/*
+					 * EIGHTBIT / NOEIGHTBIT are no
+					 * longer meaningful: text is
+					 * always UTF-8.  They are no
+					 * longer listed in init_strings,
+					 * so old files are skipped and
+					 * preserved by dump_ee_conf().
+					 */
+					else if (compare(str1, EMACS_string,
 					    FALSE))
 						emacs_keys_mode = TRUE;
 					else if (compare(str1, NOEMACS_string,
@@ -4951,7 +4986,6 @@ dump_ee_conf(void)
 	fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command);
 	fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin);
 	fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT);
-	fprintf(init_file, "%s\n", eightbit ? EIGHTBIT : NOEIGHTBIT);
 	fprintf(init_file, "%s\n",
 	    emacs_keys_mode ? EMACS_string : NOEMACS_string);
 
@@ -5356,13 +5390,11 @@ modes_op(void)
 		snprintf(modes_menu[4].item_string, MODES_ITEM_SIZE, "%s %s",
 		    mode_strings[4], (auto_format ? ON : OFF));
 		snprintf(modes_menu[5].item_string, MODES_ITEM_SIZE, "%s %s",
-		    mode_strings[5], (eightbit ? ON : OFF));
+		    mode_strings[5], (info_window ? ON : OFF));
 		snprintf(modes_menu[6].item_string, MODES_ITEM_SIZE, "%s %s",
-		    mode_strings[6], (info_window ? ON : OFF));
-		snprintf(modes_menu[7].item_string, MODES_ITEM_SIZE, "%s %s",
-		    mode_strings[7], (emacs_keys_mode ? ON : OFF));
-		snprintf(modes_menu[8].item_string, MODES_ITEM_SIZE, "%s %d",
-		    mode_strings[8], right_margin);
+		    mode_strings[6], (emacs_keys_mode ? ON : OFF));
+		snprintf(modes_menu[7].item_string, MODES_ITEM_SIZE, "%s %d",
+		    mode_strings[7], right_margin);
 
 		ret_value = menu_op(modes_menu);
 
@@ -5382,22 +5414,17 @@ modes_op(void)
 				observ_margins = TRUE;
 			break;
 		case 5:
-			eightbit = !eightbit;
-			redraw();
-			wnoutrefresh(text_win);
-			break;
-		case 6:
 			if (info_window)
 				no_info_window();
 			else
 				create_info_window();
 			break;
-		case 7:
+		case 6:
 			emacs_keys_mode = !emacs_keys_mode;
 			if (info_window)
 				paint_shortcut_bar();
 			break;
-		case 8:
+		case 7:
 			string = get_string(margin_prompt, TRUE);
 			if (string != NULL) {
 				counter = (int)strtol(string, NULL, 10);
@@ -5412,138 +5439,176 @@ modes_op(void)
 	} while (ret_value != 0);
 }
 
-/* a strchr() look-alike for systems without strchr() */
-static char *
-is_in_string(char *string, char *substring)
+/*
+ * Append n bytes of s to a NUL-terminated growable buffer.  Returns 0 on
+ * success and -1 on allocation failure.  Length arithmetic is checked so
+ * that a hostile environment cannot make the buffer size wrap.
+ */
+static int
+append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
 {
-	char *full, *sub;
+	char *nb;
+	size_t need, ncap;
 
-	for (sub = substring; (sub != NULL) && (*sub != '\0'); sub++) {
-		for (full = string; (full != NULL) && (*full != '\0');
-		    full++) {
-			if (*sub == *full)
-				return (full);
+	if (n == 0)
+		return (0);
+	if (n > (SIZE_MAX - *len - 1))
+		return (-1);
+	need = *len + n + 1;
+	if (need > *cap) {
+		ncap = (*cap == 0) ? 64 : *cap;
+		while (ncap < need) {
+			if (ncap > (SIZE_MAX / 2)) {
+				ncap = need;
+				break;
+			}
+			ncap *= 2;
 		}
+		nb = reallocarray(*buf, ncap, 1);
+		if (nb == NULL)
+			return (-1);
+		*buf = nb;
+		*cap = ncap;
 	}
-	return (NULL);
+	memcpy(*buf + *len, s, n);
+	*len += n;
+	(*buf)[*len] = '\0';
+	return (0);
 }
 
 /*
  |	handle names of the form "~/file", "~user/file",
  |	"$HOME/foo", "~/$FOO", etc.
+ |
+ |	The result is dynamically allocated with no fixed size limit; the
+ |	original name pointer is returned unchanged when nothing needs to
+ |	be expanded.  A failed expansion returns the original name rather
+ |	than a truncated one.
  */
 
 static char *
 resolve_name(char *name)
 {
-	char long_buffer[1024];
-	char short_buffer[128];
 	char *buffer;
+	char *buffer_owned = NULL;
+	char *out = NULL;
 	char *slash;
-	char *tmp;
-	char *start_of_var;
-	int offset;
-	int index;
-	int counter;
+	char *const_end;
+	size_t outlen = 0, outcap = 0;
 	struct passwd *user;
-	size_t len;
+	size_t homelen, restlen;
 
 	if (name[0] == '~') {
 		if (name[1] == '/') {
-			index = getuid();
-			user = (struct passwd *)getpwuid(index);
+			user = (struct passwd *)getpwuid(getuid());
 			slash = name + 1;
 		} else {
+			char *uname;
+
 			slash = strchr(name, '/');
 			if (slash == NULL)
 				return (name);
-			*slash = '\0';
-			user = (struct passwd *)getpwnam((name + 1));
-			*slash = '/';
+			uname = malloc((size_t)(slash - name));
+			if (uname == NULL)
+				return (name);
+			memcpy(uname, name + 1, (size_t)(slash - name - 1));
+			uname[slash - name - 1] = '\0';
+			user = (struct passwd *)getpwnam(uname);
+			free(uname);
 		}
-		if (user == NULL) {
+		if (user == NULL)
 			return (name);
-		}
-		len = strlen(user->pw_dir) + strlen(slash) + 1;
-		buffer = malloc(len);
+		homelen = strlen(user->pw_dir);
+		restlen = strlen(slash);
+		if (homelen > (SIZE_MAX - restlen - 1))
+			return (name);
+		buffer = malloc(homelen + restlen + 1);
 		if (buffer == NULL)
 			return (name);
-		strlcpy(buffer, user->pw_dir, len);
-		strlcat(buffer, slash, len);
+		memcpy(buffer, user->pw_dir, homelen);
+		memcpy(buffer + homelen, slash, restlen + 1);
+		buffer_owned = buffer;
 	} else
 		buffer = name;
 
-	if (is_in_string(buffer, "$")) {
-		tmp = buffer;
-		index = 0;
+	if ((buffer_owned == NULL) && (strchr(buffer, '$') == NULL))
+		return (name);
 
-		while ((*tmp != '\0') && (index < 1024)) {
-			while ((*tmp != '\0') && (*tmp != '$') &&
-			    (index < 1024)) {
-				long_buffer[index] = *tmp;
-				tmp++;
-				index++;
+	{
+		char *p = buffer;
+
+		while (*p != '\0') {
+			char *start;
+			char *vstart;
+			char *vend;
+			char *varname;
+			char *value;
+			size_t vlen;
+
+			if (*p != '$') {
+				char *q = p;
+
+				while ((*q != '\0') && (*q != '$'))
+					q++;
+				if (append_mem(&out, &outlen, &outcap, p,
+				    (size_t)(q - p)) < 0)
+					goto fail;
+				p = q;
+				continue;
 			}
 
-			if ((*tmp == '$') && (index < 1024)) {
-				counter = 0;
-				start_of_var = tmp;
-				tmp++;
-				if (*tmp ==
-				    '{') { /* } */	/* bracketed variable name */
-					tmp++;				/* { */
-					while ((*tmp != '\0') &&
-					    (*tmp != '}') &&
-					    (counter < 128)) {
-						short_buffer[counter] = *tmp;
-						counter++;
-						tmp++;
-					}			/* { */
-					if (*tmp == '}')
-						tmp++;
-				} else {
-					while ((*tmp != '\0') &&
-					    (*tmp != '/') &&
-					    (*tmp != '$') &&
-					    (counter < 128)) {
-						short_buffer[counter] = *tmp;
-						counter++;
-						tmp++;
-					}
+			start = p;
+			if (p[1] == '{') {
+				vstart = p + 2;
+				const_end = strchr(vstart, '}');
+				if (const_end == NULL) {
+					/* Unterminated: keep '$' literally. */
+					if (append_mem(&out, &outlen, &outcap,
+					    "$", 1) < 0)
+						goto fail;
+					p++;
+					continue;
 				}
-				short_buffer[counter] = '\0';
-				if ((slash = getenv(short_buffer)) != NULL) {
-					offset = strlen(slash);
-					if ((offset + index) < 1024)
-						strlcpy(&long_buffer[index],
-						    slash,
-						    sizeof(long_buffer) - index);
-					index += offset;
-				} else {
-					while ((start_of_var != tmp) &&
-					    (index < 1024)) {
-						long_buffer[index] = *start_of_var;
-						start_of_var++;
-						index++;
-					}
-				}
+				vend = const_end;
+				vlen = (size_t)(vend - vstart);
+				p = vend + 1;
+			} else {
+				vstart = p + 1;
+				vend = vstart;
+				while ((*vend != '\0') && (*vend != '/') &&
+				    (*vend != '$'))
+					vend++;
+				vlen = (size_t)(vend - vstart);
+				p = vend;
+			}
+
+			varname = malloc(vlen + 1);
+			if (varname == NULL)
+				goto fail;
+			memcpy(varname, vstart, vlen);
+			varname[vlen] = '\0';
+			value = getenv(varname);
+			free(varname);
+			if ((value != NULL) && (*value != '\0')) {
+				if (append_mem(&out, &outlen, &outcap, value,
+				    strlen(value)) < 0)
+					goto fail;
+			} else {
+				/* Unknown variable: keep the text as-is. */
+				if (append_mem(&out, &outlen, &outcap, start,
+				    (size_t)(p - start)) < 0)
+					goto fail;
 			}
 		}
-
-		if (index == 1024)
-			return (buffer);
-		else
-			long_buffer[index] = '\0';
-
-		if (name != buffer)
-			free(buffer);
-		buffer = malloc(index + 1);
-		if (buffer == NULL)
-			return (name);
-		strlcpy(buffer, long_buffer, index + 1);
 	}
 
-	return (buffer);
+	free(buffer_owned);
+	return (out);
+
+fail:
+	free(buffer_owned);
+	free(out);
+	return (name);
 }
 
 static int
@@ -5585,6 +5650,36 @@ unique_test(char *string, char *list[])
 }
 
 /*
+ * Select a UTF-8 LC_CTYPE so that libc and ncursesw interpret multibyte
+ * text correctly.  The interface language is compiled in, so
+ * LC_MESSAGES is never consulted and the environment cannot change the
+ * UI strings.  A named UTF-8 locale is preferred; the environment is
+ * used only when it happens to name a UTF-8 codeset.  If none is
+ * available the editor stays in the "C" locale and warns, degrading to
+ * byte-oriented editing rather than silently misinterpreting bytes.
+ */
+static void
+select_utf8_locale(void)
+{
+	static const char *const candidates[] = {
+		"C.UTF-8", "en_US.UTF-8", "en_US.utf8", "UTF-8"
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+		if ((setlocale(LC_CTYPE, candidates[i]) != NULL) &&
+		    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
+			return;
+	}
+	if ((setlocale(LC_CTYPE, "") != NULL) &&
+	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
+		return;
+	(void)setlocale(LC_CTYPE, "C");
+	fprintf(stderr, "ee: no UTF-8 locale available; "
+	    "editing in byte-oriented mode\n");
+}
+
+/*
  *	All messages are hard-coded U.S. English: ee is not localized,
  *	and no message catalogs are read or installed.
  */
@@ -5594,29 +5689,15 @@ strings_init(void)
 {
 	int counter;
 
-	/*
-	 * The interface language is U.S. English and the only supported
-	 * text encoding is UTF-8.  The locale is therefore selected
-	 * deliberately, never from the environment: LANG, LANGUAGE and
-	 * the LC_* variables cannot change the language or the
-	 * character handling of the editor.  LC_CTYPE enables the
-	 * multibyte interpretation of UTF-8 text; every other category
-	 * stays in the "C" locale.  When the host lacks the
-	 * en_US.UTF-8 locale data, the editor degrades deliberately to
-	 * byte-oriented editing.
-	 */
-	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL)
-		fprintf(stderr, "ee: en_US.UTF-8 locale unavailable; "
-		    "editing in byte-oriented mode\n");
+	select_utf8_locale();
 
 	modes_menu[0].item_string = "modes menu";
 	mode_strings[1] = "tabs to spaces       ";
 	mode_strings[2] = "case sensitive search";
 	mode_strings[3] = "margins observed     ";
 	mode_strings[4] = "auto-paragraph format";
-	mode_strings[5] = "eightbit characters  ";
-	mode_strings[6] = "info window          ";
-	mode_strings[8] = "right margin         ";
+	mode_strings[5] = "info window          ";
+	mode_strings[7] = "right margin         ";
 	leave_menu[0].item_string = "leave menu";
 	leave_menu[1].item_string = "save changes";
 	leave_menu[2].item_string = "no save";
@@ -5645,7 +5726,7 @@ strings_init(void)
 	main_menu[7].item_string = "miscellaneous";
 	com_win_message = "    press Escape (^[) for menu";
 	no_file_string = "no file";
-	ascii_code_str = "Character code: ";
+	ascii_code_str = "Character code (decimal): ";
 	printer_msg_str = "sending contents of buffer to \"%s\" ";
 	command_str = "Command: ";
 	file_write_prompt_str = "File name to write: ";
@@ -5659,6 +5740,8 @@ strings_init(void)
 	file_is_dir_msg = "\"%s\" is a directory";
 	new_file_msg = "new file \"%s\"";
 	cant_open_msg = "cannot open \"%s\"";
+	not_text_file_msg = "\"%s\" is not a text file (contains a NUL byte)";
+	invalid_utf8_msg = "\"%s\" is not valid UTF-8 at byte %lu";
 	file_read_fin_msg = "finished reading file \"%s\"";
 	reading_file_msg = "reading file \"%s\"";
 	read_only_msg = ", read only";
@@ -5667,7 +5750,7 @@ strings_init(void)
 	file_not_saved_msg = "no filename entered: file not saved";
 	create_file_fail_msg = "unable to create file \"%s\"";
 	writing_file_msg = "writing file \"%s\"";
-	file_written_msg = "\"%s\" %d lines, %d characters";
+	file_written_msg = "\"%s\", %d lines written";
 	searching_msg = "           ...searching";
 	str_not_found_msg = "string \"%s\" not found";
 	search_prompt_str = "Search for: ";
@@ -5707,12 +5790,10 @@ strings_init(void)
 	RIGHTMARGIN = "RIGHTMARGIN";
 	HIGHLIGHT = "HIGHLIGHT";
 	NOHIGHLIGHT = "NOHIGHLIGHT";
-	EIGHTBIT = "EIGHTBIT";
-	NOEIGHTBIT = "NOEIGHTBIT";
 	/*
 	 |	additions
 	 */
-	mode_strings[7] = "emacs key bindings   ";
+	mode_strings[6] = "emacs key bindings   ";
 	EMACS_string = "EMACS";
 	NOEMACS_string = "NOEMACS";
 	conf_dump_err_msg = "unable to open .init.ee for writing, no configuration saved!";
@@ -5771,11 +5852,9 @@ strings_init(void)
 	init_strings[12] = RIGHTMARGIN;
 	init_strings[13] = HIGHLIGHT;
 	init_strings[14] = NOHIGHLIGHT;
-	init_strings[15] = EIGHTBIT;
-	init_strings[16] = NOEIGHTBIT;
-	init_strings[17] = EMACS_string;
-	init_strings[18] = NOEMACS_string;
-	init_strings[19] = NULL;
+	init_strings[15] = EMACS_string;
+	init_strings[16] = NOEMACS_string;
+	init_strings[17] = NULL;
 
 	/*
 	 |	allocate space for strings here for settings menu

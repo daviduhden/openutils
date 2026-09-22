@@ -54,6 +54,7 @@ test: all
 	sh truncate/tests/run.sh
 	perl ee/tests/run.pl
 	perl ee/tests/signals.pl
+	perl ee/tests/modern.pl
 
 # build one utility with -g -O0 and run it under lldb(1)
 debug:
