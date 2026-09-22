@@ -100,8 +100,26 @@ struct files {		/* structure to store names of files to be edited*/
 
 struct files *top_of_stack = NULL;
 
+/*
+ * Cursor state.  Three different units are involved and must not be
+ * confused:
+ *
+ *   point         pointer to the first byte of the current UTF-8
+ *                 sequence within the current line (always on a
+ *                 character boundary);
+ *   position      1-based byte offset of point from the beginning of
+ *                 the line;
+ *   scr_horz      display column of the cursor, counted in terminal
+ *                 cells (wcwidth units), not bytes or code points;
+ *   horiz_offset  leftmost display column currently shown, in cells.
+ *
+ * scr_vert is the cursor row relative to text_win, and scr_pos is the
+ * remembered display column used when moving vertically.  left() and
+ * right() move by whole UTF-8 sequences so that point never lands in
+ * the middle of a multibyte character.
+ */
 int d_wrd_len;			/* length of deleted word		*/
-int position;			/* offset in bytes from begin of line	*/
+int position;			/* byte offset (1-based) in line	*/
 int scr_pos;			/* horizontal position			*/
 int scr_vert;			/* vertical position on screen		*/
 int scr_horz;			/* horizontal position on screen	*/
@@ -202,8 +220,11 @@ WINDOW *key_win;
  * rendered left to right, dropping items that do not fit.
  */
 #define SHORTCUT_MAX 14
-static const char *shortcut_items[SHORTCUT_MAX];
-static int shortcut_count = 0;
+struct shortcut_bar {
+	const char *items[SHORTCUT_MAX];
+	int count;
+};
+static struct shortcut_bar shortcut_bar;
 
 /*
  * Thin adapters over the strict UTF-8 module (utf8.c).  The names are
@@ -256,6 +277,24 @@ utf8_strwidth(const char *s)
 		}
 	}
 	return (width);
+}
+
+/*
+ * Allocate n bytes for an internal buffer whose failure cannot be
+ * reported usefully.  On exhaustion the terminal is restored and the
+ * editor exits rather than continuing with a NULL pointer.
+ */
+static void *
+xmalloc(size_t n)
+{
+	void *p = malloc(n);
+
+	if (p == NULL) {
+		endwin();
+		fprintf(stderr, "ee: out of memory\n");
+		exit(1);
+	}
+	return (p);
 }
 
 /* Recount the lines in the buffer (used after a whole file is read). */
@@ -359,9 +398,9 @@ static void sh_command(char *string);
 static void set_up_term(void);
 static void resize_check(void);
 static int menu_op(struct menu_entries *);
-void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
-    int list_size, int top_offset, WINDOW *menu_win, int off_start,
-    int vert_size, int selection);
+static void paint_menu(struct menu_entries menu_list[], int max_width,
+    int max_height, int list_size, int top_offset, WINDOW *menu_win,
+    int off_start, int vert_size, int selection);
 static void help(void);
 static void paint_status_line(void);
 static void paint_shortcut_bar(void);
@@ -376,6 +415,7 @@ static void leave_op(void);
 static void redraw(void);
 static int confirm(const char *question);
 static int utf8_strwidth(const char *s);
+static void *xmalloc(size_t n);
 static void recount_lines(void);
 static int Blank_Line(struct text *test_line);
 static void Format(void);
@@ -732,10 +772,32 @@ static unsigned char *
 resiz_line(int factor, struct text *rline, int rpos)
 {
 	unsigned char *rpoint;
+	unsigned char *nb;
 	int resiz_var;
+	long newlen;
 
-	rline->max_length += factor;
-	rpoint = rline->line = realloc(rline->line, rline->max_length);
+	/*
+	 * max_length is an int and has historically been allowed to grow
+	 * with the line; refuse an impossible growth rather than let the
+	 * arithmetic wrap.
+	 */
+	if ((factor > 0) && (rline->max_length > (INT_MAX - factor))) {
+		endwin();
+		fprintf(stderr, "ee: line too long\n");
+		exit(1);
+	}
+	newlen = (long)rline->max_length + factor;
+	if (newlen < 1)
+		newlen = 1;
+	nb = reallocarray(rline->line, (size_t)newlen, 1);
+	if (nb == NULL) {
+		endwin();
+		fprintf(stderr, "ee: out of memory\n");
+		exit(1);
+	}
+	rline->line = nb;
+	rline->max_length = (int)newlen;
+	rpoint = rline->line;
 	for (resiz_var = 1; (resiz_var < rpos); resiz_var++)
 		rpoint++;
 	return (rpoint);
@@ -774,7 +836,7 @@ insert(int character)
 		*temp = *temp2;	/* shift characters over by one		*/
 		temp--;
 	}
-	*point = character;	/* insert new character			*/
+	*point = (unsigned char)character;	/* insert new character		*/
 	wclrtoeol(text_win);
 	if (!isprint((unsigned char)character)) {
 		scr_pos = scr_horz += out_char(text_win, character, scr_horz);
@@ -845,13 +907,13 @@ insert_utf8(const unsigned char *mb, int len)
 	}
 
 	/* copy all bytes of the UTF-8 character */
-	memmove(point, mb, len);
+	memmove(point, mb, (size_t)len);
 
 	/* display the character before advancing past it */
 	wclrtoeol(text_win);
 	{
 		char buf[5];
-		memcpy(buf, point, len);
+		memcpy(buf, point, (size_t)len);
 		buf[len] = '\0';
 		waddstr(text_win, buf);
 	}
@@ -933,7 +995,7 @@ delete(int disp)
 		text_changes = TRUE;
 		temp2 = tp = point;
 		unsigned char *prev = utf8_prev(curr_line->line, point);
-		del_width = point - prev;
+		del_width = (int)(point - prev);
 		tp -= del_width;
 		point -= del_width;
 		position -= del_width;
@@ -942,7 +1004,7 @@ delete(int disp)
 		scanline(point);
 		scr_pos = scr_horz;
 		if (in == 8) {
-			size_t width = ee_min(del_width, 4);
+			size_t width = (size_t)ee_min(del_width, 4);
 
 			memcpy(d_char, point, width);
 			d_char[width] = '\0';
@@ -1037,7 +1099,10 @@ scanline(unsigned char *pos)
 	}
 	scr_horz = temp;
 	if ((scr_horz - horiz_offset) > last_col) {
-		horiz_offset = (scr_horz - (scr_horz % 8)) - (COLS - 8);
+		horiz_offset = (scr_horz - (scr_horz % 8)) -
+		    ee_max(1, COLS - 8);
+		if (horiz_offset < 0)
+			horiz_offset = 0;
 		midscreen(scr_vert, point);
 	} else if (scr_horz < horiz_offset) {
 		horiz_offset = ee_max(0, (scr_horz - (scr_horz % 8)));
@@ -1096,7 +1161,7 @@ out_char(WINDOW *window, int character, int column)
 	    (string[i2] != '\0') &&
 	    (((column + i2 + 1) - horiz_offset) < last_col); i2++)
 		waddch(window, (unsigned char)string[i2]);
-	return (strlen(string));
+	return ((int)strlen(string));
 }
 
 /* return the length of the character	*/
@@ -1239,7 +1304,7 @@ insert_line(int disp)
 		*temp = '\0';
 		temp = resiz_line((1 - temp_nod->line_length), curr_line,
 		    position);
-		curr_line->line_length = 1 + temp - curr_line->line;
+		curr_line->line_length = 1 + (int)(temp - curr_line->line);
 	}
 	curr_line->line_length = position;
 	absolute_lin++;
@@ -1531,7 +1596,7 @@ left(int disp)
 {
 	if (point != curr_line->line) {	/* if not at begin of line	*/
 		unsigned char *prev = utf8_prev(curr_line->line, point);
-		int char_bytes = point - prev;
+		int char_bytes = (int)(point - prev);
 		point = prev;
 		position -= char_bytes;
 		scanline(point);
@@ -1611,7 +1676,10 @@ find_pos(void)
 		point++;
 	}
 	if ((scr_horz - horiz_offset) > last_col) {
-		horiz_offset = (scr_horz - (scr_horz % 8)) - (COLS - 8);
+		horiz_offset = (scr_horz - (scr_horz % 8)) -
+		    ee_max(1, COLS - 8);
+		if (horiz_offset < 0)
+			horiz_offset = 0;
 		midscreen(scr_vert, point);
 	} else if (scr_horz < horiz_offset) {
 		horiz_offset = ee_max(0, (scr_horz - (scr_horz % 8)));
@@ -2374,7 +2442,7 @@ check_fp(void)
 		top_of_stack = top_of_stack->next_name;
 	}
 	temp = stat(tmp_file, &buf);
-	buf.st_mode &= ~07777;
+	buf.st_mode &= (mode_t)~07777;
 	if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
@@ -2642,7 +2710,7 @@ get_line(int length, unsigned char *input, int *append)
 				tline->next_line->prev_line = tline;
 			curr_line = tline;
 			curr_line->line = point = (unsigned char *)malloc(
-			    char_count);
+			    (size_t)char_count);
 			curr_line->line_length = char_count;
 			curr_line->max_length = char_count;
 		} else {
@@ -3034,7 +3102,7 @@ search_prompt(void)
 
 			memset(&mbs, 0, sizeof(mbs));
 			clen = (int)mbrtowc(&wc, (char *)srch_3,
-			    utf8_len(srch_3), &mbs);
+			    (size_t)utf8_len(srch_3), &mbs);
 			if (clen > 0) {
 				wc = (wchar_t)towupper((wint_t)wc);
 				memset(&mbs, 0, sizeof(mbs));
@@ -3049,7 +3117,7 @@ search_prompt(void)
 				used++;
 			}
 		} else {
-			*srch_1 = (char)toupper(*srch_3);
+			*srch_1 = (unsigned char)toupper((unsigned char)*srch_3);
 			srch_1++;
 			srch_3++;
 			used++;
@@ -3086,7 +3154,7 @@ undel_char(void)
 	if (d_char[0] == '\n')	/* insert line if last del_char deleted eol */
 		insert_line(TRUE);
 	else if ((unsigned char)d_char[0] >= 0x80)
-		insert_utf8(d_char, strlen((char *)d_char));
+		insert_utf8(d_char, (int)strlen((char *)d_char));
 	else {
 		in = d_char[0];
 		insert(in);
@@ -3105,7 +3173,7 @@ del_word(void)
 
 	if (d_word != NULL)
 		free(d_word);
-	d_word = malloc(curr_line->line_length);
+	d_word = malloc((size_t)curr_line->line_length);
 	memcpy(tmp_char, d_char, sizeof(tmp_char));
 	d_word3 = point;
 	d_word2 = d_word;
@@ -3125,7 +3193,7 @@ del_word(void)
 		d_word3++;
 	}
 	*d_word2 = '\0';
-	d_wrd_len = difference = d_word2 - d_word;
+	d_wrd_len = difference = (int)(d_word2 - d_word);
 	d_word2 = point;
 	while (tposit < curr_line->line_length) {
 		tposit++;
@@ -3157,7 +3225,8 @@ undel_word(void)
 	 */
 	if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5)
 		point = resiz_line(d_wrd_len, curr_line, position);
-	tmp_ptr = tmp_space = malloc(curr_line->line_length + d_wrd_len);
+	tmp_ptr = tmp_space = malloc((size_t)curr_line->line_length +
+	    (size_t)d_wrd_len);
 	d_word_ptr = d_word;
 	temp = 1;
 	/*
@@ -3211,7 +3280,7 @@ del_line(void)
 
 	if (d_line != NULL)
 		free(d_line);
-	d_line = malloc(curr_line->line_length);
+	d_line = malloc((size_t)curr_line->line_length);
 	dl1 = d_line;
 	dl2 = point;
 	tposit = position;
@@ -3515,7 +3584,7 @@ sh_command(char *string)
 				line_holder = first_line;
 				while (line_holder != NULL) {
 					write(pipe_out[1], line_holder->line,
-					    (line_holder->line_length - 1));
+					    (size_t)(line_holder->line_length - 1));
 					write(pipe_out[1], "\n", 1);
 					line_holder = line_holder->next_line;
 				}
@@ -3693,7 +3762,7 @@ set_up_term(void)
 		exit(1);
 	}
 
-	if (shortcut_count == 0)
+	if (shortcut_bar.count == 0)
 		default_shortcuts();
 	paint_status_line();
 	paint_shortcut_bar();
@@ -4046,7 +4115,7 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 		wstandend(menu_win);
 }
 
-void
+static void
 paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int list_size, int top_offset, WINDOW *menu_win, int off_start,
     int vert_size, int selection)
@@ -4329,8 +4398,8 @@ set_shortcuts(const char *const *items, int count)
 	if (count < 0)
 		count = 0;
 	for (i = 0; i < count; i++)
-		shortcut_items[i] = items[i];
-	shortcut_count = count;
+		shortcut_bar.items[i] = items[i];
+	shortcut_bar.count = count;
 }
 
 static void
@@ -4365,8 +4434,8 @@ paint_shortcut_bar(void)
 	}
 
 	col = 0;
-	for (i = 0; i < shortcut_count; i++) {
-		const char *item = shortcut_items[i];
+	for (i = 0; i < shortcut_bar.count; i++) {
+		const char *item = shortcut_bar.items[i];
 		const char *sp;
 		int w;
 
@@ -4617,8 +4686,12 @@ Format(void)
 	temp_case = case_sen;
 	case_sen = TRUE;
 	tmp_srchstr = srch_str;
-	temp2 = srch_str = (unsigned char *)malloc(1 + curr_line->line_length -
-	    position);
+	{
+		size_t srch_len = (curr_line->line_length > position) ?
+		    (size_t)(curr_line->line_length - position) : 0;
+
+		temp2 = srch_str = xmalloc(srch_len + 1);
+	}
 	if ((*point == ' ') || (*point == '\t'))
 		adv_word();
 	offset -= position;
@@ -4964,7 +5037,9 @@ dump_ee_conf(void)
 		 |	Copy non-configuration info into new .init.ee file.
 		 */
 		while ((string = fgets(buffer, 512, old_init_file)) != NULL) {
-			length = strlen(string);
+			length = (int)strlen(string);
+			if (length < 1)
+				continue;
 			string[length - 1] = '\0';
 
 			if (unique_test(string, init_strings) == 1) {
@@ -5183,8 +5258,12 @@ Auto_Format(void)
 	temp_case = case_sen;
 	case_sen = TRUE;
 	tmp_srchstr = srch_str;
-	temp2 = srch_str = (unsigned char *)malloc(1 + curr_line->line_length -
-	    position);
+	{
+		size_t srch_len = (curr_line->line_length > position) ?
+		    (size_t)(curr_line->line_length - position) : 0;
+
+		temp2 = srch_str = xmalloc(srch_len + 1);
+	}
 	if ((*point == ' ') || (*point == '\t'))
 		adv_word();
 	offset -= position;
