@@ -91,6 +91,30 @@ sub close {
     return;
 }
 
+# Wait for the child to exit, draining the pty as we go so a child
+# writing its terminal-restoration output can never block on a full tty
+# buffer.  The child counts as gone when it is reaped or when the pty
+# reaches end-of-file (the slave side is closed on process exit).  The
+# EOF test matters because pump() returns immediately at EOF: polling
+# only waitpid() with no minimum delay can exhaust every retry before a
+# just-exited child becomes reapable and wrongly report a timeout.
+sub wait_exit {
+    my ( $self, $tries ) = @_;
+
+    $tries //= 25;
+    for ( 1 .. $tries ) {
+        my $reaped = waitpid( $self->{pid}, POSIX::WNOHANG() );
+        return 1 if $reaped != 0;
+        unless ( $self->pump(0.1) ) {
+            # EOF: the child closed the slave and is exiting.  Reap it
+            # if it is already reapable so the caller can inspect $?.
+            waitpid( $self->{pid}, POSIX::WNOHANG() );
+            return 1;
+        }
+    }
+    return 0;
+}
+
 package main;
 
 sub decode_input {

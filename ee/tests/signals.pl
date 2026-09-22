@@ -101,16 +101,7 @@ sub sigint_test {
     $session->pump(1);
     kill 'INT', $session->pid;
     $session->pump(2.5);
-    my $exited = 0;
-
-    for ( 1 .. 25 ) {
-        my $wpid = waitpid( $session->pid, WNOHANG );
-        if ( $wpid != 0 ) {
-            $exited = 1;
-            last;
-        }
-        $session->pump(0.1);
-    }
+    my $exited   = $session->wait_exit;
     my $restored = index( $session->buf, "\x1b[?1l\x1b>" ) >= 0 ? 1 : 0;
     my $saved    = -e "$work/sigint.txt"                        ? 1 : 0;
     $session->close;
@@ -180,18 +171,12 @@ sub noterm_test {
     my $session = Session->new( [ $EE, '-i', "$work/noterm.txt" ],
         { TERM => 'openutils-no-such-terminal' } );
     $session->pump(2.5);
-    my ( $exited, $crashed ) = ( 0, 0 );
-    for ( 1 .. 25 ) {
-        my $wpid = waitpid( $session->pid, WNOHANG );
-        if ( $wpid != 0 ) {
-            my $status = $?;
-            my $sig    = $status & 0x7f;
-            $exited  = 1;
-            $crashed = ( $sig != 0 && $sig != 0x7f ) ? 1 : 0;
-            last;
-        }
-        $session->pump(0.1);
-    }
+    my $exited  = $session->wait_exit;
+    my $status  = $?;
+    my $sig     = $status & 0x7f;
+    my $crashed = ( $exited && $status != 0 && $sig != 0 && $sig != 0x7f )
+      ? 1
+      : 0;
     $session->close;
     return ( $exited, $crashed );
 }

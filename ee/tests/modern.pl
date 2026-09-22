@@ -14,7 +14,6 @@ use warnings;
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
-use POSIX          qw(WNOHANG);
 
 my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
@@ -76,23 +75,6 @@ sub resize {
     return;
 }
 
-sub wait_exit {
-    my ( $s, $tries ) = @_;
-    $tries //= 25;
-    for ( 1 .. $tries ) {
-        my $w = waitpid( $s->pid, WNOHANG );
-        return 1 if $w != 0;
-
-        # Keep draining the pty while waiting.  On exit ee writes its
-        # terminal-restoration output; if the tester never reads it the
-        # kernel tty buffer can fill and block ee before it terminates
-        # (seen on OpenBSD, whose tty buffer is smaller than Linux's),
-        # which made this helper time out even though ee was healthy.
-        $s->pump(0.1);
-    }
-    return 0;
-}
-
 # Open a file, type text, save with ^S and quit with ^Q.
 sub simple_edit {
     my ( $path, $text, $extra_inputs ) = @_;
@@ -119,7 +101,7 @@ sub test_resize_in_menu {
     $s->write("\x13");    # save
     $s->pump(1.0);
     $s->write("\x11");    # quit
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return ( $exited && read_raw($path) eq "kept\n" ) ? 1 : 0;
 }
@@ -138,7 +120,7 @@ sub test_resize_in_prompt {
     $s->write("\x1b");    # cancel the search prompt
     $s->pump(0.6);
     $s->write("\x11");    # quit (unmodified)
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return $exited;
 }
@@ -159,7 +141,7 @@ sub test_resize_in_confirm {
     $s->write("n");             # do not overwrite
     $s->pump(0.6);
     $s->write("\x11");          # quit (unmodified; we did not modify)
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return ( $exited && read_raw($b) eq "OLD\n" ) ? 1 : 0;
 }
@@ -180,7 +162,7 @@ sub test_resize_in_help {
     $s->write("\x1b");    # close help
     $s->pump(0.5);
     $s->write("\x11");    # quit
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return $exited;
 }
@@ -294,7 +276,7 @@ sub test_tiny_then_grow {
     $s->write("\x13");
     $s->pump(1.0);
     $s->write("\x11");
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return ( $exited && read_raw($path) eq "hithere\n" ) ? 1 : 0;
 }
@@ -317,7 +299,7 @@ sub test_control_characters {
     $s->write("\x13");
     $s->pump(1.0);
     $s->write("\x11");
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     my $out = $s->buf;
     $s->close;
 
@@ -342,7 +324,7 @@ sub test_resize_stress {
     $s->write("\x13");
     $s->pump(1.0);
     $s->write("\x11");
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return ( $exited && read_raw($path) eq "xxxxxx\n" ) ? 1 : 0;
 }
@@ -366,7 +348,7 @@ sub test_shell_roundtrip {
     $s->write("\x13");              # save
     $s->pump(1.0);
     $s->write("\x11");              # quit
-    my $exited = wait_exit($s);
+    my $exited = $s->wait_exit;
     $s->close;
     return ( $exited && read_raw($path) eq "before after\n" ) ? 1 : 0;
 }
