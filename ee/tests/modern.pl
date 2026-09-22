@@ -84,7 +84,9 @@ sub read_raw {
 
 sub resize {
     my ( $s, $rows, $cols ) = @_;
-    my $ws = pack( 'HHHH', $rows, $cols, 0, 0 );
+    # struct winsize is four unsigned shorts; 'H' would pack a hex
+    # string and set a bogus size (e.g. 4144 rows).
+    my $ws = pack( 'SSSS', $rows, $cols, 0, 0 );
     ioctl( $s->pty, $TIOCSWINSZ, $ws );
     kill 'WINCH', $s->pid;
     $s->pump(1.2);

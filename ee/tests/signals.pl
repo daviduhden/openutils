@@ -117,7 +117,9 @@ sub sigwinch_test {
     $session->pump(1);
     for my $size ( [ 40, 100 ], [ 10, 30 ], [ 30, 60 ] ) {
         my ( $rows, $cols ) = @$size;
-        my $ws = pack( 'HHHH', $rows, $cols, 0, 0 );
+        # struct winsize is four unsigned shorts ('H' would pack a hex
+        # string and set a bogus size).
+        my $ws = pack( 'SSSS', $rows, $cols, 0, 0 );
         ioctl( $session->pty, $TIOCSWINSZ, $ws );
         kill 'WINCH', $session->pid;
         $session->pump(1.5);
