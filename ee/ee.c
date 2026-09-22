@@ -7,7 +7,19 @@
  * Terminal handling is provided by ncursesw.  The editor deliberately
  * uses no colour, no mouse and no panels; only the standard monochrome
  * attributes (standout/underline) are used.
+ *
+ * Strict ISO C17 (the project's language mode) defines no feature-test
+ * macros, and on OpenBSD the project must not define the X/Open ones
+ * (doing so would clear __BSD_VISIBLE and hide the BSD interfaces the
+ * sources rely on).  Without those macros <curses.h> sets
+ * NCURSES_WIDECHAR to 0 and omits the wide-character prototypes, so
+ * wget_wch(3) would be an implicit declaration.  ncurses honours a
+ * pre-defined NCURSES_WIDECHAR, so ask for the wide API directly; the
+ * program always links against the wide library (-lncursesw).
  */
+#ifndef NCURSES_WIDECHAR
+#define NCURSES_WIDECHAR 1
+#endif
 #include <curses.h>
 
 #include <ctype.h>
