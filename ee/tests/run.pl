@@ -222,42 +222,81 @@ sub main {
         notok('save-as prompt is shown');
     }
 
-    # locale: the interface stays English and UTF-8 editing works
-    # under foreign and unusual locale environments
-    for
-      my $lc ( 'C', 'de_DE.UTF-8', 'es_ES.UTF-8', 'fr_FR.UTF-8', 'zz_ZZ.NOPE' )
-    {
-        my $locale_out = run(
-            [ $EE, '-?' ],
-            [],
-            {
-                LC_ALL      => $lc,
-                LANG        => $lc,
-                LC_MESSAGES => $lc,
-                TERM        => 'xterm'
-            }
-        );
-        if (   index( $locale_out, 'usage:' ) >= 0
-            && index( $locale_out, 'turn off info window' ) >= 0 )
+    # locale policy: no locale configured means ee picks a UTF-8 one and
+    # the interface is English; an explicitly configured non-UTF-8
+    # locale is rejected cleanly; an explicit UTF-8 locale works.
+    my $no_locale = run(
+        [ $EE, '-?' ],
+        [],
         {
-            ok("usage is English under $lc");
+            LC_ALL => '', LC_CTYPE => '', LANG => '', LC_MESSAGES => '',
+            TERM => 'xterm'
         }
-        else {
-            notok("usage is English under $lc");
+    );
+    if (   index( $no_locale, 'usage:' ) >= 0
+        && index( $no_locale, 'turn off info window' ) >= 0 )
+    {
+        ok('usage is English with no locale configured');
+    }
+    else {
+        notok('usage is English with no locale configured');
+    }
+
+    my $c_locale = run(
+        [ $EE, '-?' ],
+        [],
+        { LC_ALL => 'C', LANG => 'C', LC_MESSAGES => 'C', TERM => 'xterm' }
+    );
+    if (   index( $c_locale, 'usage:' ) < 0
+        && index( $c_locale, 'UTF-8 locale' ) >= 0 )
+    {
+        ok('non-UTF-8 locale C is rejected cleanly');
+    }
+    else {
+        notok('non-UTF-8 locale C is rejected cleanly');
+    }
+
+    # Choose an explicit UTF-8 locale that this host actually provides.
+    my $locale_list = qx(locale -a 2>/dev/null);
+    my $utf8_locale;
+    for my $cand ( 'C.UTF-8', 'C.utf8', 'en_US.UTF-8', 'en_US.utf8' ) {
+        if ( $locale_list =~ /^\Q$cand\E$/mi ) {
+            $utf8_locale = $cand;
+            last;
         }
     }
 
-    $path = "$work/locfile.txt";
-    run(
-        [ $EE,    '-i',   $path ],
-        [ "café", "\x1b", 'a', 'a' ],
-        {
-            LC_ALL => 'de_DE.UTF-8',
-            LANG   => 'de_DE.UTF-8',
-            TERM   => 'xterm'
+    if ( defined $utf8_locale ) {
+        my $utf8_out = run(
+            [ $EE, '-?' ],
+            [],
+            {
+                LC_ALL      => $utf8_locale,
+                LANG        => $utf8_locale,
+                LC_MESSAGES => $utf8_locale,
+                TERM        => 'xterm'
+            }
+        );
+        if ( index( $utf8_out, 'usage:' ) >= 0 ) {
+            ok("usage is English under $utf8_locale");
         }
-    );
-    assert_eq( 'UTF-8 edit under de_DE.UTF-8', 'café', read_text($path) );
+        else {
+            notok("usage is English under $utf8_locale");
+        }
+
+        $path = "$work/locfile.txt";
+        run(
+            [ $EE,    '-i',   $path ],
+            [ "café", "\x1b", 'a', 'a' ],
+            {
+                LC_ALL => $utf8_locale,
+                LANG   => $utf8_locale,
+                TERM   => 'xterm'
+            }
+        );
+        assert_eq( "UTF-8 edit under $utf8_locale",
+            'café', read_text($path) );
+    }
 
     print "\n";
     print "pass: $PASS  fail: $FAIL\n";

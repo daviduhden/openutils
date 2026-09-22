@@ -15,12 +15,14 @@ CSTD = -std=c17
 DEBUGGER ?= lldb
 DEBUG_CFLAGS ?= -O0 -g
 
-# Locate ncursesw.  pkg-config knows where the library and its headers
-# live on systems that install them outside the default search path;
-# when it is unavailable, fall back to plain -lncursesw.
+# Locate ncursesw.  pkg-config is used when it is available, but it is
+# not required: the wide-character headers live in a well-known
+# subdirectory (ncursesw/) and the library is simply -lncursesw, so a
+# plain compiler invocation works on OpenBSD and on the Linux
+# distributions without pkg-config metadata.
 PKG_CONFIG ?= pkg-config
 NCURSES_CFLAGS != $(PKG_CONFIG) --cflags-only-I ncursesw 2>/dev/null || \
-    echo -I/usr/local/include/ncursesw
+    echo -I/usr/local/include/ncursesw -I/usr/include/ncursesw
 NCURSES_LIBS != $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw
 
 CPPFLAGS += -I. -I../compat $(NCURSES_CFLAGS)

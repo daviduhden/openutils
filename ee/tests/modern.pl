@@ -294,6 +294,54 @@ sub test_tiny_then_grow {
     return ( $exited && read_raw($path) eq "hithere\n" ) ? 1 : 0;
 }
 
+sub test_control_characters {
+    my ($work) = @_;
+    my $path = "$work/control.txt";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    $s->pump(1.5);
+
+    # Insert C0 controls and DEL through the character-code command; the
+    # editor must show them visibly (^[, ^G, ^M, ^?) and preserve the
+    # bytes without ever emitting them as terminal control sequences.
+    for my $code ( 27, 7, 13, 127 ) {
+        $s->write("\x01");
+        $s->pump(0.4);
+        $s->write("$code\n");
+        $s->pump(0.4);
+    }
+    $s->write("\x13");
+    $s->pump(1.0);
+    $s->write("\x11");
+    my $exited = wait_exit($s);
+    my $out = $s->buf;
+    $s->close;
+
+    my $bytes  = read_raw($path);
+    my $expect = pack( 'C*', 27, 7, 13, 127 ) . "\n";
+    my $visible = index( $out, '^[' ) >= 0 && index( $out, '^G' ) >= 0;
+    return ( $exited && $bytes eq $expect && $visible ) ? 1 : 0;
+}
+
+sub test_resize_stress {
+    my ($work) = @_;
+    my $path = "$work/stress.txt";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    $s->pump(1.5);
+    for my $size ( [ 3, 10 ], [ 24, 80 ], [ 5, 20 ], [ 40, 120 ],
+        [ 2, 5 ], [ 30, 100 ] )
+    {
+        resize( $s, @$size );
+        $s->write("x");
+        $s->pump(0.3);
+    }
+    $s->write("\x13");
+    $s->pump(1.0);
+    $s->write("\x11");
+    my $exited = wait_exit($s);
+    $s->close;
+    return ( $exited && read_raw($path) eq "xxxxxx\n" ) ? 1 : 0;
+}
+
 sub test_shell_roundtrip {
     my ($work) = @_;
     my $path = "$work/shell.txt";
@@ -342,6 +390,9 @@ sub main {
     check( 'NUL byte is rejected',           test_nul_rejected($work) );
     check( 'character-code bounds',          test_code_point_bounds($work) );
     check( 'tiny terminal then grow',        test_tiny_then_grow($work) );
+    check( 'control characters are preserved and visible',
+        test_control_characters($work) );
+    check( 'resize stress',                  test_resize_stress($work) );
     check( 'shell round trip',               test_shell_roundtrip($work) );
 
     print "\npass: $PASS  fail: $FAIL\n";

@@ -98,19 +98,25 @@ copied.
 
 The user interface of every utility is U.S. English only: there is no
 translation infrastructure, no message catalogs, and no support for
-alternative human languages.  The only supported locale is
-`en_US.UTF-8`, and UTF-8 is the only supported text encoding.
+alternative human languages.  UTF-8 is the only supported text
+encoding.
 
 `LANG`, `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and the other locale
 environment variables never change the interface language, the
 numeric syntax (the decimal separator is always `.`), the sorting
-order or the date format.  The programs that need libc multibyte
-support (`tree`, `ee`) deliberately select `en_US.UTF-8` themselves
-and ignore the environment; the others never call `setlocale(3)` at
-all and therefore always run in the deterministic "C" locale.  When a
-host lacks the `en_US.UTF-8` locale data, those two programs degrade
-deliberately (with a warning) to byte-oriented output instead of
-adopting whatever encoding the environment might suggest.
+order or the date format.
+
+- `tree` selects `en_US.UTF-8` itself and ignores the environment;
+  on a host without that locale data it degrades (with a warning) to
+  byte-oriented output rather than adopting an unknown encoding.
+- `ee` requires a UTF-8 `LC_CTYPE`.  If the environment names a
+  locale, that choice is honoured and a non-UTF-8 codeset makes `ee`
+  refuse to start; if no locale is configured, a well-known UTF-8
+  locale is selected automatically.  There is no byte-oriented mode,
+  so the editor never operates with a text semantics that contradicts
+  its UTF-8 buffer.
+- the other utilities never call `setlocale(3)` and always run in the
+  deterministic "C" locale.
 
 Legacy encodings (ISO-8859-*, Windows-1252, Shift-JIS, EUC-JP,
 KOI8-R, Big-5, ...) are not supported.  User data (file names,
@@ -181,9 +187,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   save/quit confirmations are explicit, but the editing commands and
   their semantics are preserved.  `-i` now hides the shortcut bar only
   (the status bar is always shown).  Files that are not valid UTF-8, or
-  that contain a NUL byte, are rejected rather than edited.  The
-  historical `eightbit`/`noeightbit` settings are accepted but have no
-  effect (text is always UTF-8).
+  that contain a NUL byte, are rejected rather than edited.  A
+  configured non-UTF-8 locale makes `ee` refuse to start (there is no
+  byte-oriented mode).  The historical `eightbit`/`noeightbit` settings
+  are accepted but have no effect (text is always UTF-8).
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

@@ -142,8 +142,6 @@ int expand_tabs = TRUE;		/* flag for expanding tabs		*/
 int right_margin = 0;		/* the right margin 			*/
 int observ_margins = TRUE;	/* flag for whether margins are observed */
 int shell_fork;
-int temp_stdout;		/* temp storage for stdout descriptor	*/
-int temp_stderr;		/* temp storage for stderr descriptor	*/
 int pipe_out[2];		/* pipe file desc for output		*/
 int pipe_in[2];			/* pipe file descriptors for input	*/
 int out_pipe;			/* flag that info is piped out		*/
@@ -366,8 +364,8 @@ static void print_buffer(void);
 static void command_prompt(void);
 static void command(char *cmd_str1);
 static int scan(char *line, int offset, int column);
-static char *get_string(char *prompt, int advance);
-static int compare(char *string1, char *string2, int sensitive);
+static char *get_string(const char *prompt, int advance);
+static int compare(const char *string1, const char *string2, int sensitive);
 static void goto_line(char *cmd_str);
 static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
@@ -431,7 +429,8 @@ static int append_mem(char **buf, size_t *len, size_t *cap, const char *s,
     size_t n);
 static char *resolve_name(char *name);
 static int restrict_mode(void);
-static int unique_test(char *string, char *list[]);
+static int unique_test(const char *string, const char *list[]);
+static int locale_is_configured(void);
 static void select_utf8_locale(void);
 static void strings_init(void);
 
@@ -440,35 +439,40 @@ static void strings_init(void);
  |	allocate space here for the strings that will be in the menu
  */
 
+/*
+ * Menu labels are static data.  The seven mode entries are filled with
+ * generated strings at run time (mode_strings[]); everything else is a
+ * literal in the initializer, so there is no run-time string wiring.
+ */
 struct menu_entries modes_menu[] = {
-	{"", NULL, NULL, NULL, NULL, 0}, 	/* title		*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 1. tabs to spaces	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 2. case sensitive search*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 3. margins observed	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 4. auto-paragraph	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 5. info window	*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 6. emacs key bindings*/
-	{"", NULL, NULL, NULL, NULL, -1}, 	/* 7. right margin	*/
-	{"", NULL, NULL, NULL, dump_ee_conf, -1}, /* 8. save editor config */
-	{NULL, NULL, NULL, NULL, NULL, -1}	/* terminator		*/
+	{"modes menu", NULL, NULL, NULL, NULL, 0},	/* title */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 1. tabs */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 2. case */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 3. margins */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 4. autoformat */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 5. info window */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 6. emacs keys */
+	{"", NULL, NULL, NULL, NULL, -1},		/* 7. right margin */
+	{"save editor configuration", NULL, NULL, NULL, dump_ee_conf, -1},
+	{NULL, NULL, NULL, NULL, NULL, -1}		/* terminator */
 };
 
-char *mode_strings[9];
+const char *mode_strings[9];
 
 #define NUM_MODES_ITEMS 8
 #define MODES_ITEM_SIZE 80
 
 struct menu_entries config_dump_menu[] = {
-	{"", NULL, NULL, NULL, NULL, 0},
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, NULL, -1},
+	{"save ee configuration", NULL, NULL, NULL, NULL, 0},
+	{"save in current directory", NULL, NULL, NULL, NULL, -1},
+	{"save in home directory", NULL, NULL, NULL, NULL, -1},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
 struct menu_entries leave_menu[] = {
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, finish, -1},
-	{"", NULL, NULL, quit, NULL, TRUE},
+	{"leave menu", NULL, NULL, NULL, NULL, -1},
+	{"save changes", NULL, NULL, NULL, finish, -1},
+	{"no save", NULL, NULL, quit, NULL, TRUE},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
@@ -477,133 +481,159 @@ struct menu_entries leave_menu[] = {
 #define SAVE_FILE 3
 
 struct menu_entries file_menu[] = {
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, file_op, NULL, READ_FILE},
-	{"", NULL, NULL, file_op, NULL, WRITE_FILE},
-	{"", NULL, NULL, file_op, NULL, SAVE_FILE},
-	{"", NULL, NULL, NULL, print_buffer, -1},
+	{"file menu", NULL, NULL, NULL, NULL, -1},
+	{"read a file", NULL, NULL, file_op, NULL, READ_FILE},
+	{"write a file", NULL, NULL, file_op, NULL, WRITE_FILE},
+	{"save file", NULL, NULL, file_op, NULL, SAVE_FILE},
+	{"print editor contents", NULL, NULL, NULL, print_buffer, -1},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
 struct menu_entries search_menu[] = {
-	{"", NULL, NULL, NULL, NULL, 0},
-	{"", NULL, NULL, NULL, search_prompt, -1},
-	{"", NULL, NULL, search, NULL, TRUE},
+	{"search menu", NULL, NULL, NULL, NULL, 0},
+	{"search for ...", NULL, NULL, NULL, search_prompt, -1},
+	{"search", NULL, NULL, search, NULL, TRUE},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
 struct menu_entries spell_menu[] = {
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, spell_op, -1},
-	{"", NULL, NULL, NULL, ispell_op, -1},
+	{"spell menu", NULL, NULL, NULL, NULL, -1},
+	{"use 'spell'", NULL, NULL, NULL, spell_op, -1},
+	{"use 'ispell'", NULL, NULL, NULL, ispell_op, -1},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
 struct menu_entries misc_menu[] = {
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, Format, -1},
-	{"", NULL, NULL, NULL, shell_op, -1},
-	{"", menu_op, spell_menu, NULL, NULL, -1},
+	{"miscellaneous menu", NULL, NULL, NULL, NULL, -1},
+	{"format paragraph", NULL, NULL, NULL, Format, -1},
+	{"shell command", NULL, NULL, NULL, shell_op, -1},
+	{"check spelling", menu_op, spell_menu, NULL, NULL, -1},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
 struct menu_entries main_menu[] = {
-	{"", NULL, NULL, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, leave_op, -1},
-	{"", NULL, NULL, NULL, help, -1},
-	{"", menu_op, file_menu, NULL, NULL, -1},
-	{"", NULL, NULL, NULL, redraw, -1},
-	{"", NULL, NULL, NULL, modes_op, -1},
-	{"", menu_op, search_menu, NULL, NULL, -1},
-	{"", menu_op, misc_menu, NULL, NULL, -1},
+	{"main menu", NULL, NULL, NULL, NULL, -1},
+	{"leave editor", NULL, NULL, NULL, leave_op, -1},
+	{"help", NULL, NULL, NULL, help, -1},
+	{"file operations", menu_op, file_menu, NULL, NULL, -1},
+	{"redraw screen", NULL, NULL, NULL, redraw, -1},
+	{"settings", NULL, NULL, NULL, modes_op, -1},
+	{"search", menu_op, search_menu, NULL, NULL, -1},
+	{"miscellaneous", menu_op, misc_menu, NULL, NULL, -1},
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
-char *commands[29];
-char *init_strings[18];
 
 #define MENU_WARN 1
 
 #define max_alpha_char 36
 
 /*
- |	Declarations for the interface strings (hard-coded English)
+ |	Interface strings (hard-coded U.S. English).
+ |
+ |	Plain text is a static const array.  Text that is used as a printf
+ |	format is a macro so that the format is a compile-time literal at
+ |	every call site (the compiler can then check the arguments, and
+ |	there is no runtime format string or mutable global).  None of
+ |	this is localizable: the interface is English (United States)
+ |	only, with no message catalogs.
  */
 
-char *com_win_message;		/* to be shown in com_win if no info window */
-char *no_file_string;
-char *ascii_code_str;
-char *printer_msg_str;
-char *command_str;
-char *file_write_prompt_str;
-char *file_read_prompt_str;
-char *char_str;
-char *unkn_cmd_str;
-char *non_unique_cmd_msg;
-char *line_num_str;
-char *line_len_str;
-char *current_file_str;
-char *file_is_dir_msg;
-char *new_file_msg;
-char *cant_open_msg;
-char *not_text_file_msg;
-char *invalid_utf8_msg;
-char *file_read_fin_msg;
-char *reading_file_msg;
-char *read_only_msg;
-char *file_read_lines_msg;
-char *save_file_name_prompt;
-char *file_not_saved_msg;
-char *create_file_fail_msg;
-char *writing_file_msg;
-char *file_written_msg;
-char *searching_msg;
-char *str_not_found_msg;
-char *search_prompt_str;
-char *continue_msg;
-char *menu_cancel_msg;
-char *shell_prompt;
-char *formatting_msg;
-char *shell_echo_msg;
-char *spell_in_prog_msg;
-char *margin_prompt;
-char *restricted_msg;
-char *ON;
-char *OFF;
-char *HELP;
-char *WRITE;
-char *READ;
-char *LINE;
-char *FILE_str;
-char *CHARACTER;
-char *REDRAW;
-char *RESEQUENCE;
-char *AUTHOR;
-char *CASE;
-char *NOCASE;
-char *EXPAND;
-char *NOEXPAND;
-char *Exit_string;
-char *QUIT_string;
-char *INFO;
-char *NOINFO;
-char *MARGINS;
-char *NOMARGINS;
-char *AUTOFORMAT;
-char *NOAUTOFORMAT;
-char *Echo;
-char *PRINTCOMMAND;
-char *RIGHTMARGIN;
-char *HIGHLIGHT;
-char *NOHIGHLIGHT;
-char *EMACS_string;
-char *NOEMACS_string;
-char *conf_dump_err_msg;
-char *conf_dump_success_msg;
-char *conf_not_saved_msg;
-char *ree_no_file_msg;
-char *menu_too_lrg_msg;
-char *more_above_str, *more_below_str;
+/* Formatted messages (used as printf formats). */
+#define printer_msg_str "sending contents of buffer to \"%s\" "
+#define unkn_cmd_str "unknown command \"%s\""
+#define line_num_str "line %d  "
+#define line_len_str "length = %d"
+#define current_file_str "current file is \"%s\" "
+#define char_str "character = %d"
+#define file_is_dir_msg "\"%s\" is a directory"
+#define new_file_msg "new file \"%s\""
+#define cant_open_msg "cannot open \"%s\""
+#define not_text_file_msg "\"%s\" is not a text file (contains a NUL byte)"
+#define invalid_utf8_msg "\"%s\" is not valid UTF-8 at byte %lu"
+#define file_read_fin_msg "finished reading file \"%s\""
+#define reading_file_msg "reading file \"%s\""
+#define file_read_lines_msg "file \"%s\", %d lines"
+#define conf_dump_success_msg "ee configuration saved in file %s"
+#define str_not_found_msg "string \"%s\" not found"
+
+/* Plain messages and prompts. */
+static const char com_win_message[] = "    press Escape (^[) for menu";
+static const char no_file_string[] = "no file";
+static const char ascii_code_str[] = "Character code (decimal): ";
+static const char command_str[] = "Command: ";
+static const char file_write_prompt_str[] = "File name to write: ";
+static const char file_read_prompt_str[] = "File name to read: ";
+static const char non_unique_cmd_msg[] = "entered command is not unique";
+static const char read_only_msg[] = ", read only";
+static const char save_file_name_prompt[] = "File name: ";
+static const char file_not_saved_msg[] = "no filename entered: file not saved";
+static const char searching_msg[] = "           ...searching";
+static const char search_prompt_str[] = "Search for: ";
+static const char continue_msg[] = "press return to continue ";
+static const char menu_cancel_msg[] = "press Esc to cancel";
+static const char shell_prompt[] = "Shell command: ";
+static const char formatting_msg[] = "...formatting paragraph...";
+static const char spell_in_prog_msg[] =
+    "sending contents of edit buffer to 'spell'";
+static const char margin_prompt[] = "Right margin: ";
+static const char restricted_msg[] =
+    "restricted mode: unable to perform requested operation";
+static const char conf_dump_err_msg[] =
+    "unable to open .init.ee for writing, no configuration saved!";
+static const char conf_not_saved_msg[] = "ee configuration not saved";
+static const char ree_no_file_msg[] = "must specify a file when invoking ree";
+static const char menu_too_lrg_msg[] = "menu too large for window";
+static const char more_above_str[] = "^^more^^";
+static const char more_below_str[] = "VVmoreVV";
+
+/* Mode and command names. */
+static const char ON[] = "ON";
+static const char OFF[] = "OFF";
+static const char HELP[] = "HELP";
+static const char WRITE[] = "WRITE";
+static const char READ[] = "READ";
+static const char LINE[] = "LINE";
+static const char FILE_str[] = "FILE";
+static const char CHARACTER[] = "CHARACTER";
+static const char REDRAW[] = "REDRAW";
+static const char RESEQUENCE[] = "RESEQUENCE";
+static const char AUTHOR[] = "AUTHOR";
+static const char CASE[] = "CASE";
+static const char NOCASE[] = "NOCASE";
+static const char EXPAND[] = "EXPAND";
+static const char NOEXPAND[] = "NOEXPAND";
+static const char Exit_string[] = "EXIT";
+static const char QUIT_string[] = "QUIT";
+static const char INFO[] = "INFO";
+static const char NOINFO[] = "NOINFO";
+static const char MARGINS[] = "MARGINS";
+static const char NOMARGINS[] = "NOMARGINS";
+static const char AUTOFORMAT[] = "AUTOFORMAT";
+static const char NOAUTOFORMAT[] = "NOAUTOFORMAT";
+static const char Echo[] = "ECHO";
+static const char PRINTCOMMAND[] = "PRINTCOMMAND";
+static const char RIGHTMARGIN[] = "RIGHTMARGIN";
+static const char HIGHLIGHT[] = "HIGHLIGHT";
+static const char NOHIGHLIGHT[] = "NOHIGHLIGHT";
+static const char EMACS_string[] = "EMACS";
+static const char NOEMACS_string[] = "NOEMACS";
+
+/* A command string that command() may advance through, hence mutable. */
+static char shell_echo_msg[] =
+    "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
+const char *commands[] = {
+	HELP, WRITE, READ, LINE, FILE_str, REDRAW, RESEQUENCE, AUTHOR,
+	CASE, NOCASE, EXPAND, NOEXPAND, Exit_string, QUIT_string,
+	"<", ">", "!", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	CHARACTER, NULL
+};
+
+const char *init_strings[] = {
+	CASE, NOCASE, EXPAND, NOEXPAND, INFO, NOINFO, MARGINS, NOMARGINS,
+	AUTOFORMAT, NOAUTOFORMAT, Echo, PRINTCOMMAND, RIGHTMARGIN,
+	HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string, NULL
+};
 
 /* beginning of main program		*/
 int
@@ -624,17 +654,23 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*
+	 * Establish the UTF-8 LC_CTYPE invariant before any editor state
+	 * is built.  Failure is fatal and leaves the terminal untouched.
+	 */
+	select_utf8_locale();
+
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGSEGV, SIG_DFL);
 	ee_install_sigint();
-	d_word = malloc(150);
+	d_word = xmalloc(150);
 	*d_word = '\0';
 	d_line = NULL;
 	dlt_line = txtalloc();
 	dlt_line->line = d_line;
 	dlt_line->line_length = 0;
 	curr_line = first_line = txtalloc();
-	curr_line->line = point = malloc(10);
+	curr_line->line = point = xmalloc(10);
 	curr_line->line_length = 1;
 	curr_line->max_length = 10;
 	curr_line->prev_line = NULL;
@@ -666,7 +702,7 @@ main(int argc, char *argv[])
 		err(1, "pledge");
 	set_up_term();
 	if (right_margin == 0)
-		right_margin = COLS - 1;
+		right_margin = last_col;
 	if (top_of_stack == NULL) {
 		if (restrict_mode()) {
 			wmove(com_win, 0, 0);
@@ -1100,7 +1136,7 @@ scanline(unsigned char *pos)
 	scr_horz = temp;
 	if ((scr_horz - horiz_offset) > last_col) {
 		horiz_offset = (scr_horz - (scr_horz % 8)) -
-		    ee_max(1, COLS - 8);
+		    ee_max(1, last_col - 7);
 		if (horiz_offset < 0)
 			horiz_offset = 0;
 		midscreen(scr_vert, point);
@@ -1277,7 +1313,7 @@ insert_line(int disp)
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 	wclrtoeol(text_win);
 	temp_nod = txtalloc();
-	temp_nod->line = extra = malloc(10);
+	temp_nod->line = extra = xmalloc(10);
 	temp_nod->line_length = 1;
 	temp_nod->max_length = 10;
 	temp_nod->line_number = curr_line->line_number + 1;
@@ -1338,14 +1374,14 @@ insert_line(int disp)
 static struct text *
 txtalloc(void)
 {
-	return ((struct text *)malloc(sizeof(struct text)));
+	return ((struct text *)xmalloc(sizeof(struct text)));
 }
 
 /* allocate space for file name list node */
 static struct files *
 name_alloc(void)
 {
-	return ((struct files *)malloc(sizeof(struct files)));
+	return ((struct files *)xmalloc(sizeof(struct files)));
 }
 
 /* move to next word in string		*/
@@ -1677,7 +1713,7 @@ find_pos(void)
 	}
 	if ((scr_horz - horiz_offset) > last_col) {
 		horiz_offset = (scr_horz - (scr_horz % 8)) -
-		    ee_max(1, COLS - 8);
+		    ee_max(1, last_col - 7);
 		if (horiz_offset < 0)
 			horiz_offset = 0;
 		midscreen(scr_vert, point);
@@ -2040,7 +2076,7 @@ show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
 
 /* read string from input on command line; NULL if cancelled */
 static char *
-get_string(char *prompt, int advance)
+get_string(const char *prompt, int advance)
 {
 	static const char *const prompt_keys[] = {
 		"[Enter] Accept", "[Esc] Cancel", "[^V] Literal"
@@ -2249,10 +2285,10 @@ get_string(char *prompt, int advance)
 
 /* compare two strings	*/
 static int
-compare(char *string1, char *string2, int sensitive)
+compare(const char *string1, const char *string2, int sensitive)
 {
-	char *strng1;
-	char *strng2;
+	const char *strng1;
+	const char *strng2;
 	int equal;
 
 	strng1 = string1;
@@ -2409,7 +2445,7 @@ get_options(int numargs, char *arguments[])
 			temp_names->next_name = name_alloc();
 			temp_names = temp_names->next_name;
 		}
-		temp_names->name = (unsigned char *)malloc(strlen(buff) + 1);
+		temp_names->name = (unsigned char *)xmalloc(strlen(buff) + 1);
 		ptr = (char *)temp_names->name;
 		while (*buff != '\0') {
 			*ptr = *buff;
@@ -2709,7 +2745,7 @@ get_line(int length, unsigned char *input, int *append)
 			if (tline->next_line != NULL)
 				tline->next_line->prev_line = tline;
 			curr_line = tline;
-			curr_line->line = point = (unsigned char *)malloc(
+			curr_line->line = point = (unsigned char *)xmalloc(
 			    (size_t)char_count);
 			curr_line->line_length = char_count;
 			curr_line->max_length = char_count;
@@ -2880,12 +2916,10 @@ confirm(const char *question)
 static int
 write_file(char *file_name, int warn_if_exists)
 {
-	char cr;
-	char *tmp_point;
 	struct text *out_line;
 	int lines;
-	int temp_pos;
 	int write_flag = TRUE;
+	int write_ok = TRUE;
 
 	lines = 0;
 	if (warn_if_exists &&
@@ -2900,42 +2934,57 @@ write_file(char *file_name, int warn_if_exists)
 
 	clear_com_win = TRUE;
 
-	if (write_flag) {
-		if ((temp_fp = fopen(file_name, "w")) == NULL) {
-			clear_com_win = TRUE;
-			wmove(com_win, 0, 0);
-			wclrtoeol(com_win);
-			wprintw(com_win, create_file_fail_msg, file_name);
-			wrefresh(com_win);
-			return (FALSE);
-		} else {
-			wmove(com_win, 0, 0);
-			wclrtoeol(com_win);
-			wprintw(com_win, writing_file_msg, file_name);
-			wrefresh(com_win);
-			cr = '\n';
-			out_line = first_line;
-			while (out_line != NULL) {
-				temp_pos = 1;
-				tmp_point = (char *)out_line->line;
-				while (temp_pos < out_line->line_length) {
-					putc(*tmp_point, temp_fp);
-					tmp_point++;
-					temp_pos++;
-				}
-				out_line = out_line->next_line;
-				putc(cr, temp_fp);
-				lines++;
-			}
-			fclose(temp_fp);
-			wmove(com_win, 0, 0);
-			wclrtoeol(com_win);
-			wprintw(com_win, file_written_msg, file_name, lines);
-			wrefresh(com_win);
-			return (TRUE);
-		}
-	} else
+	if (!write_flag)
 		return (FALSE);
+
+	if ((temp_fp = fopen(file_name, "w")) == NULL) {
+		clear_com_win = TRUE;
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, "unable to create file \"%s\"", file_name);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		return (FALSE);
+	}
+
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, "writing file \"%s\"", file_name);
+	wrefresh(com_win);
+
+	/*
+	 * The buffer is written byte for byte and the result is only
+	 * reported as successful once fflush(3) and fclose(3) have
+	 * confirmed that no deferred error occurred.
+	 */
+	out_line = first_line;
+	while ((out_line != NULL) && write_ok) {
+		size_t n = (size_t)(out_line->line_length - 1);
+
+		if ((n > 0) && (fwrite(out_line->line, 1, n, temp_fp) != n))
+			write_ok = FALSE;
+		else if (fputc('\n', temp_fp) == EOF)
+			write_ok = FALSE;
+		out_line = out_line->next_line;
+		lines++;
+	}
+	if (write_ok && (fflush(temp_fp) != 0))
+		write_ok = FALSE;
+	if (fclose(temp_fp) != 0)
+		write_ok = FALSE;
+	temp_fp = NULL;
+
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	if (!write_ok) {
+		wprintw(com_win, "error writing \"%s\"", file_name);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		return (FALSE);
+	}
+	wprintw(com_win, "\"%s\", %d lines written", file_name, lines);
+	wrefresh(com_win);
+	return (TRUE);
 }
 
 /* search for string in srch_str	*/
@@ -3173,7 +3222,7 @@ del_word(void)
 
 	if (d_word != NULL)
 		free(d_word);
-	d_word = malloc((size_t)curr_line->line_length);
+	d_word = xmalloc((size_t)curr_line->line_length);
 	memcpy(tmp_char, d_char, sizeof(tmp_char));
 	d_word3 = point;
 	d_word2 = d_word;
@@ -3225,7 +3274,7 @@ undel_word(void)
 	 */
 	if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5)
 		point = resiz_line(d_wrd_len, curr_line, position);
-	tmp_ptr = tmp_space = malloc((size_t)curr_line->line_length +
+	tmp_ptr = tmp_space = xmalloc((size_t)curr_line->line_length +
 	    (size_t)d_wrd_len);
 	d_word_ptr = d_word;
 	temp = 1;
@@ -3280,7 +3329,7 @@ del_line(void)
 
 	if (d_line != NULL)
 		free(d_line);
-	d_line = malloc((size_t)curr_line->line_length);
+	d_line = xmalloc((size_t)curr_line->line_length);
 	dl1 = d_line;
 	dl2 = point;
 	tposit = position;
@@ -3495,8 +3544,17 @@ sh_command(char *string)
 	}
 
 	if (in_pipe) {
-		pipe(pipe_in);		/* create a pipe	*/
+		if (pipe(pipe_in) != 0) {
+			fprintf(stderr, "ee: pipe: %s\n", strerror(errno));
+			return;
+		}
 		parent = fork();
+		if (parent < 0) {
+			close(pipe_in[0]);
+			close(pipe_in[1]);
+			fprintf(stderr, "ee: fork: %s\n", strerror(errno));
+			return;
+		}
 		if (!parent) {		/* if the child		*/
 /*
  |  child process which will fork and exec shell command (if shell output is
@@ -3504,17 +3562,14 @@ sh_command(char *string)
  */
 			in_pipe = FALSE;
 /*
- |  redirect stdout to pipe
+ |  redirect stdout and stderr to the pipe
  */
-			temp_stdout = dup(1);
 			close(1);
-			dup(pipe_in[1]);
-/*
- |  redirect stderr to pipe
- */
-			temp_stderr = dup(2);
+			if (dup(pipe_in[1]) < 0)
+				_exit(127);
 			close(2);
-			dup(pipe_in[1]);
+			if (dup(pipe_in[1]) < 0)
+				_exit(127);
 			close(pipe_in[1]);
 			/*
 			 |	child will now continue down 'if (!in_pipe)'
@@ -3548,13 +3603,24 @@ sh_command(char *string)
 	}
 	if (!in_pipe) {
 		signal(SIGINT, SIG_IGN);
-		if (out_pipe) {
-			pipe(pipe_out);
+		if (out_pipe && (pipe(pipe_out) != 0)) {
+			out_pipe = FALSE;
+			fprintf(stderr, "ee: pipe: %s\n", strerror(errno));
 		}
 /*
  |  fork process which will exec command
  */
 		parent = fork();
+		if (parent < 0) {
+			if (out_pipe) {
+				close(pipe_out[0]);
+				close(pipe_out[1]);
+				out_pipe = FALSE;
+			}
+			ee_install_sigint();
+			fprintf(stderr, "ee: fork: %s\n", strerror(errno));
+			return;
+		}
 		if (!parent) {		/* if the child	*/
 			if (shell_fork)
 				putchar('\n');
@@ -3564,7 +3630,8 @@ sh_command(char *string)
  |  pipe (which will be output from the editor's buffer)
  */
 				close(0);
-				dup(pipe_out[0]);
+				if (dup(pipe_out[0]) < 0)
+					_exit(127);
 				close(pipe_out[0]);
 				close(pipe_out[1]);
 			}
@@ -3573,7 +3640,7 @@ sh_command(char *string)
 			execl(path, last_slash, "-c", string, NULL);
 			fprintf(stderr,
 			    "unable to execute command %s\n", path);
-			exit(-1);
+			_exit(127);
 		} else	/* if the parent	*/ {
 			if (out_pipe) {
 /*
@@ -3591,9 +3658,12 @@ sh_command(char *string)
 				close(pipe_out[1]);
 				out_pipe = FALSE;
 			}
-			do {
-				return_val = wait((int *)0);
-			} while ((return_val != parent) && (return_val != -1));
+			for (;;) {
+				return_val = waitpid(parent, NULL, 0);
+				if ((return_val == parent) || (return_val < 0 &&
+				    errno != EINTR))
+					break;
+			}
 /*
  |  if this process is actually the child of the editor, exit.  Here's how it
  |  works:
@@ -4861,122 +4931,90 @@ static void
 ee_init(void)
 {
 	FILE *init_file;
-	char *string;
-	char *str1;
-	char *str2;
+	const char *home_dir;
 	char *home;
+	char *line = NULL;
+	char *p;
+	size_t linecap = 0;
 	size_t home_size;
+	ssize_t linelen;
 	int counter;
 	int temp_int;
 
-	string = getenv("HOME");
-	if (string == NULL)
-		string = "/tmp";
-	home_size = strlen(string) + sizeof("/.init.ee");
-	home = malloc(home_size);
-	if (home == NULL) {
-		fprintf(stderr, "ee: unable to allocate memory\n");
-		return;
-	}
-	strlcpy(home, string, home_size);
+	home_dir = getenv("HOME");
+	if (home_dir == NULL)
+		home_dir = "/tmp";
+	home_size = strlen(home_dir) + sizeof("/.init.ee");
+	home = xmalloc(home_size);
+	strlcpy(home, home_dir, home_size);
 	strlcat(home, "/.init.ee", home_size);
-	string = malloc(512);
-	if (string == NULL) {
-		/* init_name[1] is only assigned once all allocations
-		 * succeeded, so it can never dangle. */
-		free(home);
-		fprintf(stderr, "ee: unable to allocate memory\n");
-		return;
-	}
 	init_name[1] = home;
 
 	for (counter = 0; counter < 3; counter++) {
-		if (!(access(init_name[counter], 4))) {
-			init_file = fopen(init_name[counter], "r");
-			if (init_file != NULL) {
-				while ((str2 = fgets(string, 512, init_file)) !=
-				    NULL) {
-					str1 = str2 = string;
-					while (*str2 != '\n')
-						str2++;
-					*str2 = '\0';
+		if (access(init_name[counter], R_OK) != 0)
+			continue;
+		init_file = fopen(init_name[counter], "r");
+		if (init_file == NULL)
+			continue;
+		while ((linelen = getline(&line, &linecap, init_file)) != -1) {
+			if ((linelen > 0) && (line[linelen - 1] == '\n'))
+				line[--linelen] = '\0';
+			p = line;
 
-					if (unique_test(string, init_strings) !=
-					    1)
-						continue;
+			if (unique_test(p, init_strings) != 1)
+				continue;
 
-					if (compare(str1, CASE, FALSE))
-						case_sen = TRUE;
-					else if (compare(str1, NOCASE, FALSE))
-						case_sen = FALSE;
-					else if (compare(str1, EXPAND, FALSE))
-						expand_tabs = TRUE;
-					else if (compare(str1, NOEXPAND, FALSE))
-						expand_tabs = FALSE;
-					else if (compare(str1, INFO, FALSE))
-						info_window = TRUE;
-					else if (compare(str1, NOINFO, FALSE))
-						info_window = FALSE;
-					else if (compare(str1, MARGINS, FALSE))
-						observ_margins = TRUE;
-					else if (compare(str1, NOMARGINS,
-					    FALSE))
-						observ_margins = FALSE;
-					else if (compare(str1, AUTOFORMAT,
-					    FALSE)) {
-						auto_format = TRUE;
-						observ_margins = TRUE;
-					} else if (compare(str1, NOAUTOFORMAT,
-					    FALSE))
-						auto_format = FALSE;
-					else if (compare(str1, Echo, FALSE)) {
-						str1 = next_word(str1);
-						if (*str1 != '\0')
-							echo_string(str1);
-					} else if (compare(str1, PRINTCOMMAND,
-					    FALSE)) {
-						str1 = next_word(str1);
-						print_command = malloc(
-						    strlen(str1) + 1);
-						strlcpy((char *)print_command,
-						    (char *)str1,
-						    strlen(str1) + 1);
-					} else if (compare(str1, RIGHTMARGIN,
-					    FALSE)) {
-						str1 = next_word(str1);
-						if ((*str1 >= '0') &&
-						    (*str1 <= '9')) {
-							temp_int = (int)strtol(str1,
-							    NULL, 10);
-							if (temp_int > 0)
-								right_margin = temp_int;
-						}
-					} else if (compare(str1, HIGHLIGHT,
-					    FALSE))
-						nohighlight = FALSE;
-					else if (compare(str1, NOHIGHLIGHT,
-					    FALSE))
-						nohighlight = TRUE;
-					/*
-					 * EIGHTBIT / NOEIGHTBIT are no
-					 * longer meaningful: text is
-					 * always UTF-8.  They are no
-					 * longer listed in init_strings,
-					 * so old files are skipped and
-					 * preserved by dump_ee_conf().
-					 */
-					else if (compare(str1, EMACS_string,
-					    FALSE))
-						emacs_keys_mode = TRUE;
-					else if (compare(str1, NOEMACS_string,
-					    FALSE))
-						emacs_keys_mode = FALSE;
+			if (compare(p, CASE, FALSE))
+				case_sen = TRUE;
+			else if (compare(p, NOCASE, FALSE))
+				case_sen = FALSE;
+			else if (compare(p, EXPAND, FALSE))
+				expand_tabs = TRUE;
+			else if (compare(p, NOEXPAND, FALSE))
+				expand_tabs = FALSE;
+			else if (compare(p, INFO, FALSE))
+				info_window = TRUE;
+			else if (compare(p, NOINFO, FALSE))
+				info_window = FALSE;
+			else if (compare(p, MARGINS, FALSE))
+				observ_margins = TRUE;
+			else if (compare(p, NOMARGINS, FALSE))
+				observ_margins = FALSE;
+			else if (compare(p, AUTOFORMAT, FALSE)) {
+				auto_format = TRUE;
+				observ_margins = TRUE;
+			} else if (compare(p, NOAUTOFORMAT, FALSE))
+				auto_format = FALSE;
+			else if (compare(p, Echo, FALSE)) {
+				p = next_word(p);
+				if (*p != '\0')
+					echo_string(p);
+			} else if (compare(p, PRINTCOMMAND, FALSE)) {
+				p = next_word(p);
+				print_command = xmalloc(strlen(p) + 1);
+				strlcpy((char *)print_command, p, strlen(p) + 1);
+			} else if (compare(p, RIGHTMARGIN, FALSE)) {
+				p = next_word(p);
+				if ((*p >= '0') && (*p <= '9')) {
+					temp_int = (int)strtol(p, NULL, 10);
+					if (temp_int > 0)
+						right_margin = temp_int;
 				}
-				fclose(init_file);
-			}
+			} else if (compare(p, HIGHLIGHT, FALSE))
+				nohighlight = FALSE;
+			else if (compare(p, NOHIGHLIGHT, FALSE))
+				nohighlight = TRUE;
+			else if (compare(p, EMACS_string, FALSE))
+				emacs_keys_mode = TRUE;
+			else if (compare(p, NOEMACS_string, FALSE))
+				emacs_keys_mode = FALSE;
 		}
+		free(line);
+		line = NULL;
+		linecap = 0;
+		fclose(init_file);
 	}
-	free(string);
+	free(line);
 	free(home);
 }
 
@@ -4989,17 +5027,19 @@ dump_ee_conf(void)
 {
 	FILE *init_file;
 	FILE *old_init_file = NULL;
-	char *file_name = ".init.ee";
-	char *home_dir = "~/.init.ee";
-	char buffer[512];
+	const char *file_name = ".init.ee";
+	const char *home_dir = "~/.init.ee";
+	char *resolved = NULL;
+	char *old_name = NULL;
 	struct stat buf;
-	char *string;
-	int length;
+	char *line = NULL;
+	size_t linecap = 0;
+	ssize_t linelen;
 	int option = 0;
+	int write_ok = TRUE;
 
-	if (restrict_mode()) {
+	if (restrict_mode())
 		return;
-	}
 
 	option = menu_op(config_dump_menu);
 
@@ -5007,28 +5047,38 @@ dump_ee_conf(void)
 	wmove(com_win, 0, 0);
 
 	if (option == 0) {
-		wprintw(com_win, "%s", conf_not_saved_msg);
+		waddstr(com_win, conf_not_saved_msg);
 		wrefresh(com_win);
 		return;
-	} else if (option == 2)
-		file_name = resolve_name(home_dir);
+	}
+	if (option == 2) {
+		resolved = resolve_name((char *)home_dir);
+		if (resolved != home_dir)
+			file_name = resolved;
+	}
 
 	/*
 	 |	If a .init.ee file exists, move it to .init.ee.old.
 	 */
 
 	if (stat(file_name, &buf) != -1) {
-		snprintf(buffer, sizeof(buffer), "%s.old", file_name);
-		unlink(buffer);
-		link(file_name, buffer);
+		size_t n = strlen(file_name) + sizeof(".old");
+
+		old_name = xmalloc(n);
+		snprintf(old_name, n, "%s.old", file_name);
+		unlink(old_name);
+		link(file_name, old_name);
 		unlink(file_name);
-		old_init_file = fopen(buffer, "r");
+		old_init_file = fopen(old_name, "r");
 	}
 
 	init_file = fopen(file_name, "w");
 	if (init_file == NULL) {
-		wprintw(com_win, "%s", conf_dump_err_msg);
+		waddstr(com_win, conf_dump_err_msg);
 		wrefresh(com_win);
+		free(old_name);
+		if ((resolved != NULL) && (resolved != home_dir))
+			free(resolved);
 		return;
 	}
 
@@ -5036,42 +5086,59 @@ dump_ee_conf(void)
 		/*
 		 |	Copy non-configuration info into new .init.ee file.
 		 */
-		while ((string = fgets(buffer, 512, old_init_file)) != NULL) {
-			length = (int)strlen(string);
-			if (length < 1)
+		while ((linelen = getline(&line, &linecap, old_init_file)) != -1) {
+			if ((linelen > 0) && (line[linelen - 1] == '\n'))
+				line[--linelen] = '\0';
+
+			if ((unique_test(line, init_strings) == 1) &&
+			    !compare(line, Echo, FALSE))
 				continue;
-			string[length - 1] = '\0';
-
-			if (unique_test(string, init_strings) == 1) {
-				if (compare(string, Echo, FALSE)) {
-					fprintf(init_file, "%s\n", string);
-				}
-			} else
-				fprintf(init_file, "%s\n", string);
+			if (fprintf(init_file, "%s\n", line) < 0)
+				write_ok = FALSE;
 		}
-
+		free(line);
 		fclose(old_init_file);
 	}
 
-	fprintf(init_file, "%s\n", case_sen ? CASE : NOCASE);
-	fprintf(init_file, "%s\n", expand_tabs ? EXPAND : NOEXPAND);
-	fprintf(init_file, "%s\n", info_window ? INFO : NOINFO);
-	fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS);
-	fprintf(init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT);
-	fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command);
-	fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin);
-	fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT);
-	fprintf(init_file, "%s\n",
-	    emacs_keys_mode ? EMACS_string : NOEMACS_string);
+	if (fprintf(init_file, "%s\n", case_sen ? CASE : NOCASE) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n", expand_tabs ? EXPAND : NOEXPAND) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n", info_window ? INFO : NOINFO) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n",
+	    emacs_keys_mode ? EMACS_string : NOEMACS_string) < 0)
+		write_ok = FALSE;
 
-	fclose(init_file);
+	if (fflush(init_file) != 0)
+		write_ok = FALSE;
+	if (fclose(init_file) != 0)
+		write_ok = FALSE;
 
-	wprintw(com_win, conf_dump_success_msg, file_name);
-	wrefresh(com_win);
-
-	if ((option == 2) && (file_name != home_dir)) {
-		free(file_name);
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	if (!write_ok) {
+		waddstr(com_win, conf_dump_err_msg);
+	} else {
+		wprintw(com_win, "ee configuration saved in file %s",
+		    file_name);
 	}
+	wrefresh(com_win);
+	clear_com_win = TRUE;
+
+	free(old_name);
+	if ((resolved != NULL) && (resolved != home_dir))
+		free(resolved);
 }
 
 /* echo the given string	*/
@@ -5144,33 +5211,53 @@ spell_op(void)
 static void
 ispell_op(void)
 {
-	char template[128], *name;
-	char string[256];
+	const char *tmpdir;
+	char *name;
+	char *cmd;
+	size_t len;
 	int fd;
 
-	if (restrict_mode()) {
+	if (restrict_mode())
 		return;
-	}
-	(void)snprintf(template, sizeof(template), "/tmp/ee.XXXXXXXX");
-	fd = mkstemp(template);
-	name = template;
+
+	/*
+	 * A private temporary file created with mkstemp(3): the name is
+	 * unpredictable and the file is created with mode 0600, so the
+	 * document contents are not exposed.  It is removed on every path
+	 * out of the function.
+	 */
+	tmpdir = getenv("TMPDIR");
+	if ((tmpdir == NULL) || (*tmpdir == '\0'))
+		tmpdir = "/tmp";
+	len = strlen(tmpdir) + sizeof("/ee.XXXXXXXX");
+	name = xmalloc(len);
+	snprintf(name, len, "%s/ee.XXXXXXXX", tmpdir);
+	fd = mkstemp(name);
 	if (fd < 0) {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
-		wprintw(com_win, create_file_fail_msg, name);
+		wprintw(com_win, "unable to create file \"%s\"", name);
 		wrefresh(com_win);
+		free(name);
 		return;
 	}
 	close(fd);
+
 	if (write_file(name, 0)) {
-		snprintf(string, sizeof(string), "ispell %s", name);
-		sh_command(string);
+		len = strlen("ispell ") + strlen(name) + 1;
+		cmd = xmalloc(len);
+		snprintf(cmd, len, "ispell %s", name);
+		sh_command(cmd);
+		free(cmd);
 		delete_text();
 		tmp_file = name;
 		recv_file = TRUE;
 		check_fp();
-		unlink(name);
 	}
+	unlink(name);
+	if (tmp_file == name)
+		tmp_file = NULL;
+	free(name);
 }
 
 static int
@@ -5711,7 +5798,7 @@ restrict_mode(void)
  */
 
 static int
-unique_test(char *string, char *list[])
+unique_test(const char *string, const char *list[])
 {
 	int counter;
 	int num_match;
@@ -5729,38 +5816,78 @@ unique_test(char *string, char *list[])
 }
 
 /*
- * Select a UTF-8 LC_CTYPE so that libc and ncursesw interpret multibyte
- * text correctly.  The interface language is compiled in, so
- * LC_MESSAGES is never consulted and the environment cannot change the
- * UI strings.  A named UTF-8 locale is preferred; the environment is
- * used only when it happens to name a UTF-8 codeset.  If none is
- * available the editor stays in the "C" locale and warns, degrading to
- * byte-oriented editing rather than silently misinterpreting bytes.
+ * Establish the invariant "the active LC_CTYPE is UTF-8".
+ *
+ * ee has a single text semantics: UTF-8.  There is deliberately no
+ * byte-oriented fallback, because mbrtowc(3), wcrtomb(3), wcwidth(3)
+ * and wget_wch(3) would then have a meaning incompatible with the
+ * buffer's UTF-8 invariant.  The editor therefore refuses to start
+ * unless a UTF-8 LC_CTYPE can be selected.
+ *
+ * Policy:
+ *
+ *   - If the environment names a locale (LC_ALL, LC_CTYPE or LANG is
+ *     set), that choice is honoured: it must resolve to a UTF-8 codeset
+ *     or ee refuses to start.  ee does not silently override an
+ *     explicit non-UTF-8 choice.
+ *   - If no locale is configured at all, a small set of well-known
+ *     UTF-8 locales is tried, so that ee works out of the box on a
+ *     system whose default is the "C" locale.
+ *
+ * Only LC_CTYPE is touched: LC_MESSAGES is never consulted and cannot
+ * change the compiled-in U.S. English interface.
+ *
+ * This runs before any editor state or curses initialization, so a
+ * failure leaves the terminal untouched.
  */
+static int
+locale_is_configured(void)
+{
+	const char *v;
+
+	v = getenv("LC_ALL");
+	if ((v != NULL) && (*v != '\0'))
+		return (1);
+	v = getenv("LC_CTYPE");
+	if ((v != NULL) && (*v != '\0'))
+		return (1);
+	v = getenv("LANG");
+	if ((v != NULL) && (*v != '\0'))
+		return (1);
+	return (0);
+}
+
 static void
 select_utf8_locale(void)
 {
-	static const char *const candidates[] = {
-		"C.UTF-8", "en_US.UTF-8", "en_US.utf8", "UTF-8"
+	static const char *const fallback[] = {
+		"C.UTF-8", "en_US.UTF-8"
 	};
 	size_t i;
 
-	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-		if ((setlocale(LC_CTYPE, candidates[i]) != NULL) &&
-		    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
-			return;
-	}
 	if ((setlocale(LC_CTYPE, "") != NULL) &&
 	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
 		return;
-	(void)setlocale(LC_CTYPE, "C");
+	if (locale_is_configured()) {
+		fprintf(stderr, "ee: the configured locale is not UTF-8; "
+		    "set LC_CTYPE to a UTF-8 locale\n");
+		exit(1);
+	}
+	for (i = 0; i < sizeof(fallback) / sizeof(fallback[0]); i++) {
+		if ((setlocale(LC_CTYPE, fallback[i]) != NULL) &&
+		    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
+			return;
+	}
 	fprintf(stderr, "ee: no UTF-8 locale available; "
-	    "editing in byte-oriented mode\n");
+	    "set LC_CTYPE to a UTF-8 locale\n");
+	exit(1);
 }
 
 /*
  *	All messages are hard-coded U.S. English: ee is not localized,
- *	and no message catalogs are read or installed.
+ *	and no message catalogs are read or installed.  The message text
+ *	itself is defined as static data above; this routine only wires
+ *	the menu labels and the command/init name tables together.
  */
 
 static void
@@ -5768,178 +5895,18 @@ strings_init(void)
 {
 	int counter;
 
-	select_utf8_locale();
-
-	modes_menu[0].item_string = "modes menu";
 	mode_strings[1] = "tabs to spaces       ";
 	mode_strings[2] = "case sensitive search";
 	mode_strings[3] = "margins observed     ";
 	mode_strings[4] = "auto-paragraph format";
 	mode_strings[5] = "info window          ";
-	mode_strings[7] = "right margin         ";
-	leave_menu[0].item_string = "leave menu";
-	leave_menu[1].item_string = "save changes";
-	leave_menu[2].item_string = "no save";
-	file_menu[0].item_string = "file menu";
-	file_menu[1].item_string = "read a file";
-	file_menu[2].item_string = "write a file";
-	file_menu[3].item_string = "save file";
-	file_menu[4].item_string = "print editor contents";
-	search_menu[0].item_string = "search menu";
-	search_menu[1].item_string = "search for ...";
-	search_menu[2].item_string = "search";
-	spell_menu[0].item_string = "spell menu";
-	spell_menu[1].item_string = "use 'spell'";
-	spell_menu[2].item_string = "use 'ispell'";
-	misc_menu[0].item_string = "miscellaneous menu";
-	misc_menu[1].item_string = "format paragraph";
-	misc_menu[2].item_string = "shell command";
-	misc_menu[3].item_string = "check spelling";
-	main_menu[0].item_string = "main menu";
-	main_menu[1].item_string = "leave editor";
-	main_menu[2].item_string = "help";
-	main_menu[3].item_string = "file operations";
-	main_menu[4].item_string = "redraw screen";
-	main_menu[5].item_string = "settings";
-	main_menu[6].item_string = "search";
-	main_menu[7].item_string = "miscellaneous";
-	com_win_message = "    press Escape (^[) for menu";
-	no_file_string = "no file";
-	ascii_code_str = "Character code (decimal): ";
-	printer_msg_str = "sending contents of buffer to \"%s\" ";
-	command_str = "Command: ";
-	file_write_prompt_str = "File name to write: ";
-	file_read_prompt_str = "File name to read: ";
-	char_str = "character = %d";
-	unkn_cmd_str = "unknown command \"%s\"";
-	non_unique_cmd_msg = "entered command is not unique";
-	line_num_str = "line %d  ";
-	line_len_str = "length = %d";
-	current_file_str = "current file is \"%s\" ";
-	file_is_dir_msg = "\"%s\" is a directory";
-	new_file_msg = "new file \"%s\"";
-	cant_open_msg = "cannot open \"%s\"";
-	not_text_file_msg = "\"%s\" is not a text file (contains a NUL byte)";
-	invalid_utf8_msg = "\"%s\" is not valid UTF-8 at byte %lu";
-	file_read_fin_msg = "finished reading file \"%s\"";
-	reading_file_msg = "reading file \"%s\"";
-	read_only_msg = ", read only";
-	file_read_lines_msg = "file \"%s\", %d lines";
-	save_file_name_prompt = "File name: ";
-	file_not_saved_msg = "no filename entered: file not saved";
-	create_file_fail_msg = "unable to create file \"%s\"";
-	writing_file_msg = "writing file \"%s\"";
-	file_written_msg = "\"%s\", %d lines written";
-	searching_msg = "           ...searching";
-	str_not_found_msg = "string \"%s\" not found";
-	search_prompt_str = "Search for: ";
-	continue_msg = "press return to continue ";
-	menu_cancel_msg = "press Esc to cancel";
-	shell_prompt = "Shell command: ";
-	formatting_msg = "...formatting paragraph...";
-	shell_echo_msg = "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
-	spell_in_prog_msg = "sending contents of edit buffer to 'spell'";
-	margin_prompt = "Right margin: ";
-	restricted_msg = "restricted mode: unable to perform requested operation";
-	ON = "ON";
-	OFF = "OFF";
-	HELP = "HELP";
-	WRITE = "WRITE";
-	READ = "READ";
-	LINE = "LINE";
-	FILE_str = "FILE";
-	CHARACTER = "CHARACTER";
-	REDRAW = "REDRAW";
-	RESEQUENCE = "RESEQUENCE";
-	AUTHOR = "AUTHOR";
-	CASE = "CASE";
-	NOCASE = "NOCASE";
-	EXPAND = "EXPAND";
-	NOEXPAND = "NOEXPAND";
-	Exit_string = "EXIT";
-	QUIT_string = "QUIT";
-	INFO = "INFO";
-	NOINFO = "NOINFO";
-	MARGINS = "MARGINS";
-	NOMARGINS = "NOMARGINS";
-	AUTOFORMAT = "AUTOFORMAT";
-	NOAUTOFORMAT = "NOAUTOFORMAT";
-	Echo = "ECHO";
-	PRINTCOMMAND = "PRINTCOMMAND";
-	RIGHTMARGIN = "RIGHTMARGIN";
-	HIGHLIGHT = "HIGHLIGHT";
-	NOHIGHLIGHT = "NOHIGHLIGHT";
-	/*
-	 |	additions
-	 */
 	mode_strings[6] = "emacs key bindings   ";
-	EMACS_string = "EMACS";
-	NOEMACS_string = "NOEMACS";
-	conf_dump_err_msg = "unable to open .init.ee for writing, no configuration saved!";
-	conf_dump_success_msg = "ee configuration saved in file %s";
-	modes_menu[9].item_string = "save editor configuration";
-	config_dump_menu[0].item_string = "save ee configuration";
-	config_dump_menu[1].item_string = "save in current directory";
-	config_dump_menu[2].item_string = "save in home directory";
-	conf_not_saved_msg = "ee configuration not saved";
-	ree_no_file_msg = "must specify a file when invoking ree";
-	menu_too_lrg_msg = "menu too large for window";
-	more_above_str = "^^more^^";
-	more_below_str = "VVmoreVV";
-
-	commands[0] = HELP;
-	commands[1] = WRITE;
-	commands[2] = READ;
-	commands[3] = LINE;
-	commands[4] = FILE_str;
-	commands[5] = REDRAW;
-	commands[6] = RESEQUENCE;
-	commands[7] = AUTHOR;
-	commands[8] = CASE;
-	commands[9] = NOCASE;
-	commands[10] = EXPAND;
-	commands[11] = NOEXPAND;
-	commands[12] = Exit_string;
-	commands[13] = QUIT_string;
-	commands[14] = "<";
-	commands[15] = ">";
-	commands[16] = "!";
-	commands[17] = "0";
-	commands[18] = "1";
-	commands[19] = "2";
-	commands[20] = "3";
-	commands[21] = "4";
-	commands[22] = "5";
-	commands[23] = "6";
-	commands[24] = "7";
-	commands[25] = "8";
-	commands[26] = "9";
-	commands[27] = CHARACTER;
-	commands[28] = NULL;
-	init_strings[0] = CASE;
-	init_strings[1] = NOCASE;
-	init_strings[2] = EXPAND;
-	init_strings[3] = NOEXPAND;
-	init_strings[4] = INFO;
-	init_strings[5] = NOINFO;
-	init_strings[6] = MARGINS;
-	init_strings[7] = NOMARGINS;
-	init_strings[8] = AUTOFORMAT;
-	init_strings[9] = NOAUTOFORMAT;
-	init_strings[10] = Echo;
-	init_strings[11] = PRINTCOMMAND;
-	init_strings[12] = RIGHTMARGIN;
-	init_strings[13] = HIGHLIGHT;
-	init_strings[14] = NOHIGHLIGHT;
-	init_strings[15] = EMACS_string;
-	init_strings[16] = NOEMACS_string;
-	init_strings[17] = NULL;
+	mode_strings[7] = "right margin         ";
 
 	/*
 	 |	allocate space for strings here for settings menu
 	 */
 
-	for (counter = 1; counter < NUM_MODES_ITEMS; counter++) {
-		modes_menu[counter].item_string = malloc(MODES_ITEM_SIZE);
-	}
+	for (counter = 1; counter < NUM_MODES_ITEMS; counter++)
+		modes_menu[counter].item_string = xmalloc(MODES_ITEM_SIZE);
 }

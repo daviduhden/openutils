@@ -560,18 +560,24 @@ This keeps the buffer invariant "every line is valid UTF-8" true at all
 times, so the editor can never corrupt a file by silently accepting
 bytes it cannot represent.
 .PP
-The locale is selected for multibyte support only: a UTF-8 locale is
-chosen (the environment is used when it already names a UTF-8 codeset),
-never one that would change the interface language.
+The locale is used for multibyte support only and must be UTF-8.
+If the environment names a locale, that choice is honoured:
+.IR ee
+requires the resulting
+.SM LC_CTYPE
+codeset to be UTF-8 and refuses to start otherwise, rather than
+operating with a text semantics that is incompatible with its UTF-8
+buffer.
+If no locale is configured at all, a well-known UTF-8 locale is
+selected automatically.
 Setting
 .SM LANG ,
 .SM LANGUAGE ,
 .SM LC_ALL ,
 .SM LC_MESSAGES
-or any other locale variable has no effect on the interface language
-or on the character handling of the editor.
-If no UTF-8 locale is available, the editor degrades to byte-oriented
-editing and says so on standard error.
+or any other locale variable never changes the interface language,
+which is compiled in as U.S. English.
+There is no byte-oriented mode.
 Legacy encodings such as ISO-8859-1, Shift-JIS and Big-5 are not
 supported.
 .SH WARNINGS

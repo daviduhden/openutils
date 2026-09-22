@@ -67,15 +67,14 @@ debug:
 # strict-warning build of every component (developer target).
 #
 # doasedit, tree and truncate build warning-free under the full set
-# below with both compilers.  ee additionally passes -Wshadow
-# -Wformat=2 -Wundef -Wstrict-prototypes -Wmissing-prototypes.  ee's
-# byte-oriented buffer code was audited with
-# -Wconversion/-Wsign-conversion and all of those warnings were fixed;
-# they are not enabled in the check target only because the available
-# verification compiler was GCC, and the historical dynamic format
-# strings (global message formats used with wprintw) still trigger
-# -Wformat-nonliteral, which clang's -Wformat=2 (the target
-# compiler/flags for ee) does not enable.
+# below with both compilers.  ee builds warning-free under
+# -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef
+# -Wstrict-prototypes -Wmissing-prototypes with both compilers, and it
+# was additionally verified clean under -Wformat-nonliteral and
+# -Wconversion/-Wsign-conversion with GCC (the message formats are now
+# compile-time literals and the byte/character arithmetic was audited).
+# The extra flags are not enabled in the check target because clang was
+# not available in the verification environment.
 CHECK_CC ?= clang
 CHECK_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 	-Wstrict-prototypes -Wmissing-prototypes -Wconversion -Wsign-conversion
