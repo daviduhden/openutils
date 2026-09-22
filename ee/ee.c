@@ -652,6 +652,7 @@ int
 main(int argc, char *argv[])
 {
 	int counter;
+	int err_count = 0;
 
 	for (counter = 1; counter < 24; counter++)
 		signal(counter, SIG_IGN);
@@ -755,10 +756,21 @@ main(int argc, char *argv[])
 				/* SIGINT seen: leave the editor cleanly */
 				if (ee_intr_flag)
 					edit_abort(0);
-				if (errno == EINTR)
+				/*
+				 * An interrupted read is routine, and ncurses
+				 * can report a terminal-size change as ERR when
+				 * it cannot apply the resize itself.  Rebuild the
+				 * layout and retry a few times; only treat the
+				 * error as fatal once it persists (the underlying
+				 * terminal is gone, e.g. a closed ssh session).
+				 */
+				if ((errno == EINTR) || (err_count++ < 5)) {
+					resize_check();
 					continue;
+				}
 				exit(0);
 			}
+			err_count = 0;
 
 			/* SIGINT may have arrived while not blocked in
 			 * input; the flag must also be honoured after a
