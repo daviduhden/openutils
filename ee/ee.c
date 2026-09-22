@@ -519,8 +519,8 @@ struct menu_entries main_menu[] = {
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
-char *commands[30];
-char *init_strings[20];
+char *commands[29];
+char *init_strings[18];
 
 #define MENU_WARN 1
 

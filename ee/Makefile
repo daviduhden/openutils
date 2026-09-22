@@ -46,7 +46,7 @@ debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug
 
 clean:
-	rm -f $(PROG) $(PROG)_debug ee.o
+	rm -f $(PROG) $(PROG)_debug ee.o utf8.o help.o
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1

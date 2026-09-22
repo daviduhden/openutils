@@ -22,10 +22,12 @@ systems).
 
 All C code is C17 (`-std=c17`, strict ISO mode, no compiler
 extensions).  Every component builds warning-free with `-Wall
--Wextra -Wpedantic` under both GCC and Clang.  OpenBSD interfaces
-(`strlcpy`, `strlcat`, `strtonum`, `reallocarray`, `pledge`,
-`unveil`, `err(3)`, `getprogname`) are used deliberately on top of
-that baseline.
+-Wextra -Wpedantic` under both GCC and Clang.  `ee` and its UTF-8 and
+help units were additionally audited with `-Wconversion
+-Wsign-conversion`; those warnings were fixed rather than suppressed.
+OpenBSD interfaces (`strlcpy`, `strlcat`, `strtonum`, `reallocarray`,
+`pledge`, `unveil`, `err(3)`, `getprogname`) are used deliberately on
+top of that baseline.
 
 Feature-test macros are deliberately NOT defined in production
 sources: on OpenBSD, defining `_XOPEN_SOURCE` would hide the

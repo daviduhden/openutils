@@ -546,6 +546,9 @@ and terminal display columns, so multibyte, double-width and combining
 characters are moved over and displayed correctly.
 Cursor movement and deletion operate on whole Unicode code points, not
 on grapheme clusters.
+The character-code prompt (^a) accepts a decimal Unicode code point;
+surrogate code points (U+D800..U+DFFF) and values above U+10FFFF are
+ignored, so the editor never inserts an invalid sequence.
 .PP
 Files are considered text only if they are valid UTF-8 and contain no
 NUL byte.
