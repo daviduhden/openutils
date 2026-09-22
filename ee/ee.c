@@ -200,7 +200,7 @@ int in;				/* input character			*/
 FILE *temp_fp;			/* temporary file pointer		*/
 FILE *bit_bucket;		/* file pointer to /dev/null		*/
 
-char *table[] = {
+static const char *const table[] = {
 	"^@", "^A", "^B", "^C", "^D", "^E", "^F", "^G", "^H", "\t", "^J",
 	"^K", "^L", "^M", "^N", "^O", "^P", "^Q", "^R", "^S", "^T", "^U",
 	"^V", "^W", "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"
@@ -1164,7 +1164,7 @@ static int
 out_char(WINDOW *window, int character, int column)
 {
 	int i1, i2;
-	char *string;
+	const char *string;
 
 	if (character == TAB) {
 		i1 = tabshift(column);
