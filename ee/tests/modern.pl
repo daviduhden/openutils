@@ -15,7 +15,6 @@ use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
 use POSIX          qw(WNOHANG);
-use Time::HiRes    qw(sleep);
 
 my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
@@ -83,7 +82,13 @@ sub wait_exit {
     for ( 1 .. $tries ) {
         my $w = waitpid( $s->pid, WNOHANG );
         return 1 if $w != 0;
-        sleep 0.1;
+
+        # Keep draining the pty while waiting.  On exit ee writes its
+        # terminal-restoration output; if the tester never reads it the
+        # kernel tty buffer can fill and block ee before it terminates
+        # (seen on OpenBSD, whose tty buffer is smaller than Linux's),
+        # which made this helper time out even though ee was healthy.
+        $s->pump(0.1);
     }
     return 0;
 }

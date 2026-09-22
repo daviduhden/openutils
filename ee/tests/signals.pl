@@ -20,7 +20,6 @@ use File::Basename qw(dirname);
 use File::Path     qw(make_path);
 use File::Temp     qw(tempdir);
 use POSIX          qw(WNOHANG);
-use Time::HiRes    qw(sleep);
 
 my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
@@ -110,7 +109,7 @@ sub sigint_test {
             $exited = 1;
             last;
         }
-        sleep 0.1;
+        $session->pump(0.1);
     }
     my $restored = index( $session->buf, "\x1b[?1l\x1b>" ) >= 0 ? 1 : 0;
     my $saved    = -e "$work/sigint.txt"                        ? 1 : 0;
@@ -191,7 +190,7 @@ sub noterm_test {
             $crashed = ( $sig != 0 && $sig != 0x7f ) ? 1 : 0;
             last;
         }
-        sleep 0.1;
+        $session->pump(0.1);
     }
     $session->close;
     return ( $exited, $crashed );
