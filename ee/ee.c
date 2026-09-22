@@ -2017,6 +2017,10 @@ get_string(char *prompt, int advance)
 		}
 		in = (int)win;
 
+		if ((wret == KEY_CODE_YES) && (win == KEY_ENTER)) {
+			done = TRUE;
+			continue;
+		}
 		if (wret == KEY_CODE_YES) {
 			switch ((int)win) {
 			case KEY_RESIZE:
@@ -3695,12 +3699,17 @@ menu_op(struct menu_entries menu_list[])
 		wrefresh(temp_win);
 		{
 			wint_t win;
-			if (wget_wch(temp_win, &win) == ERR) {
+			int wret = wget_wch(temp_win, &win);
+
+			if (wret == ERR) {
 				if (ee_intr_flag)
 					edit_abort(0);
 				exit(0);
 			}
-			in = input = (int)win;
+			if ((wret == KEY_CODE_YES) && (win == KEY_ENTER))
+				in = input = '\n';
+			else
+				in = input = (int)win;
 		}
 
 		/*
@@ -4170,6 +4179,9 @@ help(void)
 				} else if ((win == KEY_NPAGE) ||
 				    (win == KEY_PPAGE)) {
 					/* ignored */
+				} else if (win == KEY_ENTER) {
+					done = 1;
+					break;
 				}
 				continue;
 			}
