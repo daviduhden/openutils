@@ -652,7 +652,6 @@ int
 main(int argc, char *argv[])
 {
 	int counter;
-	int err_count = 0;
 
 	for (counter = 1; counter < 24; counter++)
 		signal(counter, SIG_IGN);
@@ -756,21 +755,10 @@ main(int argc, char *argv[])
 				/* SIGINT seen: leave the editor cleanly */
 				if (ee_intr_flag)
 					edit_abort(0);
-				/*
-				 * An interrupted read is routine, and ncurses
-				 * can report a terminal-size change as ERR when
-				 * it cannot apply the resize itself.  Rebuild the
-				 * layout and retry a few times; only treat the
-				 * error as fatal once it persists (the underlying
-				 * terminal is gone, e.g. a closed ssh session).
-				 */
-				if ((errno == EINTR) || (err_count++ < 5)) {
-					resize_check();
+				if (errno == EINTR)
 					continue;
-				}
 				exit(0);
 			}
-			err_count = 0;
 
 			/* SIGINT may have arrived while not blocked in
 			 * input; the flag must also be honoured after a
@@ -1159,14 +1147,27 @@ scanline(unsigned char *pos)
 	}
 	scr_horz = temp;
 	if ((scr_horz - horiz_offset) > last_col) {
+		int old = horiz_offset;
+
 		horiz_offset = (scr_horz - (scr_horz % 8)) -
 		    ee_max(1, last_col - 7);
 		if (horiz_offset < 0)
 			horiz_offset = 0;
-		midscreen(scr_vert, point);
+		/*
+		 * Only redraw when the offset actually moved.  On a very
+		 * narrow screen the cursor can still be one column past
+		 * the last one after the adjustment above; redrawing then
+		 * would re-enter scanline() with the same offset and
+		 * recurse until the stack overflows.
+		 */
+		if (horiz_offset != old)
+			midscreen(scr_vert, point);
 	} else if (scr_horz < horiz_offset) {
+		int old = horiz_offset;
+
 		horiz_offset = ee_max(0, (scr_horz - (scr_horz % 8)));
-		midscreen(scr_vert, point);
+		if (horiz_offset != old)
+			midscreen(scr_vert, point);
 	}
 }
 
