@@ -48,6 +48,21 @@ sub check {
     return;
 }
 
+# TAP diagnostic: printed with a leading '#' so it is ignored by the
+# harness but shows up when a check fails.
+sub diag {
+    my ($msg) = @_;
+    print "# $msg\n";
+    return;
+}
+
+# Render a byte string with non-printable bytes escaped, for diagnostics.
+sub escaped {
+    my ($data) = @_;
+    $data =~ s/([^\x20-\x7e])/sprintf('\\x%02x', ord($1))/ge;
+    return $data;
+}
+
 sub write_raw {
     my ( $path, $bytes ) = @_;
     open my $fh, '>:raw', $path or die "open $path: $!";
@@ -326,7 +341,13 @@ sub test_resize_stress {
     $s->write("\x11");
     my $exited = $s->wait_exit;
     $s->close;
-    return ( $exited && read_raw($path) eq "xxxxxx\n" ) ? 1 : 0;
+    my $data = read_raw($path);
+    if ( !$exited || $data ne "xxxxxx\n" ) {
+        diag( "resize stress: exited=$exited content='"
+              . escaped($data) . "'" );
+        return 0;
+    }
+    return 1;
 }
 
 sub test_shell_roundtrip {
