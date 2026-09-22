@@ -14,6 +14,7 @@ use warnings;
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
+use POSIX          qw(WNOHANG);
 
 my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
@@ -329,22 +330,33 @@ sub test_resize_stress {
     my $path = "$work/stress.txt";
     my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
+    my $died_at;
     for my $size ( [ 3, 10 ], [ 24, 80 ], [ 5, 20 ], [ 40, 120 ],
         [ 2, 5 ], [ 30, 100 ] )
     {
         resize( $s, @$size );
         $s->write("x");
         $s->pump(0.3);
+        if ( waitpid( $s->pid, WNOHANG ) != 0 ) {
+            $died_at = "$size->[0]x$size->[1]";
+            last;
+        }
     }
-    $s->write("\x13");
-    $s->pump(1.0);
-    $s->write("\x11");
-    my $exited = $s->wait_exit;
+    if ( !defined $died_at ) {
+        $s->write("\x13");
+        $s->pump(1.0);
+        $s->write("\x11");
+    }
+    my $exited = defined $died_at ? 1 : $s->wait_exit;
+    my $out = $s->buf;
     $s->close;
     my $data = read_raw($path);
     if ( !$exited || $data ne "xxxxxx\n" ) {
-        diag( "resize stress: exited=$exited content='"
-              . escaped($data) . "'" );
+        diag( "resize stress: died_at="
+              . ( defined $died_at ? $died_at : 'no' )
+              . " exited=$exited content='" . escaped($data) . "'" );
+        my $tail = length($out) > 300 ? substr( $out, -300 ) : $out;
+        diag( "resize stress: tail='" . escaped($tail) . "'" );
         return 0;
     }
     return 1;
