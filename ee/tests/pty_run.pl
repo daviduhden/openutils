@@ -106,6 +106,7 @@ sub wait_exit {
         my $reaped = waitpid( $self->{pid}, POSIX::WNOHANG() );
         return 1 if $reaped != 0;
         unless ( $self->pump(0.1) ) {
+
             # EOF: the child closed the slave and is exiting.  Reap it
             # if it is already reapable so the caller can inspect $?.
             waitpid( $self->{pid}, POSIX::WNOHANG() );

@@ -117,6 +117,7 @@ sub sigwinch_test {
     $session->pump(1);
     for my $size ( [ 40, 100 ], [ 10, 30 ], [ 30, 60 ] ) {
         my ( $rows, $cols ) = @$size;
+
         # struct winsize is four unsigned shorts ('H' would pack a hex
         # string and set a bogus size).
         my $ws = pack( 'SSSS', $rows, $cols, 0, 0 );
@@ -170,13 +171,16 @@ sub tinfo_test {
 # non-zero exit, never a crash.
 sub noterm_test {
     my ($work) = @_;
-    my $session = Session->new( [ $EE, '-i', "$work/noterm.txt" ],
-        { TERM => 'openutils-no-such-terminal' } );
+    my $session = Session->new(
+        [ $EE, '-i', "$work/noterm.txt" ],
+        { TERM => 'openutils-no-such-terminal' }
+    );
     $session->pump(2.5);
-    my $exited  = $session->wait_exit;
-    my $status  = $?;
-    my $sig     = $status & 0x7f;
-    my $crashed = ( $exited && $status != 0 && $sig != 0 && $sig != 0x7f )
+    my $exited = $session->wait_exit;
+    my $status = $?;
+    my $sig    = $status & 0x7f;
+    my $crashed =
+      ( $exited && $status != 0 && $sig != 0 && $sig != 0x7f )
       ? 1
       : 0;
     $session->close;
@@ -200,8 +204,8 @@ sub main {
     }
 
     my ( $noterm_exited, $noterm_crashed ) = noterm_test($work);
-    check( 'unknown TERM exits cleanly',        $noterm_exited );
-    check( 'unknown TERM does not crash',       !$noterm_crashed );
+    check( 'unknown TERM exits cleanly',  $noterm_exited );
+    check( 'unknown TERM does not crash', !$noterm_crashed );
 
     print "pass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {

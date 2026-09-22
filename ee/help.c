@@ -116,21 +116,21 @@ static const struct help_entry help_advanced[] = {
 
 static const struct help_section help_sections[] = {
 	{"Navigation", help_navigation,
-	    (int)(sizeof(help_navigation) / sizeof(help_navigation[0]))},
+	 (int)(sizeof(help_navigation) / sizeof(help_navigation[0]))},
 	{"Editing", help_editing,
-	    (int)(sizeof(help_editing) / sizeof(help_editing[0]))},
+	 (int)(sizeof(help_editing) / sizeof(help_editing[0]))},
 	{"Files", help_files,
-	    (int)(sizeof(help_files) / sizeof(help_files[0]))},
+	 (int)(sizeof(help_files) / sizeof(help_files[0]))},
 	{"Search", help_search,
-	    (int)(sizeof(help_search) / sizeof(help_search[0]))},
+	 (int)(sizeof(help_search) / sizeof(help_search[0]))},
 	{"Cut and paste", help_cutpaste,
-	    (int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0]))},
+	 (int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0]))},
 	{"Exit", help_exit,
-	    (int)(sizeof(help_exit) / sizeof(help_exit[0]))},
+	 (int)(sizeof(help_exit) / sizeof(help_exit[0]))},
 	{"Commands (press ^C, then type the name)", help_commands,
-	    (int)(sizeof(help_commands) / sizeof(help_commands[0]))},
+	 (int)(sizeof(help_commands) / sizeof(help_commands[0]))},
 	{"Advanced commands and settings", help_advanced,
-	    (int)(sizeof(help_advanced) / sizeof(help_advanced[0]))},
+	 (int)(sizeof(help_advanced) / sizeof(help_advanced[0]))},
 };
 
 /* The trailing "Command line" block. */
@@ -148,7 +148,8 @@ ee_help_count(int emacs_keys_mode)
 
 	(void)emacs_keys_mode;
 	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++)
-		total += 1 + help_sections[s].count + 1;	/* header, items, blank */
+		total += 1 + help_sections[s].count +
+		    1;	/* header, items, blank */
 	total += 1 + (int)(sizeof(help_usage) / sizeof(help_usage[0]));
 	return (total);
 }
@@ -208,7 +209,8 @@ ee_help_line(int emacs_keys_mode, int index, char *out, size_t outsz,
 	{
 		size_t u;
 
-		for (u = 0; u < sizeof(help_usage) / sizeof(help_usage[0]); u++) {
+		for (u = 0; u < sizeof(help_usage) / sizeof(help_usage[0]);
+		    u++) {
 			if (i == index) {
 				snprintf(out, outsz, "%s", help_usage[u]);
 				return;

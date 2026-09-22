@@ -535,7 +535,6 @@ struct menu_entries main_menu[] = {
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
-
 #define MENU_WARN 1
 
 #define max_alpha_char 36
@@ -2068,7 +2067,7 @@ show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
 	    scan((char *)buf, (int)start, prompt_width);
 	wmove(com_win, 0, col);
 
-	for (i = start; i < len; ) {
+	for (i = start; i < len;) {
 		unsigned char c = (unsigned char)buf[i];
 		int clen, width;
 
@@ -2166,7 +2165,8 @@ get_string(const char *prompt, int advance)
 					const unsigned char *p = utf8_prev(
 					    (const unsigned char *)buf,
 					    (const unsigned char *)buf + cur);
-					cur = (size_t)(p - (const unsigned char *)buf);
+					cur = (size_t)(p -
+					    (const unsigned char *)buf);
 				}
 				break;
 			case KEY_RIGHT:
@@ -3191,7 +3191,8 @@ search_prompt(void)
 				used++;
 			}
 		} else {
-			*srch_1 = (unsigned char)toupper((unsigned char)*srch_3);
+			*srch_1 = (unsigned char)toupper(
+			    (unsigned char)*srch_3);
 			srch_1++;
 			srch_3++;
 			used++;
@@ -3676,7 +3677,8 @@ sh_command(char *string)
 				line_holder = first_line;
 				while (line_holder != NULL) {
 					write(pipe_out[1], line_holder->line,
-					    (size_t)(line_holder->line_length - 1));
+					    (size_t)(line_holder->line_length -
+					    1));
 					write(pipe_out[1], "\n", 1);
 					line_holder = line_holder->next_line;
 				}
@@ -4281,7 +4283,6 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 	}
 }
 
-
 static void
 paint_help_hint(int row, int top, int total, int pagesize)
 {
@@ -4434,8 +4435,9 @@ paint_status_line(void)
 		    "Ln %d, Col %d  %d%%  [Read Only]",
 		    curr_line->line_number, scr_horz + 1, percent);
 	else if (text_changes)
-		snprintf(right, sizeof(right), "Ln %d, Col %d  %d%%  [Modified]",
-		    curr_line->line_number, scr_horz + 1, percent);
+		snprintf(right, sizeof(right),
+		    "Ln %d, Col %d  %d%%  [Modified]", curr_line->line_number,
+		    scr_horz + 1, percent);
 	else
 		snprintf(right, sizeof(right), "Ln %d, Col %d  %d%%",
 		    curr_line->line_number, scr_horz + 1, percent);
@@ -5004,7 +5006,8 @@ ee_init(void)
 			} else if (compare(p, PRINTCOMMAND, FALSE)) {
 				p = next_word(p);
 				print_command = xmalloc(strlen(p) + 1);
-				strlcpy((char *)print_command, p, strlen(p) + 1);
+				strlcpy((char *)print_command, p,
+				    strlen(p) + 1);
 			} else if (compare(p, RIGHTMARGIN, FALSE)) {
 				p = next_word(p);
 				if ((*p >= '0') && (*p <= '9')) {
@@ -5098,7 +5101,8 @@ dump_ee_conf(void)
 		/*
 		 |	Copy non-configuration info into new .init.ee file.
 		 */
-		while ((linelen = getline(&line, &linecap, old_init_file)) != -1) {
+		while ((linelen = getline(&line, &linecap, old_init_file)) !=
+		    -1) {
 			if ((linelen > 0) && (line[linelen - 1] == '\n'))
 				line[--linelen] = '\0';
 
@@ -5118,15 +5122,18 @@ dump_ee_conf(void)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n", info_window ? INFO : NOINFO) < 0)
 		write_ok = FALSE;
-	if (fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS) < 0)
+	if (fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS) <
+	    0)
 		write_ok = FALSE;
-	if (fprintf(init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0)
+	if (fprintf(init_file, "%s\n",
+	    auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command) < 0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin) < 0)
 		write_ok = FALSE;
-	if (fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT) < 0)
+	if (fprintf(init_file, "%s\n", nohighlight ? NOHIGHLIGHT : HIGHLIGHT) <
+	    0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n",
 	    emacs_keys_mode ? EMACS_string : NOEMACS_string) < 0)

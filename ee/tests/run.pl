@@ -204,17 +204,16 @@ sub main {
 
     # ^S saves the buffer and ^Q quits an unmodified buffer
     $path = "$work/ctrlkeys.txt";
-    run(
-        [ $EE, '-i', $path ],
-        [ "data", "\x13", "\x11" ],
-        { TERM => 'xterm' }
-    );
+    run( [ $EE, '-i', $path ], [ "data", "\x13", "\x11" ],
+        { TERM => 'xterm' } );
     assert_eq( '^S saves and ^Q quits', 'data', read_text($path) );
 
     # Esc cancels the save-as prompt instead of accepting an empty name
-    my $cancel_out =
-      run( [ $EE, '-i' ], [ "data", "\x13", "\x1b", "\x11", 'b' ],
-        { TERM => 'xterm' } );
+    my $cancel_out = run(
+        [ $EE,    '-i' ],
+        [ "data", "\x13", "\x1b", "\x11", 'b' ],
+        { TERM => 'xterm' }
+    );
     if ( index( $cancel_out, 'File name:' ) >= 0 ) {
         ok('save-as prompt is shown');
     }
@@ -229,8 +228,11 @@ sub main {
         [ $EE, '-?' ],
         [],
         {
-            LC_ALL => '', LC_CTYPE => '', LANG => '', LC_MESSAGES => '',
-            TERM => 'xterm'
+            LC_ALL      => '',
+            LC_CTYPE    => '',
+            LANG        => '',
+            LC_MESSAGES => '',
+            TERM        => 'xterm'
         }
     );
     if (   index( $no_locale, 'usage:' ) >= 0
@@ -242,11 +244,9 @@ sub main {
         notok('usage is English with no locale configured');
     }
 
-    my $c_locale = run(
-        [ $EE, '-?' ],
+    my $c_locale = run( [ $EE, '-?' ],
         [],
-        { LC_ALL => 'C', LANG => 'C', LC_MESSAGES => 'C', TERM => 'xterm' }
-    );
+        { LC_ALL => 'C', LANG => 'C', LC_MESSAGES => 'C', TERM => 'xterm' } );
     if (   index( $c_locale, 'usage:' ) < 0
         && index( $c_locale, 'UTF-8 locale' ) >= 0 )
     {
@@ -294,8 +294,7 @@ sub main {
                 TERM   => 'xterm'
             }
         );
-        assert_eq( "UTF-8 edit under $utf8_locale",
-            'café', read_text($path) );
+        assert_eq( "UTF-8 edit under $utf8_locale", 'café', read_text($path) );
     }
 
     print "\n";
