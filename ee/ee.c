@@ -6,7 +6,7 @@
 /*
  * Terminal handling is provided by ncursesw.  The editor deliberately
  * uses no colour, no mouse and no panels; only the standard monochrome
- * attributes (standout/underline) are used.
+ * standout (reverse video) attribute is used.
  *
  * Strict ISO C17 (the project's language mode) defines no feature-test
  * macros, and on OpenBSD the project must not define the X/Open ones
@@ -4518,7 +4518,6 @@ paint_shortcut_bar(void)
 	col = 0;
 	for (i = 0; i < shortcut_bar.count; i++) {
 		const char *item = shortcut_bar.items[i];
-		const char *sp;
 		int w;
 
 		if (item == NULL)
@@ -4526,20 +4525,8 @@ paint_shortcut_bar(void)
 		w = utf8_strwidth(item);
 		if ((col + w + 2) > cols)
 			break;
-		sp = strchr(item, ' ');
 		wmove(key_win, 0, col);
-		if (!nohighlight)
-			wattron(key_win, A_BOLD);
-		if (sp != NULL) {
-			waddnstr(key_win, item, (int)(sp - item));
-			if (!nohighlight)
-				wattroff(key_win, A_BOLD);
-			waddstr(key_win, sp);
-		} else {
-			waddstr(key_win, item);
-			if (!nohighlight)
-				wattroff(key_win, A_BOLD);
-		}
+		waddstr(key_win, item);
 		col += w + 2;
 	}
 	wrefresh(key_win);
