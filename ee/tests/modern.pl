@@ -331,6 +331,7 @@ sub test_resize_stress {
     my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
     my $died_at;
+    my $status;
     for my $size ( [ 3, 10 ], [ 24, 80 ], [ 5, 20 ], [ 40, 120 ],
         [ 2, 5 ], [ 30, 100 ] )
     {
@@ -339,22 +340,26 @@ sub test_resize_stress {
         $s->pump(0.3);
         if ( waitpid( $s->pid, WNOHANG ) != 0 ) {
             $died_at = "$size->[0]x$size->[1]";
+            $status  = $?;
             last;
         }
     }
+    my $exited = 1;
     if ( !defined $died_at ) {
         $s->write("\x13");
         $s->pump(1.0);
         $s->write("\x11");
+        $exited = $s->wait_exit;
+        $status = $?;
     }
-    my $exited = defined $died_at ? 1 : $s->wait_exit;
     my $out = $s->buf;
     $s->close;
     my $data = read_raw($path);
     if ( !$exited || $data ne "xxxxxx\n" ) {
+        my $sig = $status & 0x7f;
         diag( "resize stress: died_at="
               . ( defined $died_at ? $died_at : 'no' )
-              . " exited=$exited content='" . escaped($data) . "'" );
+              . " status=$status sig=$sig content='" . escaped($data) . "'" );
         my $tail = length($out) > 300 ? substr( $out, -300 ) : $out;
         diag( "resize stress: tail='" . escaped($tail) . "'" );
         return 0;
