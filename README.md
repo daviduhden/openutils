@@ -70,11 +70,14 @@ matcher are deliberately not reproduced.  XML/HTML output, `--du`,
 ### ee (Easy Editor)
 
 The small, friendly screen editor.  Imported from the FreeBSD source
-tree (Hugh Mahon's ee 1.5.2) and built against its own bundled
-mini-curses library (`new_curse`), which parses the terminfo database
-directly, so no ncurses dependency exists; `new_curse` was ported to
-termios and given wide-character input support for OpenBSD.  Also
-installed as `ree` (restricted mode) and `edit`, as upstream does.
+tree (Hugh Mahon's ee 1.5.2) and modernized: terminal handling now uses
+`ncursesw`, the editor's historical bundled mini-curses library
+(`new_curse`) has been removed entirely.  The editing model, commands,
+buffer semantics and configuration file format are unchanged; the
+presentation is new, with a monochrome title/status bar, a contextual
+shortcut bar, unambiguous prompts and a paged help screen.  The editor
+is UTF-8 only and its interface is U.S. English only.  Also installed
+as `ree` (restricted mode) and `edit`, as upstream does.
 
 ### truncate
 
@@ -147,7 +150,11 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 
 ## Requirements
 
-- OpenBSD base system (`doas(1)`, `install(1)`, libc, curses-free).
+- OpenBSD base system (`doas(1)`, `install(1)`, libc).  `ee` needs the
+  wide-character ncurses library (`ncursesw`); on OpenBSD it comes from
+  the `ncurses` package (devel/ncurses).  `pkg-config` is used when
+  available to locate it, otherwise the build falls back to
+  `-lncursesw`.
 - For doasedit, a `doas.conf` that permits `dd`, `cat` and `install`
   (e.g. `permit persist :wheel`).
 - Perl 5 with the IO::Pty module for the ee behavioural test suite
@@ -164,8 +171,12 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   text differs.
 - `ee`: the message-catalog (localization) infrastructure of the
   original is removed; the interface is hard-coded U.S. English and
-  text is always UTF-8.  Terminal handling is provided by the bundled
-  `new_curse` library.
+  text is always UTF-8.  Terminal handling is provided by `ncursesw`;
+  the bundled `new_curse` library has been deleted.  The window chrome
+  is new (title/status bar, shortcut bar, structured help), and the
+  save/quit confirmations are explicit, but the editing commands and
+  their semantics are preserved.  `-i` now hides the shortcut bar only
+  (the status bar is always shown).
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

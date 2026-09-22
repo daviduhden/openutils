@@ -202,6 +202,26 @@ sub main {
     );
     assert_eq( 'no-save leaves file untouched', 'keep', read_text($path) );
 
+    # ^S saves the buffer and ^Q quits an unmodified buffer
+    $path = "$work/ctrlkeys.txt";
+    run(
+        [ $EE, '-i', $path ],
+        [ "data", "\x13", "\x11" ],
+        { TERM => 'xterm' }
+    );
+    assert_eq( '^S saves and ^Q quits', 'data', read_text($path) );
+
+    # Esc cancels the save-as prompt instead of accepting an empty name
+    my $cancel_out =
+      run( [ $EE, '-i' ], [ "data", "\x13", "\x1b", "\x11", 'b' ],
+        { TERM => 'xterm' } );
+    if ( index( $cancel_out, 'File name:' ) >= 0 ) {
+        ok('save-as prompt is shown');
+    }
+    else {
+        notok('save-as prompt is shown');
+    }
+
     # locale: the interface stays English and UTF-8 editing works
     # under foreign and unusual locale environments
     for

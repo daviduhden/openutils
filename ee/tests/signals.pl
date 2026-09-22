@@ -1,8 +1,13 @@
 #!/usr/bin/env perl
 
-# PTY-based regression tests for ee: signal handling and malformed
-# terminfo robustness.  Generous per-key delays are used because menu
-# redraws are timing-sensitive.
+# PTY-based regression tests for ee: signal handling and terminal
+# robustness.  Generous per-key delays are used because menu redraws
+# are timing-sensitive.
+#
+# Terminal handling is delegated to ncursesw, so the historical tests
+# for the bundled terminfo parser are kept only as "must not crash on a
+# hostile TERM" checks; the final check exercises an unknown terminal
+# name, which ncursesw must reject without crashing.
 #
 # Requires Perl 5 with the IO::Pty module; on OpenBSD install it with
 # "pkg_add p5-IO-Tty" (devel/p5-IO-TTY).
@@ -169,34 +174,27 @@ sub tinfo_test {
     return $crashed;
 }
 
-sub tinfo_valid_test {
+# An unknown terminal name must be rejected by ncursesw with a clean,
+# non-zero exit, never a crash.
+sub noterm_test {
     my ($work) = @_;
-    my $tdir = "$work/terminfo";
-    make_path("$tdir/o");
-    build_terminfo( "$tdir/o/openutils-test", "\033[H\033[2J",
-        "openutils-test|t|minimal terminfo\0" );
-    my $session = Session->new( [ $EE, '-i', "$work/tinfv.txt" ],
-        { TERM => 'openutils-test', TERMINFO => $tdir } );
+    my $session = Session->new( [ $EE, '-i', "$work/noterm.txt" ],
+        { TERM => 'openutils-no-such-terminal' } );
     $session->pump(2.5);
-    $session->write('hello');
-    $session->pump(1);
-    $session->write("\x1b");
-    $session->pump(1);
-    $session->write('a');
-    $session->pump(1);
-    $session->write('a');
-    $session->pump(2);
-    my $data = '';
-
-    if ( -e "$work/tinfv.txt" ) {
-        open my $fh, '<', "$work/tinfv.txt" or die "open: $!";
-        binmode $fh;
-        local $/;
-        $data = <$fh> // '';
-        close $fh;
+    my ( $exited, $crashed ) = ( 0, 0 );
+    for ( 1 .. 25 ) {
+        my $wpid = waitpid( $session->pid, WNOHANG );
+        if ( $wpid != 0 ) {
+            my $status = $?;
+            my $sig    = $status & 0x7f;
+            $exited  = 1;
+            $crashed = ( $sig != 0 && $sig != 0x7f ) ? 1 : 0;
+            last;
+        }
+        sleep 0.1;
     }
     $session->close;
-    return index( $data, 'hello' ) >= 0 ? 1 : 0;
+    return ( $exited, $crashed );
 }
 
 sub main {
@@ -215,7 +213,9 @@ sub main {
         check( "terminfo '$bad' does not crash", !tinfo_test( $work, $bad ) );
     }
 
-    check( 'minimal valid terminfo saves', tinfo_valid_test($work) );
+    my ( $noterm_exited, $noterm_crashed ) = noterm_test($work);
+    check( 'unknown TERM exits cleanly',        $noterm_exited );
+    check( 'unknown TERM does not crash',       !$noterm_crashed );
 
     print "pass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {

@@ -25,17 +25,18 @@ An editor with similar user-friendly qualities but more features is available
 and is called
 .I aee.
 .PP
+Terminal handling is provided by
+.BR ncursesw ,
+the wide-character ncurses library; this gives correct handling of UTF-8
+text, automatic reaction to terminal resizes, and portable function-key
+and escape-sequence decoding.
+.PP
 For
 .I ee
 to work properly, the environment variable
 .SM TERM
 must be set to indicate the type of terminal being used.
-For example, for an
-.SM HP 700/92
-terminal, the
-.SM TERM
-variable should be set to "70092".
-See your System Administrator if you need more information.
+The terminal database is read by ncursesw.
 .\"
 .\"     options
 .\"
@@ -47,15 +48,38 @@ The following options are available from the command line:
 Turns off expansion of tab character to spaces.
 .TP
 .B -i
-Turns off display of information window at top of terminal.
+Turns off the shortcut bar at the bottom of the terminal (the
+information window).
 .TP
 .B -h
-Turns off highlighting of the information window and menus (improves
-performance on some terminals).
+Turns off reverse video in the title, status and shortcut bars
+(improves performance on some terminals).
 .TP
 .B +#
 Moves the cursor to line '#' at startup.
 .br
+.\"
+.\"     screen layout
+.\"
+.SS "Screen layout"
+The screen is divided into three regions:
+.RS 4
+.IP \(bu
+A title/status bar on the first line showing the program name, the file
+name, the cursor position (line and column), an approximate percentage
+through the file, and whether the buffer is modified or the file is
+read-only.
+.IP \(bu
+The editable text area.
+.IP \(bu
+A prompt/message line and a contextual shortcut bar at the bottom.
+.RE
+.PP
+The shortcut bar always shows the most useful keys for the operation in
+progress; it changes during prompts and confirmations, and drops items
+that do not fit on narrow terminals.
+The interface is monochrome: text, spacing and reverse video are the only
+means of emphasis, and no colour is ever used.
 .\"
 .\"     control keys
 .\"
@@ -94,7 +118,9 @@ For instance, to move the cursor up, the user can use the up arrow key, or
 ^n 	Move to the next page.
 ^o 	Move to the end of the line.
 ^p 	Move to the previous page.
+^q 	Quit; if the buffer is modified a save/discard/cancel menu is shown.
 ^r 	Move the cursor to the right.
+^s 	Save the buffer (write the current file).
 ^t 	Move to the top of the text.
 ^u 	Move the cursor up.
 ^v 	Undelete the last deleted word.
@@ -201,12 +227,30 @@ Make searches insensitive to case (the default).
 .IP "\fBnoexpand\fR"
 Don't expand tab to spaces when the TAB key is pressed.
 .IP "\fBquit\fR"
-Leave the editor without saving changes.
+Leave the editor.  If the buffer has been modified a menu lets the user
+save, discard or cancel.
 .IP "\fBread\fR \fIfile\fR"
 Read the named \fIfile\fR.
 .IP "\fBwrite\fR \fIfile\fR"
 Write the text to the named \fIfile\fR.
 .RE
+.\"
+.\"     prompts
+.\"
+.SS "Prompts and confirmations"
+When the editor needs input it shows a prompt on the message line and
+changes the shortcut bar to match.  For example, a file-name prompt shows
+.B "[Enter] Accept"
+and
+.BR "[Esc] Cancel" ;
+a yes/no confirmation shows
+.BR "[Y] Yes" ,
+.B "[N] No"
+and
+.BR "[Esc] Cancel" .
+.PP
+The escape key cancels a prompt without acting on the current input, and
+cancel is always distinct from answering "no".
 .\"
 .\"     menu operations
 .\"
@@ -319,8 +363,8 @@ within the width of the screen.
 Toggles whether eight bit characters are displayed as their value in angle
 brackets (e.g. "<220>") or as a character.
 .IP "\fBinfo window\fR"
-A window showing the keyboard operations that can be performed can be
-displayed or not.
+The shortcut bar showing the keyboard operations that can be performed
+can be displayed or not.
 .IP "\fBemacs keys\fR"
 Control keys may be given bindings similar to emacs, or not.
 .RE
@@ -423,9 +467,9 @@ Causes \fIee\fR to expand tabs to spaces (default).
 .IP \fBnoexpand\fR
 Causes \fIee\fR to insert tabs as a single character.
 .IP \fBinfo\fR
-A small information window is displayed at the top of the terminal (default).
+The shortcut bar is displayed at the bottom of the terminal (default).
 .IP \fBnoinfo\fR
-Turns off the display of the information window.
+Turns off the display of the shortcut bar.
 .IP \fBmargins\fR
 Causes \fIee\fR to truncate lines at the right margin when the cursor passes
 beyond the right margin as set by the user while text is being inserted (default).
@@ -441,9 +485,10 @@ Allows the setting of the print command (default: "lp").
 .IP \fBrightmargin\fR
 The user can select a value for the right margin (the first column on the screen is zero).
 .IP \fBhighlight\fR
-Turns on highlighting of the information window and menus (default).
+Turns on reverse video in the title, status, shortcut bars and menus
+(default).
 .IP \fBnohighlight\fR
-Turns off highlighting of the information window and menus.
+Turns off reverse video.
 .IP \fBeightbit\fR
 Turns on display of eight bit characters.
 .IP \fBnoeightbit\fR
@@ -503,6 +548,10 @@ The interface of
 is U.S. English only.
 Text is read, edited and written in the UTF-8 encoding, which is the
 only supported character encoding.
+.IR ee
+distinguishes between byte offsets into the buffer, Unicode characters
+and terminal display columns, so multibyte characters and double-width
+characters are moved over and displayed correctly.
 The only supported locale is en_US.UTF-8, which
 .I ee
 selects itself;
@@ -514,7 +563,7 @@ setting
 or any other locale variable has no effect on the interface language
 or on the character handling of the editor.
 If the system does not provide the en_US.UTF-8 locale data, the
-editor degrades to byte-oriented editing.
+editor degrades to byte-oriented editing and says so on standard error.
 Legacy encodings such as ISO-8859-1, Shift-JIS and Big-5 are not
 supported.
 .SH WARNINGS
@@ -529,4 +578,5 @@ slower systems.
 .I .init.ee
 .SH "SEE ALSO"
 .PP
-termcap(4), terminfo(4), environ(5), spell(1), ispell(1), lp(1), aee(1)
+curses(3), ncurses(3), terminfo(4), environ(5), spell(1), ispell(1), lp(1),
+aee(1)

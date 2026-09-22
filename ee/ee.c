@@ -1,6 +1,11 @@
 #include "bsdcompat.h"
 
-#include "new_curse.h"
+/*
+ * Terminal handling is provided by ncursesw.  The editor deliberately
+ * uses no colour, no mouse and no panels; only the standard monochrome
+ * attributes (standout/underline) are used.
+ */
+#include <curses.h>
 
 #include <ctype.h>
 #include <err.h>
@@ -66,14 +71,6 @@ ee_min(int a, int b)
 	return (a < b ? a : b);
 }
 
-/*
- |	defines for type of data to show in info window
- */
-
-#define CONTROL_KEYS 1
-#define COMMANDS     2
-
-#define INFO_STATUS_ROW	5
 #define MENU_ITEM_COL	3
 
 struct text {
@@ -116,9 +113,9 @@ int last_col;			/* last column for text display		*/
 int horiz_offset = 0;		/* offset from left edge of text	*/
 int clear_com_win;		/* flag to indicate com_win needs clearing */
 int text_changes = FALSE;	/* indicate changes have been made to text */
+int read_only = FALSE;		/* current file is not writable		*/
 int get_fd;			/* file descriptor for reading a file	*/
-int info_window = TRUE;		/* flag to indicate if help window visible */
-int info_type = CONTROL_KEYS;	/* flag to indicate type of info to display */
+int info_window = TRUE;		/* flag to indicate if shortcut bar visible */
 int expand_tabs = TRUE;		/* flag for expanding tabs		*/
 int right_margin = 0;		/* the right margin 			*/
 int observ_margins = TRUE;	/* flag for whether margins are observed */
@@ -139,6 +136,32 @@ int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
 int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
 int curses_initialized = FALSE;	/* flag indicating if curses has been started*/
 int emacs_keys_mode = FALSE;	/* mode for if emacs key binings are used    */
+
+/*
+ * Total number of lines in the buffer.  Maintained incrementally by
+ * the routines that split or join lines and recomputed after a whole
+ * file is read, so that the status bar can show a percentage without
+ * walking the list on every keystroke.
+ */
+long total_lines = 1;
+
+/* Name the editor was invoked as ("ee", "ree" or "edit"). */
+const char *prog_name = "ee";
+
+/*
+ * Visual regions.  The layout is computed in one place (set_up_term)
+ * from the terminal size; the rest of the editor only refers to the
+ * derived windows and to the editor-area bounds (text_top,
+ * text_rows, last_line).  No scattered LINES-1/COLS-2 arithmetic.
+ *
+ *   title_win   the top status/title bar (always present when it fits)
+ *   text_win    the editable text area
+ *   com_win     the prompt/message/status-input line
+ *   key_win     the contextual shortcut bar (the "info window")
+ *   help_win    full-screen help overlay
+ */
+int text_top;			/* first editor row (screen coordinates) */
+int text_rows;			/* number of editor rows		*/
 
 unsigned char *point;		/* points to current position in line	*/
 unsigned char *srch_str;	/* pointer for search string		*/
@@ -168,7 +191,17 @@ char *table[] = {
 WINDOW *com_win;
 WINDOW *text_win;
 WINDOW *help_win;
-WINDOW *info_win;
+WINDOW *title_win;
+WINDOW *key_win;
+
+/*
+ * Contextual shortcut bar.  The current set of labels is chosen by the
+ * operation in progress (editing, prompt, search, confirmation) and
+ * rendered left to right, dropping items that do not fit.
+ */
+#define SHORTCUT_MAX 14
+static const char *shortcut_items[SHORTCUT_MAX];
+static int shortcut_count = 0;
 
 /*
  |	UTF-8 utility functions.
@@ -218,6 +251,38 @@ utf8_width(const unsigned char *s)
 	return (w >= 0) ? w : 1;
 }
 
+/* Return the number of terminal columns occupied by a UTF-8 string. */
+static int
+utf8_strwidth(const char *s)
+{
+	const unsigned char *p = (const unsigned char *)s;
+	int width = 0;
+
+	while (*p != '\0') {
+		if (*p < 0x80) {
+			width++;
+			p++;
+		} else {
+			width += utf8_width(p);
+			p += utf8_len(p);
+		}
+	}
+	return (width);
+}
+
+/* Recount the lines in the buffer (used after a whole file is read). */
+static void
+recount_lines(void)
+{
+	struct text *line;
+
+	total_lines = 0;
+	for (line = first_line; line != NULL; line = line->next_line)
+		total_lines++;
+	if (total_lines < 1)
+		total_lines = 1;
+}
+
 /*
  |	The following structure allows menu items to be flexibly declared.
  |	The first item is the string describing the selection, the second
@@ -245,6 +310,7 @@ struct menu_entries {
 static unsigned char *resiz_line(int factor, struct text *rline, int rpos);
 static void insert(int character);
 static void insert_utf8(const unsigned char *mb, int len);
+static void insert_code(int code);
 static void delete(int disp);
 static void scanline(unsigned char *pos);
 static int tabshift(int temp_int);
@@ -308,14 +374,20 @@ void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int list_size, int top_offset, WINDOW *menu_win, int off_start,
     int vert_size, int selection);
 static void help(void);
-static void paint_info_win(void);
 static void paint_status_line(void);
+static void paint_shortcut_bar(void);
+static void set_shortcuts(const char *const *items, int count);
+static void default_shortcuts(void);
 static void no_info_window(void);
 static void create_info_window(void);
 static int file_op(int arg);
+static int save_op(void);
 static void shell_op(void);
 static void leave_op(void);
 static void redraw(void);
+static int confirm(const char *question);
+static int utf8_strwidth(const char *s);
+static void recount_lines(void);
 static int Blank_Line(struct text *test_line);
 static void Format(void);
 static void ee_init(void);
@@ -417,13 +489,22 @@ struct menu_entries main_menu[] = {
 	{NULL, NULL, NULL, NULL, NULL, -1}
 };
 
-char *help_text[23];
-char *control_keys[5];
+/*
+ * Built-in help is generated from tables so that it can be laid out to
+ * the current terminal size and can reflect the active key bindings.
+ */
+struct help_entry {
+	const char *key;	/* key in normal mode			*/
+	const char *emacs;	/* key in emacs mode (NULL if same)	*/
+	const char *text;	/* description				*/
+};
 
-char *emacs_help_text[22];
-char *emacs_control_keys[5];
+struct help_section {
+	const char *title;
+	const struct help_entry *items;
+	int count;
+};
 
-char *command_strings[5];
 char *commands[30];
 char *init_strings[20];
 
@@ -448,35 +529,23 @@ char *non_unique_cmd_msg;
 char *line_num_str;
 char *line_len_str;
 char *current_file_str;
-char *usage0;
-char *usage1;
-char *usage2;
-char *usage3;
-char *usage4;
 char *file_is_dir_msg;
 char *new_file_msg;
 char *cant_open_msg;
-char *open_file_msg;
 char *file_read_fin_msg;
 char *reading_file_msg;
 char *read_only_msg;
 char *file_read_lines_msg;
 char *save_file_name_prompt;
 char *file_not_saved_msg;
-char *changes_made_prompt;
-char *yes_char;
-char *file_exists_prompt;
 char *create_file_fail_msg;
 char *writing_file_msg;
 char *file_written_msg;
 char *searching_msg;
 char *str_not_found_msg;
 char *search_prompt_str;
-char *exec_err_msg;
 char *continue_msg;
 char *menu_cancel_msg;
-char *menu_size_err_msg;
-char *press_any_key_msg;
 char *shell_prompt;
 char *formatting_msg;
 char *shell_echo_msg;
@@ -519,7 +588,6 @@ char *conf_dump_err_msg;
 char *conf_dump_success_msg;
 char *conf_not_saved_msg;
 char *ree_no_file_msg;
-char *cancel_string;
 char *menu_too_lrg_msg;
 char *more_above_str, *more_below_str;
 
@@ -531,6 +599,9 @@ main(int argc, char *argv[])
 
 	for (counter = 1; counter < 24; counter++)
 		signal(counter, SIG_IGN);
+
+	setprogname(argv[0]);
+	prog_name = getprogname();
 
 	/* Always read from (and write to) a terminal. */
 	if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
@@ -601,19 +672,19 @@ main(int argc, char *argv[])
 
 	while (edit) {
 		/*
-		 |  display line and column information
+		 |  refresh the persistent chrome: title/status bar and the
+		 |  contextual shortcut bar.  Messages and prompts live in
+		 |  com_win and are not touched here.
 		 */
-		if (info_window) {
-			paint_status_line();
-			wrefresh(info_win);
-		}
+		paint_status_line();
+		paint_shortcut_bar();
 
 		wrefresh(text_win);
 		{
 			wint_t win;
 			int wret = wget_wch(text_win, &win);
 			/*
-			 * ERR if the undersneath terminal is closed (like network failure on a ssh
+			 * ERR if the underneath terminal is closed (like network failure on a ssh
 			 * session)
 			 * Normal exit as this is not an editor's error, but a network connection
 			 * issue
@@ -632,6 +703,14 @@ main(int argc, char *argv[])
 			 * successful read */
 			if (ee_intr_flag)
 				edit_abort(0);
+
+			/* ncurses reports a window-size change as KEY_RESIZE;
+			 * rebuild the layout and redraw before reading the
+			 * next key. */
+			if ((wret == KEY_CODE_YES) && (win == KEY_RESIZE)) {
+				resize_check();
+				continue;
+			}
 
 			in = (int)win;
 
@@ -668,6 +747,7 @@ main(int argc, char *argv[])
 				else
 					control();
 			}
+			default_shortcuts();
 		}
 	}
 	return (0);
@@ -833,6 +913,36 @@ insert_utf8(const unsigned char *mb, int len)
 	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
+/*
+ * Insert a character given its Unicode code point (the value typed at
+ * the "Character code" prompt).  The value is encoded as UTF-8, so the
+ * editor never inserts a bare byte above 0x7f.
+ */
+static void
+insert_code(int code)
+{
+	char mb[MB_LEN_MAX + 1];
+	mbstate_t mbs;
+	size_t n;
+
+	if (code < 0)
+		return;
+	if (code < 0x80) {
+		in = code;
+		wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+		insert(code);
+		return;
+	}
+	if (code > 0x10FFFF)
+		return;
+	memset(&mbs, 0, sizeof(mbs));
+	n = wcrtomb(mb, (wchar_t)code, &mbs);
+	if (n == (size_t)-1)
+		return;
+	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+	insert_utf8((unsigned char *)mb, (int)n);
+}
+
 /* delete character		*/
 static void
 delete(int disp)
@@ -874,6 +984,8 @@ delete(int disp)
 		}
 	} else if (curr_line->prev_line != NULL) {
 		text_changes = TRUE;
+		if (total_lines > 1)
+			total_lines--;
 		left(disp);			/* go to previous line	*/
 		temp_buff = curr_line->next_line;
 		point = resiz_line(temp_buff->line_length, curr_line, position);
@@ -1112,6 +1224,7 @@ insert_line(int disp)
 	struct text *temp_nod;
 
 	text_changes = TRUE;
+	total_lines++;
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 	wclrtoeol(text_win);
 	temp_nod = txtalloc();
@@ -1228,12 +1341,11 @@ control(void)
 
 	if (in == 1) {		/* control a	*/
 		string = get_string(ascii_code_str, TRUE);
-		if (*string != '\0') {
-			in = (int)strtol(string, NULL, 10);
-			wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-			insert(in);
+		if (string != NULL) {
+			if (*string != '\0')
+				insert_code((int)strtol(string, NULL, 10));
+			free(string);
 		}
-		free(string);
 	} else if (in == 2)	/* control b	*/
 		bottom();
 	else if (in == 3) {	/* control c	*/
@@ -1265,11 +1377,11 @@ control(void)
 	else if (in == 16)	/* control p	*/
 		move_rel('u', ee_max(5, (last_line - 5)));
 	else if (in == 17)	/* control q	*/
-		;
+		leave_op();
 	else if (in == 18)	/* control r	*/
 		right(TRUE);
 	else if (in == 19)	/* control s	*/
-		;
+		save_op();
 	else if (in == 20)	/* control t	*/
 		top();
 	else if (in == 21)	/* control u	*/
@@ -1328,20 +1440,19 @@ emacs_control(void)
 		down();
 	else if (in == 15) {	/* control o	*/
 		string = get_string(ascii_code_str, TRUE);
-		if (*string != '\0') {
-			in = (int)strtol(string, NULL, 10);
-			wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-			insert(in);
+		if (string != NULL) {
+			if (*string != '\0')
+				insert_code((int)strtol(string, NULL, 10));
+			free(string);
 		}
-		free(string);
 	} else if (in == 16)	/* control p	*/
 		up();
 	else if (in == 17)	/* control q	*/
-		;
+		leave_op();
 	else if (in == 18)	/* control r	*/
 		undel_word();
 	else if (in == 19)	/* control s	*/
-		;
+		save_op();
 	else if (in == 20)	/* control t	*/
 		top();
 	else if (in == 21)	/* control u	*/
@@ -1550,7 +1661,9 @@ down(void)
 static void
 function_key(void)
 {
-	if (in == KEY_LEFT)
+	if (in == KEY_HELP)
+		help();
+	else if (in == KEY_LEFT)
 		left(TRUE);
 	else if (in == KEY_RIGHT)
 		right(TRUE);
@@ -1593,8 +1706,7 @@ function_key(void)
 	} else if (in == KEY_F(4)) {
 		if (gold) {
 			gold = FALSE;
-			paint_info_win();
-			midscreen(scr_vert, point);
+			redraw();
 		} else
 			adv_word();
 	} else if (in == KEY_F(5)) {
@@ -1643,9 +1755,9 @@ command_prompt(void)
 	char *cmd_str;
 	int result;
 
-	info_type = COMMANDS;
-	paint_info_win();
 	cmd_str = get_string(command_str, TRUE);
+	if (cmd_str == NULL)
+		return;
 	if ((result = unique_test(cmd_str, commands)) != 1) {
 		werase(com_win);
 		wmove(com_win, 0, 0);
@@ -1655,21 +1767,14 @@ command_prompt(void)
 			wprintw(com_win, "%s", non_unique_cmd_msg);
 
 		wrefresh(com_win);
-
-		info_type = CONTROL_KEYS;
-		paint_info_win();
-
-		if (cmd_str != NULL)
-			free(cmd_str);
+		clear_com_win = TRUE;
+		free(cmd_str);
 		return;
 	}
 	command(cmd_str);
 	wrefresh(com_win);
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-	info_type = CONTROL_KEYS;
-	paint_info_win();
-	if (cmd_str != NULL)
-		free(cmd_str);
+	free(cmd_str);
 }
 
 /* process commands from keyboard	*/
@@ -1690,6 +1795,8 @@ command(char *cmd_str1)
 		if (*cmd_str == '\0') {
 			cmd_str = cmd_str2 = (char *)get_string(file_write_prompt_str,
 			    TRUE);
+			if (cmd_str == NULL)
+				return;
 		}
 		tmp_file = (char *)resolve_name(cmd_str);
 		write_file(tmp_file, 1);
@@ -1703,6 +1810,8 @@ command(char *cmd_str1)
 		if (*cmd_str == '\0') {
 			cmd_str = cmd_str2 = (char *)get_string(file_read_prompt_str,
 			    TRUE);
+			if (cmd_str == NULL)
+				return;
 		}
 		tmp_file = cmd_str;
 		recv_file = TRUE;
@@ -1752,7 +1861,7 @@ command(char *cmd_str1)
 	else if (compare(cmd_str, Exit_string, FALSE))
 		finish();
 	else if (compare(cmd_str, QUIT_string, FALSE))
-		quit(0);
+		leave_op();
 	else if (*cmd_str == '!') {
 		cmd_str++;
 		if ((*cmd_str == ' ') || (*cmd_str == 9))
@@ -1809,129 +1918,267 @@ scan(char *line, int offset, int column)
 	return (j);
 }
 
-/* read string from input on command line */
+/*
+ * Redraw the prompt line showing prompt followed by the input buffer.
+ * The view scrolls left when the cursor would leave the last column, so
+ * arbitrarily long input remains editable without any fixed limit.
+ */
+static void
+show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
+{
+	size_t start = 0;
+	int prompt_width = (int)strlen(prompt);
+	int cursor_col;
+	int col;
+	size_t i;
+
+	cursor_col = scan((char *)buf, (int)cur, prompt_width);
+	while ((cursor_col > (last_col - 1)) && (start < cur)) {
+		start += (size_t)utf8_len((const unsigned char *)buf + start);
+		cursor_col = scan((char *)buf, (int)cur, prompt_width);
+	}
+
+	werase(com_win);
+	wmove(com_win, 0, 0);
+	waddstr(com_win, prompt);
+	col = (start == 0) ? prompt_width :
+	    scan((char *)buf, (int)start, prompt_width);
+	wmove(com_win, 0, col);
+
+	for (i = start; i < len; ) {
+		unsigned char c = (unsigned char)buf[i];
+		int clen, width;
+
+		if (c >= 0x80) {
+			clen = utf8_len((const unsigned char *)buf + i);
+			width = utf8_width((const unsigned char *)buf + i);
+		} else {
+			clen = 1;
+			width = len_char((int)c, col);
+		}
+		if ((col + width) > last_col)
+			break;
+		if ((c >= 0x20) && (c != 127)) {
+			char tmp[8];
+
+			if (clen > (int)sizeof(tmp) - 1)
+				clen = (int)sizeof(tmp) - 1;
+			memcpy(tmp, buf + i, (size_t)clen);
+			tmp[clen] = '\0';
+			waddstr(com_win, tmp);
+		} else
+			out_char(com_win, (int)c, col);
+		col += width;
+		i += (size_t)clen;
+	}
+
+	wmove(com_win, 0, scan((char *)buf, (int)cur, prompt_width));
+	wrefresh(com_win);
+}
+
+/* read string from input on command line; NULL if cancelled */
 static char *
 get_string(char *prompt, int advance)
 {
-	char *string;
-	char *tmp_string;
-	char *nam_str;
-	char *g_point;
-	int tmp_int;
-	int g_horz, g_position, g_pos;
-	int esc_flag;
+	static const char *const prompt_keys[] = {
+		"[Enter] Accept", "[Esc] Cancel", "[^V] Literal"
+	};
+	char *buf;
+	size_t bufsize = 128;
+	size_t len = 0;
+	size_t cur = 0;
+	int cancelled = FALSE;
+	int done = FALSE;
 
-	g_point = tmp_string = malloc(512);
-	wmove(com_win, 0, 0);
-	wclrtoeol(com_win);
-	if (!nohighlight)
-		wstandout(com_win);
-	waddstr(com_win, prompt);
-	if (!nohighlight)
-		wstandend(com_win);
-	wrefresh(com_win);
-	nam_str = tmp_string;
+	buf = malloc(bufsize);
+	if (buf == NULL)
+		return (NULL);
+	buf[0] = '\0';
+
+	set_shortcuts(prompt_keys,
+	    (int)(sizeof(prompt_keys) / sizeof(prompt_keys[0])));
 	clear_com_win = TRUE;
-	g_horz = g_position = scan(prompt, strlen(prompt), 0);
-	g_pos = 0;
-	do {
+	show_prompt_line(prompt, buf, len, cur);
+
+	while (!done) {
 		wint_t win;
 		int wret;
 
-		esc_flag = FALSE;
 		wret = wget_wch(com_win, &win);
 		if (wret == ERR) {
 			/* SIGINT leaves the editor through the normal,
 			 * terminal-restoring path */
-			if (ee_intr_flag)
+			if (ee_intr_flag) {
+				free(buf);
 				edit_abort(0);
+			}
+			free(buf);
 			exit(0);
 		}
 		in = (int)win;
-		if (wret == KEY_CODE_YES && win == KEY_BACKSPACE)
-			in = 8;
-		if (((in == 8) || (in == 127)) && (g_pos > 0)) {
-			unsigned char *prev = utf8_prev(
-			    (const unsigned char *)g_point,
-			    (const unsigned char *)nam_str);
-			int char_bytes = (unsigned char *)nam_str - prev;
-			tmp_int = g_horz;
-			g_pos -= char_bytes;
-			nam_str -= char_bytes;
-			g_horz = scan(g_point, g_pos, g_position);
-			tmp_int = tmp_int - g_horz;
-			for (; 0 < tmp_int; tmp_int--) {
-				if ((g_horz + tmp_int) < (last_col - 1)) {
-					waddch(com_win, '\010');
-					waddch(com_win, ' ');
-					waddch(com_win, '\010');
+
+		if (wret == KEY_CODE_YES) {
+			switch ((int)win) {
+			case KEY_RESIZE:
+				resize_check();
+				break;
+			case KEY_BACKSPACE:
+				if (cur > 0) {
+					size_t prev = (size_t)(utf8_prev(
+					    (const unsigned char *)buf,
+					    (const unsigned char *)buf + cur) -
+					    (const unsigned char *)buf);
+					memmove(buf + prev, buf + cur,
+					    len - cur);
+					len -= cur - prev;
+					cur = prev;
 				}
+				break;
+			case KEY_LEFT:
+				if (cur > 0) {
+					const unsigned char *p = utf8_prev(
+					    (const unsigned char *)buf,
+					    (const unsigned char *)buf + cur);
+					cur = (size_t)(p - (const unsigned char *)buf);
+				}
+				break;
+			case KEY_RIGHT:
+				if (cur < len)
+					cur += (size_t)utf8_len(
+					    (const unsigned char *)buf + cur);
+				break;
+			case KEY_HOME:
+				cur = 0;
+				break;
+			case KEY_END:
+				cur = len;
+				break;
+			case KEY_DC:
+				if (cur < len) {
+					size_t n = (size_t)utf8_len(
+					    (const unsigned char *)buf + cur);
+					if (cur + n > len)
+						n = len - cur;
+					memmove(buf + cur, buf + cur + n,
+					    len - cur - n);
+					len -= n;
+				}
+				break;
+			default:
+				break;
 			}
-		} else if (wret == KEY_CODE_YES) {
-			/* ignore other function keys in string input */
-		} else if ((in != 8) && (in != 127) && (in != '\n') &&
-		    (in != '\r')) {
-			if (in == '\026') {	/* control-v */
-				esc_flag = TRUE;
+			show_prompt_line(prompt, buf, len, cur);
+			continue;
+		}
+
+		if ((in == 27) || (in == 3)) {	/* Esc or ^C */
+			cancelled = TRUE;
+			done = TRUE;
+			continue;
+		}
+		if ((in == '\n') || (in == '\r')) {
+			done = TRUE;
+			continue;
+		}
+		if ((in == 8) || (in == 127)) {
+			if (cur > 0) {
+				size_t prev = (size_t)(utf8_prev(
+				    (const unsigned char *)buf,
+				    (const unsigned char *)buf + cur) -
+				    (const unsigned char *)buf);
+				memmove(buf + prev, buf + cur, len - cur);
+				len -= cur - prev;
+				cur = prev;
+			}
+			show_prompt_line(prompt, buf, len, cur);
+			continue;
+		}
+
+		{
+			char mb[MB_LEN_MAX + 1];
+			size_t n = 0;
+
+			if (in == '\026') {	/* control-v: literal */
 				wret = wget_wch(com_win, &win);
 				if (wret == ERR) {
-					if (ee_intr_flag)
+					if (ee_intr_flag) {
+						free(buf);
 						edit_abort(0);
+					}
+					free(buf);
 					exit(0);
 				}
 				in = (int)win;
+				if ((in >= 0) && (in < 0x80)) {
+					mb[0] = (char)in;
+					n = 1;
+				}
 			}
-			if (in >= 0x80) {
-				char mb[MB_LEN_MAX + 1];
-				mbstate_t mbs;
-				memset(&mbs, 0, sizeof(mbs));
-				size_t n = wcrtomb(mb, (wchar_t)win, &mbs);
-				if (n != (size_t)-1) {
-					size_t i;
-					for (i = 0; i < n; i++) {
-						*nam_str = mb[i];
-						nam_str++;
-						g_pos++;
-					}
-					if (g_horz < (last_col - 1)) {
-						char buf[5];
-						memcpy(buf, mb, n);
-						buf[n] = '\0';
-						waddstr(com_win, buf);
-					}
-					g_horz += utf8_width(
-					    (const unsigned char *)
-					    (nam_str - n));
+			if (n == 0) {
+				if (in >= 0x80) {
+					mbstate_t mbs;
+
+					memset(&mbs, 0, sizeof(mbs));
+					n = wcrtomb(mb, (wchar_t)win, &mbs);
+					if (n == (size_t)-1)
+						n = 0;
+				} else if ((in >= 0) && (in < 0x80)) {
+					mb[0] = (char)in;
+					n = 1;
 				}
-			} else {
-				*nam_str = in;
-				g_pos++;
-				if (!isprint((unsigned char)in) &&
-				    (g_horz < (last_col - 1)))
-					g_horz += out_char(com_win, in,
-					    g_horz);
-				else {
-					g_horz++;
-					if (g_horz < (last_col - 1))
-						waddch(com_win,
-						    (unsigned char)in);
+			}
+			if (n > 0) {
+				if ((len + n + 1) > bufsize) {
+					size_t newsize = bufsize * 2;
+					char *nb;
+
+					if (newsize < (len + n + 1))
+						newsize = len + n + 1;
+					nb = realloc(buf, newsize);
+					if (nb == NULL) {
+						cancelled = TRUE;
+						done = TRUE;
+						continue;
+					}
+					buf = nb;
+					bufsize = newsize;
 				}
-				nam_str++;
+				memmove(buf + cur + n, buf + cur, len - cur);
+				memcpy(buf + cur, mb, n);
+				len += n;
+				cur += n;
 			}
 		}
+		show_prompt_line(prompt, buf, len, cur);
+	}
+
+	default_shortcuts();
+	paint_shortcut_bar();
+
+	if (cancelled) {
+		wmove(com_win, 0, 0);
+		werase(com_win);
 		wrefresh(com_win);
-		if (esc_flag)
-			in = '\0';
-	} while ((in != '\n') && (in != '\r'));
-	*nam_str = '\0';
-	nam_str = tmp_string;
-	if (((*nam_str == ' ') || (*nam_str == 9)) && (advance))
-		nam_str = next_word(nam_str);
-	string = malloc(strlen(nam_str) + 1);
-	strlcpy(string, nam_str, strlen(nam_str) + 1);
-	free(tmp_string);
-	wrefresh(com_win);
-	return (string);
+		free(buf);
+		return (NULL);
+	}
+
+	buf[len] = '\0';
+	{
+		char *src = buf;
+		char *string;
+
+		if (((*src == ' ') || (*src == '\t')) && (advance))
+			src = next_word(src);
+		string = malloc(strlen(src) + 1);
+		if (string == NULL) {
+			free(buf);
+			return (NULL);
+		}
+		strlcpy(string, src, strlen(src) + 1);
+		free(buf);
+		return (string);
+	}
 }
 
 /* compare two strings	*/
@@ -2075,7 +2322,7 @@ get_options(int numargs, char *arguments[])
 			fputs("       -i   turn off info window\n", stderr);
 			fputs("       -e   do not convert tabs to spaces\n",
 			    stderr);
-			fputs("       -h   do not use highlighting\n", stderr);
+			fputs("       -h   do not use reverse video\n", stderr);
 			exit(1);
 		} else if ((*buff == '+') && (start_at_line == NULL)) {
 			buff++;
@@ -2236,6 +2483,7 @@ get_file(char *file_name)
 		curr_line = temp_line;
 	}
 	if (input_file) {	/* if this is the file to be edited display number of lines	*/
+		read_only = ro_flag;
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
 		wprintw(com_win, file_read_lines_msg, in_file_name,
@@ -2245,6 +2493,8 @@ get_file(char *file_name)
 		wrefresh(com_win);
 	} else if (can_read)	/* not input_file and file is non-zero size */
 		text_changes = TRUE;
+
+	recount_lines();
 
 	if (recv_file) {		/* if reading a file			*/
 		in = EOF;
@@ -2333,63 +2583,32 @@ draw_screen(void)	/* redraw the screen from current position */
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
-/* prepare to exit edit session	*/
+/*
+ * "leave and save" (the historical "exit" command and Esc-Enter).
+ * The save path is shared with ^S; nothing is written if the file
+ * name prompt is cancelled.
+ */
 static void
 finish(void)
 {
-	char *file_name = (char *)in_file_name;
-
-	/*
-	 |	changes made here should be reflected in the 'save'
-	 |	portion of file_op()
-	 */
-
-	if ((file_name == NULL) || (*file_name == '\0'))
-		file_name = get_string(save_file_name_prompt, TRUE);
-
-	if ((file_name == NULL) || (*file_name == '\0')) {
-		wmove(com_win, 0, 0);
-		wprintw(com_win, "%s", file_not_saved_msg);
-		wclrtoeol(com_win);
-		wrefresh(com_win);
-		clear_com_win = TRUE;
-		return;
-	}
-
-	tmp_file = resolve_name(file_name);
-	if (tmp_file != file_name) {
-		free(file_name);
-		file_name = tmp_file;
-	}
-
-	if (write_file(file_name, 1)) {
-		text_changes = FALSE;
-		quit(0);
-	}
+	if (save_op())
+		quit(TRUE);
 }
 
-/* exit editor			*/
+/*
+ * Exit the editor.  Confirmation for a modified buffer is handled by
+ * the caller (leave_op opens the save/discard/cancel menu), so this
+ * routine never destroys unsaved data on its own.
+ */
 static int
 quit(int noverify)
 {
-	char *ans;
+	(void)noverify;
 
 	touchwin(text_win);
 	wrefresh(text_win);
-	if ((text_changes) && (!noverify)) {
-		ans = get_string(changes_made_prompt, TRUE);
-		if (toupper((unsigned char)*ans) ==
-		    toupper((unsigned char)*yes_char))
-			text_changes = FALSE;
-		else
-			return (0);
-		free(ans);
-	}
 	if (top_of_stack == NULL) {
-		if (info_window)
-			wrefresh(info_win);
 		wrefresh(com_win);
-		resetty();
 		endwin();
 		putchar('\n');
 		exit(0);
@@ -2407,7 +2626,6 @@ edit_abort(int arg)
 {
 	(void)arg;
 	wrefresh(com_win);
-	resetty();
 	endwin();
 	putchar('\n');
 	exit(1);
@@ -2431,6 +2649,64 @@ delete_text(void)
 	point = curr_line->line;
 	scr_pos = scr_vert = scr_horz = 0;
 	position = 1;
+	total_lines = 1;
+}
+
+/*
+ * Ask a yes/no question with an explicit, unambiguous set of keys.
+ * Returns 1 for yes, 0 for no and -1 when the user cancels with Esc.
+ */
+static int
+confirm(const char *question)
+{
+	static const char *const keys[] = {
+		"[Y] Yes", "[N] No", "[Esc] Cancel"
+	};
+	int result = -1;
+	wint_t win;
+	int wret;
+
+	set_shortcuts(keys, (int)(sizeof(keys) / sizeof(keys[0])));
+
+	for (;;) {
+		wmove(com_win, 0, 0);
+		werase(com_win);
+		if (!nohighlight)
+			wstandout(com_win);
+		waddstr(com_win, question);
+		if (!nohighlight)
+			wstandend(com_win);
+		wrefresh(com_win);
+		paint_shortcut_bar();
+
+		wret = wget_wch(com_win, &win);
+		if (wret == ERR) {
+			if (ee_intr_flag) {
+				default_shortcuts();
+				edit_abort(0);
+			}
+			default_shortcuts();
+			exit(0);
+		}
+		if (wret == KEY_CODE_YES) {
+			if (win == KEY_RESIZE) {
+				resize_check();
+				continue;
+			}
+			result = -1;
+			break;
+		}
+		if ((win == 'y') || (win == 'Y'))
+			result = 1;
+		else if ((win == 'n') || (win == 'N'))
+			result = 0;
+		else
+			result = -1;
+		break;
+	}
+	default_shortcuts();
+	paint_shortcut_bar();
+	return (result);
 }
 
 static int
@@ -2448,14 +2724,9 @@ write_file(char *file_name, int warn_if_exists)
 	    ((in_file_name == NULL) ||
 	     strcmp((char *)in_file_name, file_name))) {
 		if ((temp_fp = fopen(file_name, "r"))) {
-			tmp_point = get_string(file_exists_prompt, TRUE);
-			if (toupper((unsigned char)*tmp_point) ==
-			    toupper((unsigned char)*yes_char))
-				write_flag = TRUE;
-			else
-				write_flag = FALSE;
 			fclose(temp_fp);
-			free(tmp_point);
+			if (confirm("File exists.  Overwrite it?") != 1)
+				write_flag = FALSE;
 		}
 	}
 
@@ -2617,37 +2888,67 @@ search(int display_message)
 static void
 search_prompt(void)
 {
-	if (srch_str != NULL)
+	char *query;
+	size_t alloc, used;
+
+	if (srch_str != NULL) {
 		free(srch_str);
-	if ((u_srch_str != NULL) && (*u_srch_str != '\0'))
+		srch_str = NULL;
+	}
+	if (u_srch_str != NULL) {
 		free(u_srch_str);
-	srch_str = (unsigned char *)get_string(search_prompt_str, FALSE);
+		u_srch_str = NULL;
+	}
+	query = get_string(search_prompt_str, FALSE);
+	if (query == NULL)
+		return;			/* cancelled */
+
+	srch_str = (unsigned char *)query;
 	gold = FALSE;
+
+	/*
+	 * Build the upper-cased form used for case-insensitive search.
+	 * The buffer is sized generously (one full multibyte character
+	 * per input byte at most) so that no expansion of a character
+	 * can overflow it.
+	 */
+	alloc = strlen(query) * (size_t)MB_LEN_MAX + 1;
+	u_srch_str = malloc(alloc);
+	if (u_srch_str == NULL) {
+		search(TRUE);
+		return;
+	}
 	srch_3 = srch_str;
-	srch_1 = u_srch_str = malloc(strlen((char *)srch_str) * 4 + 1);
-	while (*srch_3 != '\0') {
+	srch_1 = u_srch_str;
+	used = 0;
+	while ((*srch_3 != '\0') && ((used + MB_LEN_MAX) < alloc)) {
 		if (*srch_3 >= 0x80) {
 			wchar_t wc;
 			mbstate_t mbs;
 			int clen;
+			size_t n;
+
 			memset(&mbs, 0, sizeof(mbs));
 			clen = (int)mbrtowc(&wc, (char *)srch_3,
 			    utf8_len(srch_3), &mbs);
 			if (clen > 0) {
 				wc = (wchar_t)towupper((wint_t)wc);
 				memset(&mbs, 0, sizeof(mbs));
-				size_t n = wcrtomb((char *)srch_1,
-				    wc, &mbs);
-				if (n != (size_t)-1)
+				n = wcrtomb((char *)srch_1, wc, &mbs);
+				if (n != (size_t)-1) {
 					srch_1 += n;
+					used += n;
+				}
 				srch_3 += clen;
 			} else {
 				*srch_1++ = *srch_3++;
+				used++;
 			}
 		} else {
-			*srch_1 = toupper(*srch_3);
+			*srch_1 = (char)toupper(*srch_3);
 			srch_1++;
 			srch_3++;
+			used++;
 		}
 	}
 	*srch_1 = '\0';
@@ -3149,72 +3450,140 @@ sh_command(char *string)
 		raw();
 		keypad(text_win, TRUE);
 		keypad(com_win, TRUE);
-		if (info_window)
-			clearok(info_win, TRUE);
+		clearok(text_win, TRUE);
 	}
 
 	redraw();
 }
 
-/* set up the terminal for operating with ae	*/
+/*
+ * Discard every derived window.  Called before (re)building the
+ * layout so that resizing never leaks or reuses a stale window.
+ */
+static void
+free_windows(void)
+{
+	if (title_win != NULL) {
+		delwin(title_win);
+		title_win = NULL;
+	}
+	if (key_win != NULL) {
+		delwin(key_win);
+		key_win = NULL;
+	}
+	if (com_win != NULL) {
+		delwin(com_win);
+		com_win = NULL;
+	}
+	if (text_win != NULL) {
+		delwin(text_win);
+		text_win = NULL;
+	}
+	if (help_win != NULL) {
+		delwin(help_win);
+		help_win = NULL;
+	}
+}
+
+/*
+ * Central layout computation.  One title/status row at the top, one
+ * prompt/message row and one optional shortcut row at the bottom, and
+ * the text area in between.  The layout degrades gracefully on very
+ * small terminals instead of using negative sizes.
+ */
 static void
 set_up_term(void)
 {
+	int rows, cols;
+	int bar = 0;
+	int title = 0;
+
 	if (!curses_initialized) {
-		initscr();
+		if (initscr() == NULL) {
+			fprintf(stderr,
+			    "ee: unable to initialize the terminal\n");
+			exit(1);
+		}
 		savetty();
 		noecho();
 		raw();
 		nonl();
+		keypad(stdscr, TRUE);
 		curses_initialized = TRUE;
 	}
 
-	if (((LINES > 15) && (COLS >= 80)) && info_window)
-		last_line = LINES - 8;
-	else {
-		info_window = FALSE;
-		last_line = LINES - 2;
-	}
+	free_windows();
+
+	rows = LINES;
+	cols = COLS;
+	if (rows < 1)
+		rows = 1;
+	if (cols < 1)
+		cols = 1;
+
+	if (info_window && (rows >= 5))
+		bar = 1;
+	if (rows >= (bar + 3))
+		title = 1;
+
+	text_rows = rows - title - bar - 1;
+	if (text_rows < 1)
+		text_rows = 1;
+	text_top = title;
+
+	last_line = text_rows - 1;
+	last_col = cols - 1;
 
 	idlok(stdscr, TRUE);
-	com_win = newwin(1, COLS, (LINES - 1), 0);
+
+	title_win = newwin(1, cols, 0, 0);
+	keypad(title_win, TRUE);
+	idlok(title_win, TRUE);
+
+	text_win = newwin(text_rows, cols, text_top, 0);
+	keypad(text_win, TRUE);
+	idlok(text_win, TRUE);
+
+	com_win = newwin(1, cols, rows - 1 - bar, 0);
 	keypad(com_win, TRUE);
 	idlok(com_win, TRUE);
 	wrefresh(com_win);
-	if (!info_window)
-		text_win = newwin((LINES - 1), COLS, 0, 0);
-	else
-		text_win = newwin((LINES - 7), COLS, 6, 0);
-	keypad(text_win, TRUE);
-	idlok(text_win, TRUE);
-	wrefresh(text_win);
-	help_win = newwin((LINES - 1), COLS, 0, 0);
-	keypad(help_win, TRUE);
-	idlok(help_win, TRUE);
-	if (info_window) {
-		info_type = CONTROL_KEYS;
-		info_win = newwin(6, COLS, 0, 0);
-		werase(info_win);
-		paint_info_win();
+
+	if (bar) {
+		key_win = newwin(1, cols, rows - 1, 0);
+		keypad(key_win, TRUE);
+		idlok(key_win, TRUE);
 	}
 
-	last_col = COLS - 1;
-	local_LINES = LINES;
-	local_COLS = COLS;
+	help_win = newwin(rows, cols, 0, 0);
+	keypad(help_win, TRUE);
+	idlok(help_win, TRUE);
+
+	if (shortcut_count == 0)
+		default_shortcuts();
+	paint_status_line();
+	paint_shortcut_bar();
+	wrefresh(text_win);
+
+	local_LINES = rows;
+	local_COLS = cols;
 }
 
+/* React to SIGWINCH (delivered as KEY_RESIZE) and size changes. */
 static void
 resize_check(void)
 {
 	if ((LINES == local_LINES) && (COLS == local_COLS))
 		return;
 
-	if (info_window)
-		delwin(info_win);
-	delwin(text_win);
-	delwin(com_win);
-	delwin(help_win);
 	set_up_term();
+
+	/* keep the cursor inside the new text area */
+	if (scr_vert > last_line)
+		scr_vert = last_line;
+	if (scr_vert < 0)
+		scr_vert = 0;
+
 	redraw();
 	wrefresh(text_win);
 }
@@ -3289,9 +3658,25 @@ menu_op(struct menu_entries menu_list[])
 			max_height = vert_size + 7;
 		top_offset = 4;
 	}
+	if (max_height > LINES)
+		max_height = LINES;
+	if (max_height < 1)
+		max_height = 1;
 	x_off = (COLS - max_width) / 2;
 	y_off = (LINES - max_height - 1) / 2;
+	if (y_off < 0)
+		y_off = 0;
+	if (x_off < 0)
+		x_off = 0;
 	temp_win = newwin(max_height, max_width, y_off, x_off);
+	if (temp_win == NULL) {
+		wmove(com_win, 0, 0);
+		werase(com_win);
+		wprintw(com_win, "%s", menu_too_lrg_msg);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		return (0);
+	}
 	keypad(temp_win, TRUE);
 	curs_set(0);
 
@@ -3428,8 +3813,8 @@ menu_op(struct menu_entries menu_list[])
 	else if (menu_list[counter].nprocedure != NULL)
 		(*menu_list[counter].nprocedure)();
 
-	if (info_window)
-		paint_info_win();
+	paint_status_line();
+	paint_shortcut_bar();
 	redraw();
 
 	return (counter);
@@ -3528,185 +3913,421 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 	}
 }
 
-static void
-help(void)
-{
-	int counter;
+/*
+ * Help is generated from these tables so that it fits the terminal and
+ * mirrors the active key bindings.  An entry lists the key in normal
+ * mode, the key in emacs mode (NULL if identical) and the description.
+ */
+static const struct help_entry help_navigation[] = {
+	{"^B", "^U", "Bottom of file"},
+	{"^T", "^T", "Top of file"},
+	{"^D", "^N", "Down one line"},
+	{"^U", "^P", "Up one line"},
+	{"^N", "^V", "Next page"},
+	{"^P", "^G", "Previous page"},
+	{"^L", "^B", "Left one character"},
+	{"^R", "^F", "Right one character"},
+	{"^G", "^A", "Beginning of line"},
+	{"^O", "^E", "End of line"},
+	{"Arrows", "Arrows", "Move the cursor"},
+	{"Home/End", "Home/End", "Beginning/end of line"},
+	{"PgUp/PgDn", "PgUp/PgDn", "Scroll one page"},
+};
 
-	werase(help_win);
-	clearok(help_win, TRUE);
-	for (counter = 0; counter < 22; counter++) {
-		wmove(help_win, counter, 0);
-		if (!nohighlight && ((counter == 0) || (counter == 11)))
-			wstandout(help_win);
-		waddstr(help_win, (emacs_keys_mode) ?
-		    emacs_help_text[counter] : help_text[counter]);
-		if (!nohighlight && ((counter == 0) || (counter == 11)))
-			wstandend(help_win);
-	}
-	wrefresh(help_win);
-	werase(com_win);
-	wmove(com_win, 0, 0);
-	if (!nohighlight)
-		wstandout(com_win);
-	wprintw(com_win, "%s", press_any_key_msg);
-	if (!nohighlight)
-		wstandend(com_win);
-	wrefresh(com_win);
-	{
-		wint_t win;
-		if (wget_wch(com_win, &win) == ERR) {
-			if (ee_intr_flag)
-				edit_abort(0);
-			exit(0);
-		}
-		counter = (int)win;
-	}
-	werase(com_win);
-	wmove(com_win, 0, 0);
-	werase(help_win);
-	wrefresh(help_win);
-	wrefresh(com_win);
-	redraw();
+static const struct help_entry help_editing[] = {
+	{"^A", "^O", "Insert a character by code"},
+	{"^J", "^M", "Insert a line break"},
+	{"^I", "^I", "Insert a tab (or spaces)"},
+	{"^K", "^D", "Delete the character at the cursor"},
+	{"^F", "^J", "Restore the last deleted character"},
+	{"^W", "^W", "Delete the word at the cursor"},
+	{"^V", "^R", "Restore the last deleted word"},
+	{"^Y", "^K", "Delete from the cursor to end of line"},
+	{"^Z", "^L", "Restore the last deleted line"},
+	{"Bksp", "Bksp", "Delete the character before the cursor"},
+	{"Del", "Del", "Delete the character at the cursor"},
+};
+
+static const struct help_entry help_files[] = {
+	{"^S", "^S", "Save the buffer to its file"},
+	{"^C", "^C", "Command prompt (write, read, exit, ...)"},
+	{"^[ then f", "^[ then f", "File menu: read, write, save, print"},
+	{"^[ then a", "^[ then a", "Leave: save, discard or cancel"},
+};
+
+static const struct help_entry help_search[] = {
+	{"^E", "^Y", "Prompt for a search string"},
+	{"^X", "^X", "Repeat the last search"},
+	{"case", "case", "Command: case sensitive search"},
+	{"nocase", "nocase", "Command: ignore case in search"},
+};
+
+static const struct help_entry help_cutpaste[] = {
+	{"^K", "^D", "Cut the current character"},
+	{"^F", "^J", "Paste the last cut character"},
+	{"^W", "^W", "Cut the current word"},
+	{"^V", "^R", "Paste the last cut word"},
+	{"^Y", "^K", "Cut to the end of the line"},
+	{"^Z", "^L", "Paste the last cut line"},
+};
+
+static const struct help_entry help_exit[] = {
+	{"^Q", "^Q", "Quit; asks to save when modified"},
+	{"^[ then a", "^[ then a", "Leave editor (save / no save / cancel)"},
+	{"Esc Enter", "Esc Enter", "Leave and save (historical shortcut)"},
+};
+
+static const struct help_entry help_advanced[] = {
+	{"Esc", "Esc", "Open the main menu"},
+	{"F1", "F1", "Select the gold (alternate) function set"},
+	{"F2-F8", "F2-F8", "Function keys (gold variants undo)"},
+	{"help", "help", "Command: show this screen"},
+	{"!cmd", "!cmd", "Command: run \"cmd\" in the shell"},
+	{"<cmd", "<cmd", "Command: pipe the buffer into \"cmd\""},
+	{">cmd", ">cmd", "Command: pipe the buffer to \"cmd\""},
+	{"line N", "line N", "Command: go to line N"},
+	{"0-9", "0-9", "Command: go to line N"},
+	{"expand", "expand", "Command: expand tabs to spaces"},
+	{"noexpand", "noexpand", "Command: keep tabs as tabs"},
+	{"margins", "margins", "Command: observe the right margin"},
+	{"nomargins", "nomargins", "Command: ignore the right margin"},
+};
+
+static const struct help_section help_sections[] = {
+	{"Navigation", help_navigation,
+	    (int)(sizeof(help_navigation) / sizeof(help_navigation[0]))},
+	{"Editing", help_editing,
+	    (int)(sizeof(help_editing) / sizeof(help_editing[0]))},
+	{"Files", help_files,
+	    (int)(sizeof(help_files) / sizeof(help_files[0]))},
+	{"Search", help_search,
+	    (int)(sizeof(help_search) / sizeof(help_search[0]))},
+	{"Cut and paste", help_cutpaste,
+	    (int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0]))},
+	{"Exit", help_exit,
+	    (int)(sizeof(help_exit) / sizeof(help_exit[0]))},
+	{"Advanced commands", help_advanced,
+	    (int)(sizeof(help_advanced) / sizeof(help_advanced[0]))},
+};
+
+struct help_line {
+	char *text;
+	int header;
+};
+
+static void
+help_add_line(struct help_line *lines, int *count, int max, const char *text,
+    int header)
+{
+	size_t len;
+
+	if (*count >= max)
+		return;
+	len = strlen(text);
+	lines[*count].text = malloc(len + 1);
+	if (lines[*count].text == NULL)
+		return;
+	strlcpy(lines[*count].text, text, len + 1);
+	lines[*count].header = header;
+	(*count)++;
 }
 
 static int
-iout_chars(int value)
+build_help(struct help_line *lines, int max)
 {
-	int quotient;
+	char buf[256];
+	int count = 0;
+	size_t s;
 
-	quotient = value / 10;
-	if (quotient != 0)
-		return (1 + iout_chars(quotient));
-	return (1);
+	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++) {
+		const struct help_section *sec = &help_sections[s];
+		int i;
+
+		help_add_line(lines, &count, max, sec->title, TRUE);
+		for (i = 0; i < sec->count; i++) {
+			const char *key = sec->items[i].key;
+
+			if (emacs_keys_mode && (sec->items[i].emacs != NULL))
+				key = sec->items[i].emacs;
+			snprintf(buf, sizeof(buf), "  %-12s %s", key,
+			    sec->items[i].text);
+			help_add_line(lines, &count, max, buf, FALSE);
+		}
+		help_add_line(lines, &count, max, "", FALSE);
+	}
+
+	help_add_line(lines, &count, max, "Command line", TRUE);
+	help_add_line(lines, &count, max,
+	    "  ee [+#] [-i] [-e] [-h] [file(s)]", FALSE);
+	help_add_line(lines, &count, max,
+	    "  +#  start at line #        -i  no shortcut bar", FALSE);
+	help_add_line(lines, &count, max,
+	    "  -e  do not expand tabs     -h  no reverse video", FALSE);
+	return (count);
 }
 
+static void
+paint_help_hint(int row, int top, int total, int pagesize)
+{
+	int page = (pagesize > 0) ? (top / pagesize) + 1 : 1;
+	int pages = (pagesize > 0) ? ((total + pagesize - 1) / pagesize) : 1;
+
+	wmove(help_win, row, 0);
+	wclrtoeol(help_win);
+	if (!nohighlight)
+		wstandout(help_win);
+	if (total > pagesize)
+		wprintw(help_win,
+		    " Space/^N: next   ^P: previous   Esc: close   page %d/%d ",
+		    page, pages);
+	else
+		wprintw(help_win, " Press Esc to close ");
+	if (!nohighlight)
+		wstandend(help_win);
+}
+
+static void
+help(void)
+{
+	struct help_line lines[256];
+	int total = 0;
+	int top = 0;
+	int rows, cols, pagesize;
+	int i, done = 0;
+
+	total = build_help(lines, (int)(sizeof(lines) / sizeof(lines[0])));
+
+	for (;;) {
+		rows = getmaxy(help_win);
+		cols = getmaxx(help_win);
+		pagesize = rows - 1;
+		if (pagesize < 1)
+			pagesize = 1;
+		if (top > total - 1)
+			top = (total > pagesize) ? total - pagesize : 0;
+		if (top < 0)
+			top = 0;
+
+		werase(help_win);
+		clearok(help_win, TRUE);
+		for (i = 0; (i < pagesize) && ((top + i) < total); i++) {
+			wmove(help_win, i, 0);
+			if (lines[top + i].header) {
+				if (!nohighlight)
+					wstandout(help_win);
+				waddnstr(help_win, lines[top + i].text,
+				    cols - 1);
+				if (!nohighlight)
+					wstandend(help_win);
+			} else
+				waddnstr(help_win, lines[top + i].text,
+				    cols - 1);
+		}
+		paint_help_hint(rows - 1, top, total, pagesize);
+		wrefresh(help_win);
+
+		{
+			wint_t win;
+			int wret = wget_wch(help_win, &win);
+
+			if (wret == ERR) {
+				if (ee_intr_flag)
+					edit_abort(0);
+				exit(0);
+			}
+			if ((wret == KEY_CODE_YES) && (win == KEY_RESIZE)) {
+				resize_check();
+				continue;
+			}
+			if (wret == KEY_CODE_YES) {
+				if (win == KEY_DOWN) {
+					if (top + pagesize < total)
+						top += pagesize;
+				} else if (win == KEY_UP) {
+					top -= pagesize;
+					if (top < 0)
+						top = 0;
+				} else if ((win == KEY_NPAGE) ||
+				    (win == KEY_PPAGE)) {
+					/* ignored */
+				}
+				continue;
+			}
+			switch ((int)win) {
+			case 27:	/* Esc */
+			case 'q':
+			case '\n':
+			case '\r':
+				done = 1;
+				break;
+			case ' ':
+			case '\016':	/* ^N */
+				if (top + pagesize < total)
+					top += pagesize;
+				break;
+			case '\020':	/* ^P */
+				top -= pagesize;
+				if (top < 0)
+					top = 0;
+				break;
+			default:
+				break;
+			}
+		}
+		if (done)
+			break;
+	}
+
+	for (i = 0; i < total; i++)
+		free(lines[i].text);
+	werase(help_win);
+	wrefresh(help_win);
+	redraw();
+}
+
+/*
+ * The title/status bar is persistent and monochrome.  It shows the
+ * program name, the file, the cursor position, a progress percentage
+ * and the buffer state.  Reverse video (unless -h) provides the only
+ * visual emphasis.
+ */
 static void
 paint_status_line(void)
 {
-	int width;
-	int length;
-	int marker;
-	int margin;
-	int gap;
-	int column;
+	char left[300];
+	char right[120];
+	const char *name;
+	int cols, width, right_col;
+	int percent;
 
-	if (!info_window)
+	if (title_win == NULL)
 		return;
 
-	width = info_win->Num_cols;
-	marker = (int)strlen("[modified]");
-	length = (int)strlen("line ") + iout_chars(curr_line->line_number) +
-	    (int)strlen("  col ") + iout_chars(scr_horz) +
-	    (int)strlen("  lines from top ") + iout_chars(absolute_lin);
+	cols = getmaxx(title_win);
+	name = ((in_file_name != NULL) && (*in_file_name != '\0')) ?
+	    (const char *)in_file_name : no_file_string;
+	snprintf(left, sizeof(left), "%s  %s", prog_name, name);
 
-	wmove(info_win, INFO_STATUS_ROW, 0);
-	wclrtoeol(info_win);
+	percent = 0;
+	if (total_lines > 0)
+		percent = (int)(((long)curr_line->line_number * 100) /
+		    total_lines);
+	if (percent < 0)
+		percent = 0;
+	if (percent > 100)
+		percent = 100;
+
+	if (read_only)
+		snprintf(right, sizeof(right),
+		    "Ln %d, Col %d  %d%%  [Read Only]",
+		    curr_line->line_number, scr_horz + 1, percent);
+	else if (text_changes)
+		snprintf(right, sizeof(right), "Ln %d, Col %d  %d%%  [Modified]",
+		    curr_line->line_number, scr_horz + 1, percent);
+	else
+		snprintf(right, sizeof(right), "Ln %d, Col %d  %d%%",
+		    curr_line->line_number, scr_horz + 1, percent);
+
+	width = utf8_strwidth(right);
+	right_col = cols - width - 1;
+	if (right_col < 0)
+		right_col = 0;
+
+	werase(title_win);
 	if (!nohighlight) {
-		wstandout(info_win);
-		for (column = 0; column < width; column++)
-			waddch(info_win, ' ');
+		int c;
+
+		wstandout(title_win);
+		for (c = 0; c < cols; c++)
+			waddch(title_win, ' ');
+		wstandend(title_win);
 	}
-	wmove(info_win, INFO_STATUS_ROW, 1);
-	wprintw(info_win, "line %d  col %d  lines from top %d",
-	    curr_line->line_number, scr_horz, absolute_lin);
-	margin = 1;
-	gap = 1;
-	if (text_changes &&
-	    ((length + marker + margin + gap) < width)) {
-		wmove(info_win, INFO_STATUS_ROW, width - margin - marker);
-		waddstr(info_win, "[modified]");
+	wmove(title_win, 0, 0);
+	waddnstr(title_win, left, cols - 1);
+	if (right_col > 0) {
+		wmove(title_win, 0, right_col);
+		if (!nohighlight)
+			wstandout(title_win);
+		waddstr(title_win, right);
+		if (!nohighlight)
+			wstandend(title_win);
 	}
-	if (!nohighlight)
-		wstandend(info_win);
+	wrefresh(title_win);
 }
 
 static void
-paint_key_line(WINDOW *window, const char *line)
+set_shortcuts(const char *const *items, int count)
 {
-	const char *token, *ptr;
-	int key;
+	int i;
 
-	ptr = line;
-	while (*ptr != '\0') {
-		if (*ptr == ' ') {
-			waddch(window, ' ');
-			ptr++;
-			continue;
-		}
-		token = ptr;
-		while ((*ptr != '\0') && (*ptr != ' '))
-			ptr++;
-		key = (*token == '^') ||
-		    ((token[0] == 'E') && (token[1] == 'S') &&
-		     (token[2] == 'C'));
-		if (!nohighlight && key) {
-			wstandout(window);
-			while ((token < ptr) && (*token != ':'))
-				waddch(window, (unsigned char)*token++);
-			wstandend(window);
-		}
-		while (token < ptr)
-			waddch(window, (unsigned char)*token++);
-	}
+	if (count > SHORTCUT_MAX)
+		count = SHORTCUT_MAX;
+	if (count < 0)
+		count = 0;
+	for (i = 0; i < count; i++)
+		shortcut_items[i] = items[i];
+	shortcut_count = count;
 }
 
 static void
-paint_command_line(WINDOW *window, const char *line)
+default_shortcuts(void)
 {
-	const char *token, *ptr;
-	int is_command;
+	static const char *const normal[] = {
+		"^[ Menu", "^S Save", "^Q Quit", "^E Search", "^X Find",
+		"^W Cut word", "^V Paste word", "^Y Cut line",
+		"^Z Paste line", "^U Up", "^D Down", "^C Command"
+	};
 
-	is_command = TRUE;
-	ptr = line;
-	while (*ptr != '\0') {
-		if (*ptr == ' ') {
-			waddch(window, ' ');
-			ptr++;
-			continue;
-		}
-		if (*ptr == '|') {
-			waddch(window, '|');
-			ptr++;
-			is_command = TRUE;
-			continue;
-		}
-		token = ptr;
-		while ((*ptr != '\0') && (*ptr != ' ') && (*ptr != '|'))
-			ptr++;
-		if (!nohighlight && is_command) {
-			wstandout(window);
-			while ((token < ptr) && (*token != ':'))
-				waddch(window, (unsigned char)*token++);
-			wstandend(window);
-		}
-		while (token < ptr)
-			waddch(window, (unsigned char)*token++);
-		is_command = FALSE;
-	}
+	set_shortcuts(normal, (int)(sizeof(normal) / sizeof(normal[0])));
 }
 
 static void
-paint_info_win(void)
+paint_shortcut_bar(void)
 {
-	int counter;
+	int i, col, cols;
 
-	if (!info_window)
+	if (key_win == NULL)
 		return;
 
-	werase(info_win);
-	for (counter = 0; counter < 5; counter++) {
-		wmove(info_win, counter, 0);
-		wclrtoeol(info_win);
-		if (info_type == CONTROL_KEYS)
-			paint_key_line(info_win, (emacs_keys_mode) ?
-			    emacs_control_keys[counter] :
-			    control_keys[counter]);
-		else if (info_type == COMMANDS)
-			paint_command_line(info_win, command_strings[counter]);
+	cols = getmaxx(key_win);
+	werase(key_win);
+	if (!nohighlight) {
+		int c;
+
+		wstandout(key_win);
+		for (c = 0; c < cols; c++)
+			waddch(key_win, ' ');
+		wstandend(key_win);
 	}
-	paint_status_line();
-	wrefresh(info_win);
+
+	col = 0;
+	for (i = 0; i < shortcut_count; i++) {
+		const char *item = shortcut_items[i];
+		const char *sp;
+		int w;
+
+		if (item == NULL)
+			continue;
+		w = utf8_strwidth(item);
+		if ((col + w + 2) > cols)
+			break;
+		sp = strchr(item, ' ');
+		wmove(key_win, 0, col);
+		if (!nohighlight)
+			wattron(key_win, A_BOLD);
+		if (sp != NULL) {
+			waddnstr(key_win, item, (int)(sp - item));
+			if (!nohighlight)
+				wattroff(key_win, A_BOLD);
+			waddstr(key_win, sp);
+		} else {
+			waddstr(key_win, item);
+			if (!nohighlight)
+				wattroff(key_win, A_BOLD);
+		}
+		col += w + 2;
+	}
+	wrefresh(key_win);
 }
 
 static void
@@ -3714,16 +4335,9 @@ no_info_window(void)
 {
 	if (!info_window)
 		return;
-	delwin(info_win);
-	delwin(text_win);
 	info_window = FALSE;
-	last_line = LINES - 2;
-	text_win = newwin((LINES - 1), COLS, 0, 0);
-	keypad(text_win, TRUE);
-	idlok(text_win, TRUE);
-	clearok(text_win, TRUE);
-	midscreen(scr_vert, point);
-	wrefresh(text_win);
+	set_up_term();
+	midscreen(ee_min(scr_vert, last_line), point);
 	clear_com_win = TRUE;
 }
 
@@ -3732,28 +4346,65 @@ create_info_window(void)
 {
 	if (info_window)
 		return;
-	last_line = LINES - 8;
-	delwin(text_win);
-	text_win = newwin((LINES - 7), COLS, 6, 0);
-	keypad(text_win, TRUE);
-	idlok(text_win, TRUE);
-	werase(text_win);
 	info_window = TRUE;
-	info_win = newwin(6, COLS, 0, 0);
-	werase(info_win);
-	info_type = CONTROL_KEYS;
+	set_up_term();
 	midscreen(ee_min(scr_vert, last_line), point);
-	clearok(info_win, TRUE);
-	paint_info_win();
-	wrefresh(text_win);
 	clear_com_win = TRUE;
+}
+
+/*
+ * Save the buffer.  Used by the "save file" menu entry, the "write"
+ * command and the ^S shortcut.  If the buffer has no file name yet one
+ * is requested.  A cancelled prompt leaves the buffer untouched.
+ */
+static int
+save_op(void)
+{
+	char *string;
+	int have_name;
+
+	if (restrict_mode())
+		return (FALSE);
+
+	have_name = ((in_file_name != NULL) && (*in_file_name != '\0'));
+	string = (char *)in_file_name;
+	if (!have_name) {
+		string = get_string(save_file_name_prompt, TRUE);
+		if (string == NULL)
+			return (FALSE);		/* cancelled */
+	}
+	if ((string == NULL) || (*string == '\0')) {
+		wmove(com_win, 0, 0);
+		wprintw(com_win, "%s", file_not_saved_msg);
+		wclrtoeol(com_win);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		if ((string != NULL) && (string != (char *)in_file_name))
+			free(string);
+		return (FALSE);
+	}
+	if (!have_name) {
+		tmp_file = resolve_name(string);
+		if (tmp_file != string) {
+			free(string);
+			string = tmp_file;
+		}
+	}
+	if (write_file(string, 1)) {
+		in_file_name = (unsigned char *)string;
+		text_changes = FALSE;
+		read_only = FALSE;
+		return (TRUE);
+	}
+	if (!have_name)
+		free(string);
+	return (FALSE);
 }
 
 static int
 file_op(int arg)
 {
 	char *string;
-	int flag;
 
 	if (restrict_mode()) {
 		return (0);
@@ -3761,6 +4412,8 @@ file_op(int arg)
 
 	if (arg == READ_FILE) {
 		string = get_string(file_read_prompt_str, TRUE);
+		if (string == NULL)
+			return (0);
 		recv_file = TRUE;
 		tmp_file = resolve_name(string);
 		check_fp();
@@ -3769,45 +4422,15 @@ file_op(int arg)
 		free(string);
 	} else if (arg == WRITE_FILE) {
 		string = get_string(file_write_prompt_str, TRUE);
+		if (string == NULL)
+			return (0);
 		tmp_file = resolve_name(string);
 		write_file(tmp_file, 1);
 		if (tmp_file != string)
 			free(tmp_file);
 		free(string);
-	} else if (arg == SAVE_FILE) {
-	/*
-	 |	changes made here should be reflected in finish()
-	 */
-
-		if (in_file_name)
-			flag = TRUE;
-		else
-			flag = FALSE;
-
-		string = (char *)in_file_name;
-		if ((string == NULL) || (*string == '\0'))
-			string = get_string(save_file_name_prompt, TRUE);
-		if ((string == NULL) || (*string == '\0')) {
-			wmove(com_win, 0, 0);
-			wprintw(com_win, "%s", file_not_saved_msg);
-			wclrtoeol(com_win);
-			wrefresh(com_win);
-			clear_com_win = TRUE;
-			return (0);
-		}
-		if (!flag) {
-			tmp_file = resolve_name(string);
-			if (tmp_file != string) {
-				free(string);
-				string = tmp_file;
-			}
-		}
-		if (write_file(string, 1)) {
-			in_file_name = (unsigned char *)string;
-			text_changes = FALSE;
-		} else if (!flag)
-			free(string);
-	}
+	} else if (arg == SAVE_FILE)
+		(void)save_op();
 	return (0);
 }
 
@@ -3816,11 +4439,12 @@ shell_op(void)
 {
 	char *string;
 
-	if (((string = get_string(shell_prompt, TRUE)) != NULL) &&
-	    (*string != '\0')) {
+	string = get_string(shell_prompt, TRUE);
+	if (string == NULL)
+		return;
+	if (*string != '\0')
 		sh_command(string);
-		free(string);
-	}
+	free(string);
 }
 
 static void
@@ -3835,11 +4459,9 @@ leave_op(void)
 static void
 redraw(void)
 {
-	if (info_window) {
-		clearok(info_win, TRUE);
-		paint_info_win();
-	} else
-		clearok(text_win, TRUE);
+	clearok(text_win, TRUE);
+	paint_status_line();
+	paint_shortcut_bar();
 	midscreen(scr_vert, point);
 }
 
@@ -4116,7 +4738,7 @@ ee_init(void)
 	home_size = strlen(string) + sizeof("/.init.ee");
 	home = malloc(home_size);
 	if (home == NULL) {
-		wprintw(com_win, "unable to allocate memory\n");
+		fprintf(stderr, "ee: unable to allocate memory\n");
 		return;
 	}
 	strlcpy(home, string, home_size);
@@ -4126,7 +4748,7 @@ ee_init(void)
 		/* init_name[1] is only assigned once all allocations
 		 * succeeded, so it can never dangle. */
 		free(home);
-		wprintw(com_win, "unable to allocate memory\n");
+		fprintf(stderr, "ee: unable to allocate memory\n");
 		return;
 	}
 	init_name[1] = home;
@@ -4741,7 +5363,7 @@ modes_op(void)
 		case 7:
 			emacs_keys_mode = !emacs_keys_mode;
 			if (info_window)
-				paint_info_win();
+				paint_shortcut_bar();
 			break;
 		case 8:
 			string = get_string(margin_prompt, TRUE);
@@ -4989,80 +5611,37 @@ strings_init(void)
 	main_menu[5].item_string = "settings";
 	main_menu[6].item_string = "search";
 	main_menu[7].item_string = "miscellaneous";
-	help_text[0] = "Control keys:                                                              ";
-	help_text[1] = "^a ascii code           ^i tab                  ^r right                   ";
-	help_text[2] = "^b bottom of text       ^j newline              ^t top of text             ";
-	help_text[3] = "^c command              ^k delete char          ^u up                      ";
-	help_text[4] = "^d down                 ^l left                 ^v undelete word           ";
-	help_text[5] = "^e search prompt        ^m newline              ^w delete word             ";
-	help_text[6] = "^f undelete char        ^n next page            ^x search                  ";
-	help_text[7] = "^g begin of line        ^o end of line          ^y delete line             ";
-	help_text[8] = "^h backspace            ^p prev page            ^z undelete line           ";
-	help_text[9] = "^[ (escape) menu        ESC-Enter: exit ee                                 ";
-	help_text[10] = "                                                                           ";
-	help_text[11] = "Commands:                                                                  ";
-	help_text[12] = "help    : get this info                 file    : print file name          ";
-	help_text[13] = "read    : read a file                   char    : ascii code of char       ";
-	help_text[14] = "write   : write a file                  case    : case sensitive search    ";
-	help_text[15] = "exit    : leave and save                nocase  : case insensitive search  ";
-	help_text[16] = "quit    : leave, no save                !cmd    : execute \"cmd\" in shell   ";
-	help_text[17] = "line    : display line #                0-9     : go to line \"#\"           ";
-	help_text[18] = "expand  : expand tabs                   noexpand: do not expand tabs         ";
-	help_text[19] = "                                                                             ";
-	help_text[20] = "  ee [+#] [-i] [-e] [-h] [file(s)]                                            ";
-	help_text[21] = "+# :go to line #  -i :no info window  -e : don't expand tabs  -h :no highlight";
-	control_keys[0] = "^[ (escape) menu  ^e search prompt  ^y delete line    ^u up     ^p prev page  ";
-	control_keys[1] = "^a ascii code     ^x search         ^z undelete line  ^d down   ^n next page  ";
-	control_keys[2] = "^b bottom of text ^g begin of line  ^w delete word    ^l left                 ";
-	control_keys[3] = "^t top of text    ^o end of line    ^v undelete word  ^r right                ";
-	control_keys[4] = "^c command        ^k delete char    ^f undelete char      ESC-Enter: exit ee  ";
-	command_strings[0] = "help : get help info  |file  : print file name         |line : print line # ";
-	command_strings[1] = "read : read a file    |char  : ascii code of char      |0-9 : go to line \"#\"";
-	command_strings[2] = "write: write a file   |case  : case sensitive search   |exit : leave and save ";
-	command_strings[3] = "!cmd : shell \"cmd\"    |nocase: ignore case in search   |quit : leave, no save";
-	command_strings[4] = "expand: expand tabs   |noexpand: do not expand tabs                           ";
 	com_win_message = "    press Escape (^[) for menu";
 	no_file_string = "no file";
-	ascii_code_str = "ascii code: ";
+	ascii_code_str = "Character code: ";
 	printer_msg_str = "sending contents of buffer to \"%s\" ";
-	command_str = "command: ";
-	file_write_prompt_str = "name of file to write: ";
-	file_read_prompt_str = "name of file to read: ";
+	command_str = "Command: ";
+	file_write_prompt_str = "File name to write: ";
+	file_read_prompt_str = "File name to read: ";
 	char_str = "character = %d";
 	unkn_cmd_str = "unknown command \"%s\"";
 	non_unique_cmd_msg = "entered command is not unique";
 	line_num_str = "line %d  ";
 	line_len_str = "length = %d";
 	current_file_str = "current file is \"%s\" ";
-	usage0 = "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n";
-	usage1 = "       -i   turn off info window\n";
-	usage2 = "       -e   do not convert tabs to spaces\n";
-	usage3 = "       -h   do not use highlighting\n";
-	file_is_dir_msg = "file \"%s\" is a directory";
+	file_is_dir_msg = "\"%s\" is a directory";
 	new_file_msg = "new file \"%s\"";
-	cant_open_msg = "can't open \"%s\"";
-	open_file_msg = "file \"%s\", %d lines";
+	cant_open_msg = "cannot open \"%s\"";
 	file_read_fin_msg = "finished reading file \"%s\"";
 	reading_file_msg = "reading file \"%s\"";
 	read_only_msg = ", read only";
 	file_read_lines_msg = "file \"%s\", %d lines";
-	save_file_name_prompt = "enter name of file: ";
+	save_file_name_prompt = "File name: ";
 	file_not_saved_msg = "no filename entered: file not saved";
-	changes_made_prompt = "changes have been made, are you sure? (y/n [n]) ";
-	yes_char = "y";
-	file_exists_prompt = "file already exists, overwrite? (y/n) [n] ";
 	create_file_fail_msg = "unable to create file \"%s\"";
 	writing_file_msg = "writing file \"%s\"";
 	file_written_msg = "\"%s\" %d lines, %d characters";
 	searching_msg = "           ...searching";
 	str_not_found_msg = "string \"%s\" not found";
-	search_prompt_str = "search for: ";
-	exec_err_msg = "could not exec %s\n";
+	search_prompt_str = "Search for: ";
 	continue_msg = "press return to continue ";
 	menu_cancel_msg = "press Esc to cancel";
-	menu_size_err_msg = "menu too large for window";
-	press_any_key_msg = "press any key to continue ";
-	shell_prompt = "shell command: ";
+	shell_prompt = "Shell command: ";
 	formatting_msg = "...formatting paragraph...";
 	shell_echo_msg = "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
 	spell_in_prog_msg = "sending contents of edit buffer to 'spell'";
@@ -5102,36 +5681,8 @@ strings_init(void)
 	 |	additions
 	 */
 	mode_strings[7] = "emacs key bindings   ";
-	emacs_help_text[0] = help_text[0];
-	emacs_help_text[1] = "^a beginning of line    ^i tab                  ^r restore word            ";
-	emacs_help_text[2] = "^b back 1 char          ^j undel char           ^t top of text             ";
-	emacs_help_text[3] = "^c command              ^k delete line          ^u bottom of text          ";
-	emacs_help_text[4] = "^d delete char          ^l undelete line        ^v next page               ";
-	emacs_help_text[5] = "^e end of line          ^m newline              ^w delete word             ";
-	emacs_help_text[6] = "^f forward 1 char       ^n next line            ^x search                  ";
-	emacs_help_text[7] = "^g go back 1 page       ^o ascii char insert    ^y search prompt           ";
-	emacs_help_text[8] = "^h backspace            ^p prev line            ^z next word               ";
-	emacs_help_text[9] = help_text[9];
-	emacs_help_text[10] = help_text[10];
-	emacs_help_text[11] = help_text[11];
-	emacs_help_text[12] = help_text[12];
-	emacs_help_text[13] = help_text[13];
-	emacs_help_text[14] = help_text[14];
-	emacs_help_text[15] = help_text[15];
-	emacs_help_text[16] = help_text[16];
-	emacs_help_text[17] = help_text[17];
-	emacs_help_text[18] = help_text[18];
-	emacs_help_text[19] = help_text[19];
-	emacs_help_text[20] = help_text[20];
-	emacs_help_text[21] = help_text[21];
-	emacs_control_keys[0] = "^[ (escape) menu ^y search prompt ^k delete line   ^p prev li     ^g prev page";
-	emacs_control_keys[1] = "^o ascii code    ^x search        ^l undelete line ^n next li     ^v next page";
-	emacs_control_keys[2] = "^u end of file   ^a begin of line ^w delete word   ^b back 1 char ^z next word";
-	emacs_control_keys[3] = "^t top of text   ^e end of line   ^r restore word  ^f forward char            ";
-	emacs_control_keys[4] = "^c command       ^d delete char   ^j undelete char              ESC-Enter: exit";
 	EMACS_string = "EMACS";
 	NOEMACS_string = "NOEMACS";
-	usage4 = "       +#   put cursor at line #\n";
 	conf_dump_err_msg = "unable to open .init.ee for writing, no configuration saved!";
 	conf_dump_success_msg = "ee configuration saved in file %s";
 	modes_menu[9].item_string = "save editor configuration";
