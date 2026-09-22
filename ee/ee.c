@@ -5677,7 +5677,7 @@ strings_init(void)
 	formatting_msg = "...formatting paragraph...";
 	shell_echo_msg = "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
 	spell_in_prog_msg = "sending contents of edit buffer to 'spell'";
-	margin_prompt = "right margin is: ";
+	margin_prompt = "Right margin: ";
 	restricted_msg = "restricted mode: unable to perform requested operation";
 	ON = "ON";
 	OFF = "OFF";
