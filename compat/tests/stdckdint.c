@@ -46,7 +46,7 @@ probe(void)
 }
 
 static size_t	slots[4];
-static unsigned slot_index;
+static unsigned	slot_index;
 
 static size_t *
 next_slot(void)
@@ -57,13 +57,13 @@ next_slot(void)
 int
 main(void)
 {
-	size_t		 z;
-	uintmax_t	 u;
-	off_t		 o;
-	unsigned short	 h;
-	unsigned long long q;
-	long long	 s;
-	_Bool		 ov;
+	size_t			z;
+	uintmax_t		u;
+	off_t			o;
+	unsigned short		h;
+	unsigned long long	q;
+	long long		s;
+	_Bool			ov;
 
 	/* ---- size_t: the unsigned type used for allocation sizes ---- */
 	z = 0;
