@@ -141,12 +141,11 @@ static const char *const help_usage[] = {
 };
 
 int
-ee_help_count(int emacs_keys_mode)
+ee_help_count(int)
 {
 	int total = 0;
 	size_t s;
 
-	(void)emacs_keys_mode;
 	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++)
 		total += 1 + help_sections[s].count +
 		    1;	/* header, items, blank */

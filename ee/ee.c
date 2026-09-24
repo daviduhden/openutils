@@ -8,7 +8,7 @@
  * uses no colour, no mouse and no panels; only the standard monochrome
  * standout (reverse video) attribute is used.
  *
- * Strict ISO C17 (the project's language mode) defines no feature-test
+ * Strict ISO C23 (the project's language mode) defines no feature-test
  * macros, and on OpenBSD the project must not define the X/Open ones
  * (doing so would clear __BSD_VISIBLE and hide the BSD interfaces the
  * sources rely on).  Without those macros <curses.h> sets
@@ -32,6 +32,7 @@
 #include <pwd.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdckdint.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,9 +53,8 @@
 static volatile sig_atomic_t ee_intr_flag;
 
 static void
-ee_on_sigint(int sig)
+ee_on_sigint(int)
 {
-	(void)sig;
 	ee_intr_flag = 1;
 }
 
@@ -217,6 +217,12 @@ static const char *const table[] = {
 	"^K", "^L", "^M", "^N", "^O", "^P", "^Q", "^R", "^S", "^T", "^U",
 	"^V", "^W", "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"
 };
+/*
+ * out_char() indexes table[] with a value in [0, ' '), so the table
+ * must cover the whole C0 control range.
+ */
+static_assert(sizeof(table) / sizeof(table[0]) >= 32,
+    "table[] must have an entry for every C0 control");
 
 WINDOW *com_win;
 WINDOW *text_win;
@@ -383,12 +389,12 @@ static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
 static void check_fp(void);
 static void get_file(char *file_name);
-static int read_all(int fd, unsigned char **out, size_t *outlen);
+[[nodiscard]] static int read_all(int fd, unsigned char **out, size_t *outlen);
 static void get_line(int length, unsigned char *input, int *append);
 static void draw_screen(void);
 static void finish(void);
 static int quit(int noverify);
-static void edit_abort(int arg);
+[[noreturn]] static void edit_abort(int);
 static void delete_text(void);
 static int write_file(char *file_name, int warn_if_exists);
 static int search(int display_message);
@@ -437,8 +443,8 @@ static void ispell_op(void);
 static int first_word_len(struct text *test_line);
 static void Auto_Format(void);
 static void modes_op(void);
-static int append_mem(char **buf, size_t *len, size_t *cap, const char *s,
-    size_t n);
+[[nodiscard]] static int append_mem(char **buf, size_t *len, size_t *cap,
+    const char *s, size_t n);
 static char *resolve_name(char *name);
 static int restrict_mode(void);
 static int unique_test(const char *string, const char *list[]);
@@ -473,6 +479,18 @@ const char *mode_strings[9];
 
 #define NUM_MODES_ITEMS 8
 #define MODES_ITEM_SIZE 80
+
+/*
+ * The mode table is written through indices [1, NUM_MODES_ITEMS) by
+ * modes_op() and strings_init(); keep the generated labels and the
+ * menu array large enough for every one of them.
+ */
+static_assert(NUM_MODES_ITEMS <=
+    (int)(sizeof(mode_strings) / sizeof(mode_strings[0])),
+    "mode_strings[] must have a slot for every mode item");
+static_assert(NUM_MODES_ITEMS <=
+    (int)(sizeof(modes_menu) / sizeof(modes_menu[0])),
+    "modes_menu[] must have a slot for every mode item");
 
 struct menu_entries config_dump_menu[] = {
 	{"save ee configuration", NULL, NULL, NULL, NULL, 0},
@@ -2503,7 +2521,8 @@ check_fp(void)
 		top_of_stack = top_of_stack->next_name;
 	}
 	temp = stat(tmp_file, &buf);
-	buf.st_mode &= (mode_t)~07777;
+	if (temp != -1)
+		buf.st_mode &= (mode_t)~07777;
 	if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
@@ -2567,7 +2586,7 @@ check_fp(void)
  * grown geometrically with reallocarray(3); overflow and allocation
  * failure are reported as an error rather than silently truncating.
  */
-static int
+[[nodiscard]] static int
 read_all(int fd, unsigned char **out, size_t *outlen)
 {
 	unsigned char *buf = NULL;
@@ -2578,10 +2597,12 @@ read_all(int fd, unsigned char **out, size_t *outlen)
 		ssize_t n;
 
 		if (len == cap) {
-			size_t ncap = (cap == 0) ? 8192 : cap * 2;
+			size_t ncap;
 			unsigned char *nb;
 
-			if (ncap < cap) {
+			if (cap == 0)
+				ncap = 8192;
+			else if (ckd_mul(&ncap, cap, 2)) {
 				free(buf);
 				return (-1);
 			}
@@ -2604,6 +2625,13 @@ read_all(int fd, unsigned char **out, size_t *outlen)
 			break;
 		len += (size_t)n;
 	}
+	/*
+	 * get_line() peeks one byte past its current chunk to decide
+	 * whether a line continues into the next chunk; at the end of
+	 * the data that byte must be defined.  The buffer is always
+	 * grown so that len < cap, so this terminator is in range.
+	 */
+	buf[len] = '\0';
 	*out = buf;
 	*outlen = len;
 	return (0);
@@ -2830,10 +2858,8 @@ finish(void)
  * routine never destroys unsaved data on its own.
  */
 static int
-quit(int noverify)
+quit(int)
 {
-	(void)noverify;
-
 	touchwin(text_win);
 	wrefresh(text_win);
 	if (top_of_stack == NULL) {
@@ -2850,10 +2876,9 @@ quit(int noverify)
 	return (0);
 }
 
-static void
-edit_abort(int arg)
+[[noreturn]] static void
+edit_abort(int)
 {
-	(void)arg;
 	wrefresh(com_win);
 	endwin();
 	putchar('\n');
@@ -3153,12 +3178,12 @@ search_prompt(void)
 	 * can overflow it.
 	 */
 	qlen = strlen(query);
-	if (qlen > ((SIZE_MAX - 1) / (size_t)MB_LEN_MAX)) {
+	if (ckd_mul(&alloc, qlen, (size_t)MB_LEN_MAX) ||
+	    ckd_add(&alloc, alloc, 1)) {
 		/* An impossible query length; treat as "not found". */
 		search(TRUE);
 		return;
 	}
-	alloc = qlen * (size_t)MB_LEN_MAX + 1;
 	u_srch_str = malloc(alloc);
 	if (u_srch_str == NULL) {
 		search(TRUE);
@@ -3889,6 +3914,13 @@ resize_check(void)
 }
 
 static char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
+/*
+ * paint_menu_item() indexes item_alpha[] with a value clamped to
+ * max_alpha_char, so there must be at least max_alpha_char + 1 labels
+ * (sizeof() - 1 excludes the terminating NUL).
+ */
+static_assert(sizeof(item_alpha) - 1 > max_alpha_char,
+    "item_alpha[] must label every item up to max_alpha_char");
 
 /*
  * Geometry of a pop-up menu.  Computed from the current terminal size so
@@ -4730,6 +4762,7 @@ Format(void)
 	int status;
 	int tmp_af;
 	int counter;
+	int temp_dwl;
 	unsigned char *line;
 	unsigned char *tmp_srchstr;
 	unsigned char *temp1, *temp2;
@@ -4766,7 +4799,9 @@ Format(void)
 	if (position != 1)
 		prev_word();
 	temp_dword = d_word;
+	temp_dwl = d_wrd_len;
 	d_word = NULL;
+	d_wrd_len = 0;
 	temp_case = case_sen;
 	case_sen = TRUE;
 	tmp_srchstr = srch_str;
@@ -4923,6 +4958,7 @@ Format(void)
 	if (d_word != NULL)
 		free(d_word);
 	d_word = temp_dword;
+	d_wrd_len = temp_dwl;
 	case_sen = temp_case;
 	free(srch_str);
 	srch_str = tmp_srchstr;
@@ -5030,6 +5066,7 @@ ee_init(void)
 		fclose(init_file);
 	}
 	free(line);
+	init_name[1] = NULL;
 	free(home);
 }
 
@@ -5171,6 +5208,13 @@ echo_string(char *string)
 	while (*temp != '\0') {
 		if (*temp == '\\') {
 			temp++;
+			/*
+			 * A trailing backslash cannot escape anything:
+			 * stop instead of advancing past the terminating
+			 * NUL.
+			 */
+			if (*temp == '\0')
+				break;
 			if (*temp == 'n')
 				putchar('\n');
 			else if (*temp == 't')
@@ -5551,8 +5595,15 @@ Auto_Format(void)
 	srch_str = tmp_srchstr;
 	memcpy(d_char, temp_d_char, sizeof(d_char));
 	auto_format = TRUE;
+	/*
+	 * del_line() may have run while formatting; discard the line it
+	 * saved (the restored d_line below owns the real saved line).
+	 */
+	if (d_line != tmp_d_line) {
+		free(d_line);
+		d_line = tmp_d_line;
+	}
 	dlt_line->line_length = tmp_d_line_length;
-	d_line = tmp_d_line;
 
 	formatted = TRUE;
 	midscreen(scr_vert, point);
@@ -5629,7 +5680,7 @@ modes_op(void)
  * success and -1 on allocation failure.  Length arithmetic is checked so
  * that a hostile environment cannot make the buffer size wrap.
  */
-static int
+[[nodiscard]] static int
 append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
 {
 	char *nb;
@@ -5637,17 +5688,15 @@ append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
 
 	if (n == 0)
 		return (0);
-	if (n > (SIZE_MAX - *len - 1))
+	if (ckd_add(&need, *len, n) || ckd_add(&need, need, 1))
 		return (-1);
-	need = *len + n + 1;
 	if (need > *cap) {
 		ncap = (*cap == 0) ? 64 : *cap;
 		while (ncap < need) {
-			if (ncap > (SIZE_MAX / 2)) {
+			if (ckd_mul(&ncap, ncap, 2)) {
 				ncap = need;
 				break;
 			}
-			ncap *= 2;
 		}
 		nb = reallocarray(*buf, ncap, 1);
 		if (nb == NULL)
@@ -5681,7 +5730,7 @@ resolve_name(char *name)
 	char *const_end;
 	size_t outlen = 0, outcap = 0;
 	struct passwd *user;
-	size_t homelen, restlen;
+	size_t homelen, restlen, bufferlen;
 
 	if (name[0] == '~') {
 		if (name[1] == '/') {
@@ -5705,9 +5754,10 @@ resolve_name(char *name)
 			return (name);
 		homelen = strlen(user->pw_dir);
 		restlen = strlen(slash);
-		if (homelen > (SIZE_MAX - restlen - 1))
+		if (ckd_add(&bufferlen, homelen, restlen) ||
+		    ckd_add(&bufferlen, bufferlen, 1))
 			return (name);
-		buffer = malloc(homelen + restlen + 1);
+		buffer = malloc(bufferlen);
 		if (buffer == NULL)
 			return (name);
 		memcpy(buffer, user->pw_dir, homelen);

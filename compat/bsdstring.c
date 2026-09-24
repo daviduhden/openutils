@@ -24,7 +24,6 @@
 #include "bsdcompat.h"
 
 #include <errno.h>
-#include <stdint.h>
 
 #if !OPENUTILS_BSD_LIBC && \
     (!defined(__GLIBC__) || \
@@ -84,17 +83,18 @@ strlcat(char *dst, const char *src, size_t dsize)
     (!defined(__GLIBC__) || \
     !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
 
-#define MUL_NO_OVERFLOW	((size_t)1 << (sizeof(size_t) * 4))
+#include <stdckdint.h>
 
 void *
 reallocarray(void *optr, size_t nmemb, size_t size)
 {
-	if ((nmemb >= MUL_NO_OVERFLOW || size >= MUL_NO_OVERFLOW) &&
-	    nmemb > 0 && SIZE_MAX / nmemb < size) {
+	size_t	 product;
+
+	if (ckd_mul(&product, nmemb, size)) {
 		errno = ENOMEM;
 		return (NULL);
 	}
-	return (realloc(optr, size * nmemb));
+	return (realloc(optr, product));
 }
 
 #endif

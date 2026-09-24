@@ -76,6 +76,16 @@ static size_t		 seen_alloc;
 static int	use_unicode;
 static int	multibyte;
 
+/*
+ * Sibling state of the directory ancestors, indexed by depth.  The
+ * walk is strictly depth-first, so a single array serves every level:
+ * a frame only writes its own slot and reads the slots filled in by
+ * its ancestors.  Keeping it off the stack avoids exhausting the stack
+ * on a pathologically deep tree while preserving the recursion limit.
+ */
+#define MAX_DEPTH	4096
+static int	dirbars[MAX_DEPTH];
+
 static const char *u_hier[] = {
 	"\342\224\234\342\224\200\342\224\200 ",
 	"\342\224\224\342\224\200\342\224\200 "
@@ -86,6 +96,16 @@ static const char *u_vline[] = {
 };
 static const char *a_hier[] = { "|-- ", "`-- " };
 static const char *a_vline[] = { "|   ", "    " };
+
+/*
+ * HIER/VLINE are indexed by the 0/1 "is the last sibling" flag, so
+ * every line-drawing table must have exactly two entries.
+ */
+static_assert(sizeof(a_hier) / sizeof(a_hier[0]) == 2 &&
+    sizeof(a_vline) / sizeof(a_vline[0]) == 2 &&
+    sizeof(u_hier) / sizeof(u_hier[0]) == 2 &&
+    sizeof(u_vline) / sizeof(u_vline[0]) == 2,
+    "the line-drawing tables are indexed by the 0/1 sibling flag");
 
 #define HIER	(use_unicode ? u_hier : a_hier)
 #define VLINE	(use_unicode ? u_vline : a_vline)
@@ -106,7 +126,7 @@ static void		 dirwalk(const char *, const char *, int, const int *,
     struct ent *, size_t, int);
 static void		 jsonwalk(const char *, const char *, int, dev_t, int);
 static void		 jsonentries(const char *, int, dev_t, int);
-static int		 collect(const char *, struct ent **, size_t *);
+[[nodiscard]] static int		 collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
 static void		 entryline(const struct ent *, const char *, int,
     const int *, int);
@@ -414,7 +434,13 @@ json_enc(const char *s)
 		unsigned char c = (unsigned char)*s;
 
 		if (c < 32) {
-			if (ctrl[c] != '-')
+			/*
+			 * ctrl[] only has entries for the control
+			 * characters that have a short JSON escape; every
+			 * other value in the range must fall back to the
+			 * \u00xx form instead of reading past the table.
+			 */
+			if ((size_t)c < sizeof(ctrl) - 1 && ctrl[c] != '-')
 				fprintf(outfile, "\\%c", ctrl[c]);
 			else
 				fprintf(outfile, "\\u%04x", c);
@@ -526,7 +552,7 @@ entcmp(const void *va, const void *vb)
 	return (r);
 }
 
-static int
+[[nodiscard]] static int
 collect(const char *path, struct ent **out, size_t *nout)
 {
 	DIR		*dirp;
@@ -681,8 +707,12 @@ resolvelink(const char *path, const char *target)
 	char	*p;
 	size_t	 plen = strlen(path), tlen = strlen(target);
 
-	if (target[0] == '/')
-		return (strdup(target));
+	if (target[0] == '/') {
+		p = strdup(target);
+		if (p == NULL)
+			err(1, "strdup");
+		return (p);
+	}
 	p = malloc(plen + tlen + 2);
 	if (p == NULL)
 		err(1, "malloc");
@@ -753,7 +783,6 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
     dev_t xdev, struct ent *ents, size_t n, int open_ok)
 {
 	size_t	i;
-	int	subbars[4096];
 
 	if (!open_ok) {
 		if (depth == 0) {
@@ -763,7 +792,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 		return;
 	}
 
-	if (depth >= (int)(sizeof(subbars) / sizeof(subbars[0])))
+	if (depth >= MAX_DEPTH)
 		errx(1, "directory tree too deep");
 
 	if (depth > 0 && maxdepth > 0 && depth > maxdepth) {
@@ -858,9 +887,8 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			fputs("\n", outfile);
 			ndirs++;
 			addseen(e->st.st_dev, e->st.st_ino);
-			memcpy(subbars, bars, (size_t)depth * sizeof(int));
-			subbars[depth] = last;
-			dirwalk(cp, e->name, d, subbars, xdev, ch, nch, 1);
+			dirbars[depth] = last;
+			dirwalk(cp, e->name, d, dirbars, xdev, ch, nch, 1);
 			free(cp);
 			continue;
 		}

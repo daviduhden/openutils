@@ -20,8 +20,12 @@ systems).
 
 ## Language standard
 
-All C code is C17 (`-std=c17`, strict ISO mode, no compiler
-extensions).  Every component builds warning-free with `-Wall
+All C code is C23 (`-std=c23`, strict ISO mode, no compiler
+extensions).  C23 features are used where they express a property the
+code already relies on: `static_assert` for compile-time invariants,
+`[[noreturn]]` for functions that never return, and `<stdckdint.h>`
+for checked integer arithmetic, so no compiler-specific attribute
+shim is needed.  Every component builds warning-free with `-Wall
 -Wextra -Wpedantic` under both GCC and Clang.  `ee` and its UTF-8 and
 help units were additionally audited with `-Wconversion
 -Wsign-conversion`; those warnings were fixed rather than suppressed.
@@ -160,7 +164,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 
 ## Requirements
 
-- OpenBSD base system (`doas(1)`, `install(1)`, libc).  `ee` needs the
+- OpenBSD base system (`doas(1)`, `install(1)`, libc).  All components
+  need a C23 compiler and library: `-std=c23`, standard attributes,
+  and `<stdckdint.h>` (shipped with GCC 14+ and recent Clang, including
+  the Clang in current OpenBSD).  `ee` needs the
   wide-character ncurses library (`ncursesw`); on OpenBSD it comes from
   the `ncurses` package (devel/ncurses).  `pkg-config` is used when
   available to locate it, otherwise the build falls back to

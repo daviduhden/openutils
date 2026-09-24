@@ -91,16 +91,17 @@ static char	*cur_tmpcopy;
 static char	*cur_tmpdir;
 static pid_t	 editor_pid = -1;
 
-static void	usage(void) __dead;
-static int	doas_exec(const char *const *argv, int outfd, int infd);
-static int	run_editor(char *const *editor, const char *file);
-static int	files_equal(const char *, const char *);
-static int	copy_file(const char *, const char *);
+[[noreturn]] static void	usage(void);
+[[nodiscard]] static int	doas_exec(const char *const *argv, int outfd,
+    int infd);
+[[nodiscard]] static int	run_editor(char *const *editor, const char *file);
+[[nodiscard]] static int	files_equal(const char *, const char *);
+[[nodiscard]] static int	copy_file(const char *, const char *);
 static int	is_doas_conf(const char *);
 static void	cleanup_current(void);
 static void	sighandler(int);
 
-static void
+[[noreturn]] static void
 usage(void)
 {
 	fprintf(stderr,
@@ -108,7 +109,7 @@ usage(void)
 	exit(1);
 }
 
-static void
+[[noreturn]] static void
 help(void)
 {
 	fprintf(stderr,
@@ -468,7 +469,7 @@ snapshot_equal(const char *path, const struct snapshot *snap)
 }
 
 /* copy the content of a source fd into an already-open file */
-static int
+[[nodiscard]] static int
 fd_copy_to(int in, int out)
 {
 	char	 buf[65536];
@@ -489,7 +490,7 @@ fd_copy_to(int in, int out)
 }
 
 /* write the contents of "src" into the open descriptor "outfd" */
-static int
+[[nodiscard]] static int
 file_into_fd(const char *src, int outfd)
 {
 	int	in, rc;
@@ -669,7 +670,12 @@ main(int argc, char *argv[])
 	if (tmpenv != NULL && tmpenv[0] != '\0') {
 		size_t	len = strlen(tmpenv);
 
-		if (len < sizeof(tdir_tmpl)) {
+		/*
+		 * Leave room for the separating '/' that may be added
+		 * below: with len == sizeof(tdir_tmpl) - 1 the writes
+		 * would run one byte past the end of the template.
+		 */
+		if (len + 1 < sizeof(tdir_tmpl)) {
 			memcpy(tdir_tmpl, tmpenv, len);
 			tdir_tmpl[len] = '\0';
 			if (tdir_tmpl[len - 1] != '/') {
@@ -1076,13 +1082,19 @@ next:
 			(void)unlink(tmpfile);
 		if (tmpcopy != NULL)
 			(void)unlink(tmpcopy);
+		/*
+		 * Clear the signal-handler pointers before the blocks are
+		 * freed, so a signal arriving in between cannot make the
+		 * handler unlink a dangling path.
+		 */
+		cur_tmpfile = cur_tmpcopy = NULL;
 		free(target);
 		free(tmpfile);
 		free(tmpcopy);
-		cur_tmpfile = cur_tmpcopy = NULL;
 	}
 
 	cleanup_current();
+	cur_tmpdir = NULL;
 	free(tmpdir);
 	return (exit_code);
 }

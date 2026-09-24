@@ -6,6 +6,13 @@
 #include <wchar.h>
 
 /*
+ * The encoder/decoder treat unsigned char as an octet: the lead and
+ * continuation byte tests (0x80, 0xC0, 0xE0, 0xF0) and the four-byte
+ * output buffer only describe UTF-8 when a byte is eight bits.
+ */
+static_assert(CHAR_BIT == 8, "the UTF-8 helpers assume 8-bit bytes");
+
+/*
  * Strict UTF-8 decoder.  See utf8.h for the contract.
  */
 int

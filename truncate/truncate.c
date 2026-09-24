@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdckdint.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,12 +16,14 @@
 
 /*
  * Representable bounds of the signed off_t, derived from its width.
- * The shift is performed in uintmax_t (at least 64 bits), so the
- * derivation is well-defined for off_t of at most 64 bits; the
- * assertion documents exactly that precondition (32-bit off_t is
- * fine) rather than any particular ABI width.
+ * The shift is performed in uintmax_t, so the derivation is
+ * well-defined for off_t of at most 64 bits only when uintmax_t is at
+ * least as wide; the assertions document exactly that precondition
+ * (32-bit off_t is fine) rather than any particular ABI width.
  */
-_Static_assert(sizeof(off_t) <= 8, "off_t wider than 64 bits is not supported");
+static_assert(sizeof(off_t) <= 8, "off_t wider than 64 bits is not supported");
+static_assert(sizeof(uintmax_t) >= sizeof(off_t),
+    "uintmax_t must be at least as wide as off_t");
 #define OFF_MAX	((off_t)(((uintmax_t)1 << (sizeof(off_t) * CHAR_BIT - 1)) - 1))
 #define OFF_MIN	(-OFF_MAX - 1)
 
@@ -41,12 +44,10 @@ static off_t		 rsize = -1;
 static off_t		 sizev;
 static const char	*ref_file;
 
-static void	usage(void) __dead;
-static int	parse_size(const char *, off_t *, enum relmode *);
-static int	ckd_mul(off_t *, off_t, off_t);
-static int	ckd_add(off_t *, off_t, off_t);
+[[noreturn]] static void	usage(void);
+[[nodiscard]] static int	parse_size(const char *, off_t *, enum relmode *);
 
-static void
+[[noreturn]] static void
 usage(void)
 {
 	fprintf(stderr,
@@ -55,7 +56,7 @@ usage(void)
 	exit(1);
 }
 
-static void
+[[noreturn]] static void
 help(void)
 {
 	printf("Usage: truncate OPTION... FILE...\n"
@@ -91,50 +92,13 @@ help(void)
 	exit(0);
 }
 
-/* b is always positive in the uses below */
-static int
-ckd_mul(off_t *r, off_t a, off_t b)
-{
-	uintmax_t	 mm;
-	uintmax_t	 ub = (uintmax_t)b;
-	int		 neg = 0;
-
-	if (b == 0) {
-		*r = 0;
-		return (0);
-	}
-	if (a < 0) {
-		neg = 1;
-		mm = (uintmax_t)(-(a + 1)) + 1;
-	} else {
-		mm = (uintmax_t)a;
-	}
-	if (mm > ((uintmax_t)OFF_MAX + (neg ? 1 : 0)) / ub)
-		return (1);
-	*r = (off_t)(mm * ub);
-	if (neg)
-		*r = -*r;
-	return (0);
-}
-
-static int
-ckd_add(off_t *r, off_t a, off_t b)
-{
-	if (b > 0 && a > OFF_MAX - b)
-		return (1);
-	if (b < 0 && a < OFF_MIN - b)
-		return (1);
-	*r = a + b;
-	return (0);
-}
-
 /*
  * Parse a SIZE argument.  Returns 0 on success and fills in *val and
  * *relp (the relative mode in effect afterwards); -1 on an invalid
  * number (with errno set to ERANGE on overflow); -2 when a sign is
  * combined with a relative modifier.
  */
-static int
+[[nodiscard]] static int
 parse_size(const char *arg, off_t *val, enum relmode *relp)
 {
 	const char	*p = arg;
@@ -177,11 +141,11 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 
 	while (isdigit((unsigned char)*p)) {
 		anydigit = 1;
-		if (acc > (UINTMAX_MAX - (uintmax_t)(*p - '0')) / 10) {
+		if (ckd_mul(&acc, acc, (uintmax_t)10) ||
+		    ckd_add(&acc, acc, (uintmax_t)(*p - '0'))) {
 			errno = ERANGE;
 			return (-1);
 		}
-		acc = acc * 10 + (uintmax_t)(*p - '0');
 		p++;
 	}
 
@@ -239,11 +203,10 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 		if (*p != '\0')
 			return (-1);
 		while (power-- > 0) {
-			if (acc > UINTMAX_MAX / (uintmax_t)base) {
+			if (ckd_mul(&acc, acc, (uintmax_t)base)) {
 				errno = ERANGE;
 				return (-1);
 			}
-			acc *= (uintmax_t)base;
 		}
 	} else if (!anydigit) {
 		return (-1);
@@ -260,12 +223,20 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 			errno = ERANGE;
 			return (-1);
 		}
-		*val = -(off_t)acc;
+		/*
+		 * acc may be OFF_MAX + 1, whose negative (OFF_MIN) is
+		 * representable but cannot be produced by negating an
+		 * off_t without overflowing.
+		 */
+		if (acc == (uintmax_t)OFF_MAX + 1)
+			*val = OFF_MIN;
+		else
+			*val = -(off_t)acc;
 	}
 	return (0);
 }
 
-static int
+[[nodiscard]] static int
 do_ftruncate(const char *fname, int fd, off_t ssize)
 {
 	struct stat	 sb;
@@ -314,7 +285,13 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 		case RM_RUP: {
 			off_t	r = fsize % ssize;
 
-			nsize = fsize + (r == 0 ? 0 : ssize - r);
+			if (r == 0) {
+				nsize = fsize;
+			} else if (ckd_add(&nsize, fsize, ssize - r)) {
+				warnx("overflow rounding up size of file '%s'",
+				    fname);
+				return (1);
+			}
 			break;
 		}
 		default:

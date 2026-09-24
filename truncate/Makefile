@@ -6,7 +6,7 @@ SRCS = truncate.c
 CC = clang
 CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
-CSTD = -std=c17
+CSTD = -std=c23
 CPPFLAGS += -I../compat
 DEBUGGER ?= lldb
 DEBUG_CFLAGS ?= -O0 -g

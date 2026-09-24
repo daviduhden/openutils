@@ -6,7 +6,7 @@
  * base system.  On other hosts it does two things:
  *
  *   - it defines the feature-test macros that expose the POSIX/XSI
- *     interfaces used by the sources (glibc in strict ISO C17 mode
+ *     interfaces used by the sources (glibc in strict ISO C23 mode
  *     hides them unless the macros are defined before the first
  *     system header);
  *
@@ -43,6 +43,17 @@
 #define OPENUTILS_BSDCOMPAT_H
 
 /*
+ * The sources are C23: they use the standard [[noreturn]] and
+ * static_assert, and <stdckdint.h>.  Fail with a diagnostic that names
+ * the requirement rather than a cascade of syntax errors if a
+ * translation unit is compiled against an older revision of the
+ * language.
+ */
+#if !defined(__STDC_VERSION__) || (__STDC_VERSION__ < 202311L)
+#error "openutils requires C23; build with -std=c23"
+#endif
+
+/*
  * Feature-test macros must be defined before the first system
  * header.  On OpenBSD they must NOT be defined: they would hide the
  * BSD-visible interfaces the project relies on.
@@ -73,29 +84,16 @@
  */
 #if !defined(__OpenBSD__)
 static inline int
-pledge(const char *promises, const char *execpromises)
+pledge(const char *, const char *)
 {
-	(void)promises;
-	(void)execpromises;
 	return (0);
 }
 
 static inline int
-unveil(const char *path, const char *permissions)
+unveil(const char *, const char *)
 {
-	(void)path;
-	(void)permissions;
 	return (0);
 }
-#endif
-
-/* mark functions that never return */
-#if !defined(__OpenBSD__)
-#if defined(__GNUC__) || defined(__clang__)
-#define __dead	__attribute__((__noreturn__))
-#else
-#define __dead
-#endif
 #endif
 
 /*
