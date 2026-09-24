@@ -48,6 +48,7 @@ truncate:
 	$(MAKE_ENV) $(MAKE) -C truncate all
 
 test: all
+	CC="$(CC)" CFLAGS="$(CFLAGS)" sh compat/tests/run.sh
 	$(MAKE_ENV) $(MAKE) -C doasedit doasedit_test
 	sh doasedit/tests/run.sh
 	sh tree/tests/run.sh

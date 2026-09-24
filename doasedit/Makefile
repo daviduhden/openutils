@@ -20,15 +20,15 @@ MANDIR ?= $(PREFIX)/man/man
 
 all: $(PROG)
 
-$(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
+$(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 # test build: identical code plus test-only hooks used by tests/run.sh
-$(PROG)_test: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
+$(PROG)_test: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DDOASEDIT_TEST -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 # debug build: unoptimized binary for use with the debugger
-$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h Makefile ../Makefile
+$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
 	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 debug: $(PROG)_debug
