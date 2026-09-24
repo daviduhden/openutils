@@ -21,7 +21,7 @@ int ee_help_count(int emacs_keys_mode);
  * truncated to outsz.  Sets *is_header to 1 for a section header.  If
  * index is out of range, out is set to the empty string.
  */
-void ee_help_line(int emacs_keys_mode, int index, char *out, size_t outsz,
-    int *is_header);
+void ee_help_line(
+    int emacs_keys_mode, int index, char *out, size_t outsz, int *is_header);
 
 #endif /* EE_HELP_H */

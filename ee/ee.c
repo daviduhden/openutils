@@ -1,5 +1,4 @@
 #include "bsdcompat.h"
-
 #include "help.h"
 #include "utf8.h"
 
@@ -20,9 +19,12 @@
 #ifndef NCURSES_WIDECHAR
 #define NCURSES_WIDECHAR 1
 #endif
-#include <curses.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <ctype.h>
+#include <curses.h>
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,9 +39,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
@@ -88,26 +87,26 @@ ee_min(int a, int b)
 	return (a < b ? a : b);
 }
 
-#define MENU_ITEM_COL	3
+#define MENU_ITEM_COL 3
 
 struct text {
-	unsigned char *line;		/* line of characters		*/
-	int line_number;		/* line number			*/
-	int line_length;	/* actual number of characters in the line */
-	int max_length;	/* maximum number of characters the line handles */
-	struct text *next_line;		/* next line of text		*/
-	struct text *prev_line;		/* previous line of text	*/
+	unsigned char *line;	    /* line of characters		*/
+	int	       line_number; /* line number			*/
+	int line_length; /* actual number of characters in the line */
+	int max_length;	 /* maximum number of characters the line handles */
+	struct text *next_line; /* next line of text		*/
+	struct text *prev_line; /* previous line of text	*/
 };
 
-struct text *first_line;	/* first line of current buffer		*/
-struct text *dlt_line;		/* structure for info on deleted line	*/
-struct text *curr_line;		/* current line cursor is on		*/
-struct text *tmp_line;		/* temporary line pointer		*/
-struct text *srch_line;		/* temporary pointer for search routine */
+struct text *first_line; /* first line of current buffer		*/
+struct text *dlt_line;	 /* structure for info on deleted line	*/
+struct text *curr_line;	 /* current line cursor is on		*/
+struct text *tmp_line;	 /* temporary line pointer		*/
+struct text *srch_line;	 /* temporary pointer for search routine */
 
-struct files {		/* structure to store names of files to be edited*/
-	unsigned char *name;		/* name of file				*/
-	struct files *next_name;
+struct files {		     /* structure to store names of files to be edited*/
+	unsigned char *name; /* name of file				*/
+	struct files  *next_name;
 };
 
 struct files *top_of_stack = NULL;
@@ -130,29 +129,29 @@ struct files *top_of_stack = NULL;
  * right() move by whole UTF-8 sequences so that point never lands in
  * the middle of a multibyte character.
  */
-int d_wrd_len;			/* length of deleted word		*/
-int position;			/* byte offset (1-based) in line	*/
-int scr_pos;			/* horizontal position			*/
-int scr_vert;			/* vertical position on screen		*/
-int scr_horz;			/* horizontal position on screen	*/
-int absolute_lin;		/* number of lines from top		*/
+int d_wrd_len;	  /* length of deleted word		*/
+int position;	  /* byte offset (1-based) in line	*/
+int scr_pos;	  /* horizontal position			*/
+int scr_vert;	  /* vertical position on screen		*/
+int scr_horz;	  /* horizontal position on screen	*/
+int absolute_lin; /* number of lines from top		*/
 int tmp_vert, tmp_horz;
-int input_file;			/* indicate to read input file		*/
-int recv_file;			/* indicate reading a file		*/
-int edit;			/* continue executing while true	*/
-int gold;			/* 'gold' function key pressed		*/
-int case_sen;			/* case sensitive search flag		*/
-int last_line;			/* last line for text display		*/
-int last_col;			/* last column for text display		*/
-int horiz_offset = 0;		/* offset from left edge of text	*/
-int clear_com_win;		/* flag to indicate com_win needs clearing */
-int text_changes = FALSE;	/* indicate changes have been made to text */
-int read_only = FALSE;		/* current file is not writable		*/
-int get_fd;			/* file descriptor for reading a file	*/
-int info_window = TRUE;		/* flag to indicate if shortcut bar visible */
-int expand_tabs = TRUE;		/* flag for expanding tabs		*/
-int right_margin = 0;		/* the right margin 			*/
-int observ_margins = TRUE;	/* flag for whether margins are observed */
+int input_file;		   /* indicate to read input file		*/
+int recv_file;		   /* indicate reading a file		*/
+int edit;		   /* continue executing while true	*/
+int gold;		   /* 'gold' function key pressed		*/
+int case_sen;		   /* case sensitive search flag		*/
+int last_line;		   /* last line for text display		*/
+int last_col;		   /* last column for text display		*/
+int horiz_offset = 0;	   /* offset from left edge of text	*/
+int clear_com_win;	   /* flag to indicate com_win needs clearing */
+int text_changes = FALSE;  /* indicate changes have been made to text */
+int read_only = FALSE;	   /* current file is not writable		*/
+int get_fd;		   /* file descriptor for reading a file	*/
+int info_window = TRUE;	   /* flag to indicate if shortcut bar visible */
+int expand_tabs = TRUE;	   /* flag for expanding tabs		*/
+int right_margin = 0;	   /* the right margin 			*/
+int observ_margins = TRUE; /* flag for whether margins are observed */
 int shell_fork;
 int pipe_out[2];		/* pipe file desc for output		*/
 int pipe_in[2];			/* pipe file descriptors for input	*/
@@ -164,7 +163,7 @@ int restricted = FALSE;		/* flag to indicate restricted mode	*/
 int nohighlight = FALSE;	/* turns off highlighting		*/
 int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
 int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
-int curses_initialized = FALSE;	/* flag indicating if curses has been started*/
+int curses_initialized = FALSE; /* flag indicating if curses has been started*/
 int emacs_keys_mode = FALSE;	/* mode for if emacs key binings are used    */
 
 /*
@@ -190,33 +189,33 @@ const char *prog_name = "ee";
  *   key_win     the contextual shortcut bar (the "info window")
  *   help_win    full-screen help overlay
  */
-int text_top;			/* first editor row (screen coordinates) */
-int text_rows;			/* number of editor rows		*/
+int text_top;  /* first editor row (screen coordinates) */
+int text_rows; /* number of editor rows		*/
 
-unsigned char *point;		/* points to current position in line	*/
-unsigned char *srch_str;	/* pointer for search string		*/
-unsigned char *u_srch_str;	/* pointer to non-case sensitive search	*/
-unsigned char *srch_1;		/* pointer to start of suspect string	*/
-unsigned char *srch_2;		/* pointer to next character of string	*/
+unsigned char *point;	   /* points to current position in line	*/
+unsigned char *srch_str;   /* pointer for search string		*/
+unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
+unsigned char *srch_1;	   /* pointer to start of suspect string	*/
+unsigned char *srch_2;	   /* pointer to next character of string	*/
 unsigned char *srch_3;
-unsigned char *in_file_name = NULL;	/* name of input file		*/
-char *tmp_file;	/* temporary file name			*/
-unsigned char d_char[5];	/* deleted character			*/
-unsigned char *d_word;		/* deleted word				*/
-unsigned char *d_line;		/* deleted line				*/
+unsigned char *in_file_name = NULL; /* name of input file		*/
+char	      *tmp_file;	    /* temporary file name			*/
+unsigned char  d_char[5];	    /* deleted character			*/
+unsigned char *d_word;		    /* deleted word				*/
+unsigned char *d_line;		    /* deleted line				*/
 
-unsigned char *print_command = (unsigned char *)"lpr";	/* string to use for the print command 	*/
-unsigned char *start_at_line = NULL;	/* move to this line at start of session*/
-int in;				/* input character			*/
+unsigned char *print_command =
+    (unsigned char *)"lpr";	     /* string to use for the print command 	*/
+unsigned char *start_at_line = NULL; /* move to this line at start of session*/
+int	       in;		     /* input character			*/
 
-FILE *temp_fp;			/* temporary file pointer		*/
-FILE *bit_bucket;		/* file pointer to /dev/null		*/
+FILE *temp_fp;	  /* temporary file pointer		*/
+FILE *bit_bucket; /* file pointer to /dev/null		*/
 
-static const char *const table[] = {
-	"^@", "^A", "^B", "^C", "^D", "^E", "^F", "^G", "^H", "\t", "^J",
-	"^K", "^L", "^M", "^N", "^O", "^P", "^Q", "^R", "^S", "^T", "^U",
-	"^V", "^W", "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"
-};
+static const char *const table[] = {"^@", "^A", "^B", "^C", "^D", "^E", "^F",
+    "^G", "^H", "\t", "^J", "^K", "^L", "^M", "^N", "^O", "^P", "^Q", "^R",
+    "^S", "^T", "^U", "^V", "^W", "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^",
+    "^_"};
 /*
  * out_char() indexes table[] with a value in [0, ' '), so the table
  * must cover the whole C0 control range.
@@ -238,7 +237,7 @@ WINDOW *key_win;
 #define SHORTCUT_MAX 14
 struct shortcut_bar {
 	const char *items[SHORTCUT_MAX];
-	int count;
+	int	    count;
 };
 static struct shortcut_bar shortcut_bar;
 
@@ -276,7 +275,7 @@ static int
 utf8_strwidth(const char *s)
 {
 	const unsigned char *p = (const unsigned char *)s;
-	int width = 0;
+	int		     width = 0;
 
 	while (*p != '\0') {
 		size_t len = ee_utf8_seqlen(p);
@@ -342,48 +341,48 @@ recount_lines(void)
  */
 
 struct menu_entries {
-	char *item_string;
-	int (*procedure)(struct menu_entries *);
+	char		    *item_string;
+	int		     (*procedure)(struct menu_entries *);
 	struct menu_entries *ptr_argument;
-	int (*iprocedure)(int);
-	void (*nprocedure)(void);
-	int argument;
+	int		     (*iprocedure)(int);
+	void		     (*nprocedure)(void);
+	int		     argument;
 };
 
 static unsigned char *resiz_line(int factor, struct text *rline, int rpos);
-static void insert(int character);
-static void insert_utf8(const unsigned char *mb, int len);
-static void insert_code(int code);
-static void delete(int disp);
-static void scanline(unsigned char *pos);
-static int tabshift(int temp_int);
-static int out_char(WINDOW *window, int character, int column);
-static int len_char(int character, int column);
-static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
-    int length);
-static void insert_line(int disp);
-static struct text *txtalloc(void);
+static void	      insert(int character);
+static void	      insert_utf8(const unsigned char *mb, int len);
+static void	      insert_code(int code);
+static void	      delete(int disp);
+static void	      scanline(unsigned char *pos);
+static int	      tabshift(int temp_int);
+static int	      out_char(WINDOW *window, int character, int column);
+static int	      len_char(int character, int column);
+static void	      draw_line(
+    int vertical, int horiz, unsigned char *ptr, int t_pos, int length);
+static void	     insert_line(int disp);
+static struct text  *txtalloc(void);
 static struct files *name_alloc(void);
-static char *next_word(char *string);
-static void prev_word(void);
-static void control(void);
-static void emacs_control(void);
-static void bottom(void);
-static void top(void);
-static void nextline(void);
-static void prevline(void);
-static void left(int disp);
-static void right(int disp);
-static void find_pos(void);
-static void up(void);
-static void down(void);
-static void function_key(void);
-static void print_buffer(void);
-static void command_prompt(void);
-static void command(char *cmd_str1);
-static int scan(char *line, int offset, int column);
-static char *get_string(const char *prompt, int advance);
-static int compare(const char *string1, const char *string2, int sensitive);
+static char	    *next_word(char *string);
+static void	     prev_word(void);
+static void	     control(void);
+static void	     emacs_control(void);
+static void	     bottom(void);
+static void	     top(void);
+static void	     nextline(void);
+static void	     prevline(void);
+static void	     left(int disp);
+static void	     right(int disp);
+static void	     find_pos(void);
+static void	     up(void);
+static void	     down(void);
+static void	     function_key(void);
+static void	     print_buffer(void);
+static void	     command_prompt(void);
+static void	     command(char *cmd_str1);
+static int	     scan(char *line, int offset, int column);
+static char	    *get_string(const char *prompt, int advance);
+static int  compare(const char *string1, const char *string2, int sensitive);
 static void goto_line(char *cmd_str);
 static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
@@ -393,64 +392,64 @@ static void get_file(char *file_name);
 static void get_line(int length, unsigned char *input, int *append);
 static void draw_screen(void);
 static void finish(void);
-static int quit(int noverify);
+static int  quit(int noverify);
 [[noreturn]] static void edit_abort(int);
-static void delete_text(void);
-static int write_file(char *file_name, int warn_if_exists);
-static int search(int display_message);
-static void search_prompt(void);
-static void del_char(void);
-static void undel_char(void);
-static void del_word(void);
-static void undel_word(void);
-static void del_line(void);
-static void undel_line(void);
-static void adv_word(void);
-static void move_rel(int direction, int lines);
-static void eol(void);
-static void bol(void);
-static void adv_line(void);
-static void sh_command(char *string);
-static void set_up_term(void);
-static void resize_check(void);
-static int menu_op(struct menu_entries *);
-static void paint_menu(struct menu_entries menu_list[], int max_width,
+static void		 delete_text(void);
+static int		 write_file(char *file_name, int warn_if_exists);
+static int		 search(int display_message);
+static void		 search_prompt(void);
+static void		 del_char(void);
+static void		 undel_char(void);
+static void		 del_word(void);
+static void		 undel_word(void);
+static void		 del_line(void);
+static void		 undel_line(void);
+static void		 adv_word(void);
+static void		 move_rel(int direction, int lines);
+static void		 eol(void);
+static void		 bol(void);
+static void		 adv_line(void);
+static void		 sh_command(char *string);
+static void		 set_up_term(void);
+static void		 resize_check(void);
+static int		 menu_op(struct menu_entries *);
+static void  paint_menu(struct menu_entries menu_list[], int max_width,
     int max_height, int list_size, int top_offset, WINDOW *menu_win,
     int off_start, int vert_size, int selection);
-static void help(void);
-static void paint_status_line(void);
-static void paint_shortcut_bar(void);
-static void set_shortcuts(const char *const *items, int count);
-static void default_shortcuts(void);
-static void no_info_window(void);
-static void create_info_window(void);
-static int file_op(int arg);
-static int save_op(void);
-static void shell_op(void);
-static void leave_op(void);
-static void redraw(void);
-static int confirm(const char *question);
-static int utf8_strwidth(const char *s);
+static void  help(void);
+static void  paint_status_line(void);
+static void  paint_shortcut_bar(void);
+static void  set_shortcuts(const char *const *items, int count);
+static void  default_shortcuts(void);
+static void  no_info_window(void);
+static void  create_info_window(void);
+static int   file_op(int arg);
+static int   save_op(void);
+static void  shell_op(void);
+static void  leave_op(void);
+static void  redraw(void);
+static int   confirm(const char *question);
+static int   utf8_strwidth(const char *s);
 static void *xmalloc(size_t n);
-static void recount_lines(void);
-static int Blank_Line(struct text *test_line);
-static void Format(void);
-static void ee_init(void);
-static void dump_ee_conf(void);
-static void echo_string(char *string);
-static void spell_op(void);
-static void ispell_op(void);
-static int first_word_len(struct text *test_line);
-static void Auto_Format(void);
-static void modes_op(void);
-[[nodiscard]] static int append_mem(char **buf, size_t *len, size_t *cap,
-    const char *s, size_t n);
+static void  recount_lines(void);
+static int   Blank_Line(struct text *test_line);
+static void  Format(void);
+static void  ee_init(void);
+static void  dump_ee_conf(void);
+static void  echo_string(char *string);
+static void  spell_op(void);
+static void  ispell_op(void);
+static int   first_word_len(struct text *test_line);
+static void  Auto_Format(void);
+static void  modes_op(void);
+[[nodiscard]] static int append_mem(
+    char **buf, size_t *len, size_t *cap, const char *s, size_t n);
 static char *resolve_name(char *name);
-static int restrict_mode(void);
-static int unique_test(const char *string, const char *list[]);
-static int locale_is_configured(void);
-static void select_utf8_locale(void);
-static void strings_init(void);
+static int   restrict_mode(void);
+static int   unique_test(const char *string, const char *list[]);
+static int   locale_is_configured(void);
+static void  select_utf8_locale(void);
+static void  strings_init(void);
 
 #undef P_
 /*
@@ -463,16 +462,16 @@ static void strings_init(void);
  * literal in the initializer, so there is no run-time string wiring.
  */
 struct menu_entries modes_menu[] = {
-	{"modes menu", NULL, NULL, NULL, NULL, 0},	/* title */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 1. tabs */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 2. case */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 3. margins */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 4. autoformat */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 5. info window */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 6. emacs keys */
-	{"", NULL, NULL, NULL, NULL, -1},		/* 7. right margin */
-	{"save editor configuration", NULL, NULL, NULL, dump_ee_conf, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}		/* terminator */
+    {"modes menu", NULL, NULL, NULL, NULL, 0}, /* title */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 1. tabs */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 2. case */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 3. margins */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 4. autoformat */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 5. info window */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 6. emacs keys */
+    {"", NULL, NULL, NULL, NULL, -1},	       /* 7. right margin */
+    {"save editor configuration", NULL, NULL, NULL, dump_ee_conf, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1} /* terminator */
 };
 
 const char *mode_strings[9];
@@ -485,73 +484,61 @@ const char *mode_strings[9];
  * modes_op() and strings_init(); keep the generated labels and the
  * menu array large enough for every one of them.
  */
-static_assert(NUM_MODES_ITEMS <=
-    (int)(sizeof(mode_strings) / sizeof(mode_strings[0])),
+static_assert(
+    NUM_MODES_ITEMS <= (int)(sizeof(mode_strings) / sizeof(mode_strings[0])),
     "mode_strings[] must have a slot for every mode item");
-static_assert(NUM_MODES_ITEMS <=
-    (int)(sizeof(modes_menu) / sizeof(modes_menu[0])),
+static_assert(
+    NUM_MODES_ITEMS <= (int)(sizeof(modes_menu) / sizeof(modes_menu[0])),
     "modes_menu[] must have a slot for every mode item");
 
 struct menu_entries config_dump_menu[] = {
-	{"save ee configuration", NULL, NULL, NULL, NULL, 0},
-	{"save in current directory", NULL, NULL, NULL, NULL, -1},
-	{"save in home directory", NULL, NULL, NULL, NULL, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+    {"save ee configuration", NULL, NULL, NULL, NULL, 0},
+    {"save in current directory", NULL, NULL, NULL, NULL, -1},
+    {"save in home directory", NULL, NULL, NULL, NULL, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
-struct menu_entries leave_menu[] = {
-	{"leave menu", NULL, NULL, NULL, NULL, -1},
-	{"save changes", NULL, NULL, NULL, finish, -1},
-	{"no save", NULL, NULL, quit, NULL, TRUE},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+struct menu_entries leave_menu[] = {{"leave menu", NULL, NULL, NULL, NULL, -1},
+    {"save changes", NULL, NULL, NULL, finish, -1},
+    {"no save", NULL, NULL, quit, NULL, TRUE},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
 #define READ_FILE 1
 #define WRITE_FILE 2
 #define SAVE_FILE 3
 
-struct menu_entries file_menu[] = {
-	{"file menu", NULL, NULL, NULL, NULL, -1},
-	{"read a file", NULL, NULL, file_op, NULL, READ_FILE},
-	{"write a file", NULL, NULL, file_op, NULL, WRITE_FILE},
-	{"save file", NULL, NULL, file_op, NULL, SAVE_FILE},
-	{"print editor contents", NULL, NULL, NULL, print_buffer, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+struct menu_entries file_menu[] = {{"file menu", NULL, NULL, NULL, NULL, -1},
+    {"read a file", NULL, NULL, file_op, NULL, READ_FILE},
+    {"write a file", NULL, NULL, file_op, NULL, WRITE_FILE},
+    {"save file", NULL, NULL, file_op, NULL, SAVE_FILE},
+    {"print editor contents", NULL, NULL, NULL, print_buffer, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
-struct menu_entries search_menu[] = {
-	{"search menu", NULL, NULL, NULL, NULL, 0},
-	{"search for ...", NULL, NULL, NULL, search_prompt, -1},
-	{"search", NULL, NULL, search, NULL, TRUE},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+struct menu_entries search_menu[] = {{"search menu", NULL, NULL, NULL, NULL, 0},
+    {"search for ...", NULL, NULL, NULL, search_prompt, -1},
+    {"search", NULL, NULL, search, NULL, TRUE},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
-struct menu_entries spell_menu[] = {
-	{"spell menu", NULL, NULL, NULL, NULL, -1},
-	{"use 'spell'", NULL, NULL, NULL, spell_op, -1},
-	{"use 'ispell'", NULL, NULL, NULL, ispell_op, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+struct menu_entries spell_menu[] = {{"spell menu", NULL, NULL, NULL, NULL, -1},
+    {"use 'spell'", NULL, NULL, NULL, spell_op, -1},
+    {"use 'ispell'", NULL, NULL, NULL, ispell_op, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
 struct menu_entries misc_menu[] = {
-	{"miscellaneous menu", NULL, NULL, NULL, NULL, -1},
-	{"format paragraph", NULL, NULL, NULL, Format, -1},
-	{"shell command", NULL, NULL, NULL, shell_op, -1},
-	{"check spelling", menu_op, spell_menu, NULL, NULL, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+    {"miscellaneous menu", NULL, NULL, NULL, NULL, -1},
+    {"format paragraph", NULL, NULL, NULL, Format, -1},
+    {"shell command", NULL, NULL, NULL, shell_op, -1},
+    {"check spelling", menu_op, spell_menu, NULL, NULL, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
-struct menu_entries main_menu[] = {
-	{"main menu", NULL, NULL, NULL, NULL, -1},
-	{"leave editor", NULL, NULL, NULL, leave_op, -1},
-	{"help", NULL, NULL, NULL, help, -1},
-	{"file operations", menu_op, file_menu, NULL, NULL, -1},
-	{"redraw screen", NULL, NULL, NULL, redraw, -1},
-	{"settings", NULL, NULL, NULL, modes_op, -1},
-	{"search", menu_op, search_menu, NULL, NULL, -1},
-	{"miscellaneous", menu_op, misc_menu, NULL, NULL, -1},
-	{NULL, NULL, NULL, NULL, NULL, -1}
-};
+struct menu_entries main_menu[] = {{"main menu", NULL, NULL, NULL, NULL, -1},
+    {"leave editor", NULL, NULL, NULL, leave_op, -1},
+    {"help", NULL, NULL, NULL, help, -1},
+    {"file operations", menu_op, file_menu, NULL, NULL, -1},
+    {"redraw screen", NULL, NULL, NULL, redraw, -1},
+    {"settings", NULL, NULL, NULL, modes_op, -1},
+    {"search", menu_op, search_menu, NULL, NULL, -1},
+    {"miscellaneous", menu_op, misc_menu, NULL, NULL, -1},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
 #define MENU_WARN 1
 
@@ -651,18 +638,13 @@ static const char NOEMACS_string[] = "NOEMACS";
 /* A command string that command() may advance through, hence mutable. */
 static char shell_echo_msg[] =
     "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
-const char *commands[] = {
-	HELP, WRITE, READ, LINE, FILE_str, REDRAW, RESEQUENCE, AUTHOR,
-	CASE, NOCASE, EXPAND, NOEXPAND, Exit_string, QUIT_string,
-	"<", ">", "!", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	CHARACTER, NULL
-};
+const char *commands[] = {HELP, WRITE, READ, LINE, FILE_str, REDRAW, RESEQUENCE,
+    AUTHOR, CASE, NOCASE, EXPAND, NOEXPAND, Exit_string, QUIT_string, "<", ">",
+    "!", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", CHARACTER, NULL};
 
-const char *init_strings[] = {
-	CASE, NOCASE, EXPAND, NOEXPAND, INFO, NOINFO, MARGINS, NOMARGINS,
-	AUTOFORMAT, NOAUTOFORMAT, Echo, PRINTCOMMAND, RIGHTMARGIN,
-	HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string, NULL
-};
+const char *init_strings[] = {CASE, NOCASE, EXPAND, NOEXPAND, INFO, NOINFO,
+    MARGINS, NOMARGINS, AUTOFORMAT, NOAUTOFORMAT, Echo, PRINTCOMMAND,
+    RIGHTMARGIN, HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string, NULL};
 
 /* beginning of main program		*/
 int
@@ -761,11 +743,11 @@ main(int argc, char *argv[])
 		wrefresh(text_win);
 		{
 			wint_t win;
-			int wret = wget_wch(text_win, &win);
+			int    wret = wget_wch(text_win, &win);
 			/*
-			 * ERR if the underneath terminal is closed (like network failure on a ssh
-			 * session)
-			 * Normal exit as this is not an editor's error, but a network connection
+			 * ERR if the underneath terminal is closed (like
+			 * network failure on a ssh session) Normal exit as this
+			 * is not an editor's error, but a network connection
 			 * issue
 			 */
 			if (wret == ERR) {
@@ -812,10 +794,10 @@ main(int argc, char *argv[])
 				delete(TRUE);
 			} else if (in >= 0x80) {
 				unsigned char mb[MB_LEN_MAX + 1];
-				mbstate_t mbs;
+				mbstate_t     mbs;
 				memset(&mbs, 0, sizeof(mbs));
-				size_t n = wcrtomb((char *)mb, (wchar_t)win,
-				    &mbs);
+				size_t n =
+				    wcrtomb((char *)mb, (wchar_t)win, &mbs);
 				if (n != (size_t)-1)
 					insert_utf8(mb, (int)n);
 			} else if ((in > 31) || (in == 9))
@@ -838,8 +820,8 @@ resiz_line(int factor, struct text *rline, int rpos)
 {
 	unsigned char *rpoint;
 	unsigned char *nb;
-	int resiz_var;
-	long newlen;
+	int	       resiz_var;
+	long	       newlen;
 
 	/*
 	 * max_length is an int and has historically been allowed to grow
@@ -872,10 +854,10 @@ resiz_line(int factor, struct text *rline, int rpos)
 static void
 insert(int character)
 {
-	int counter;
-	int value;
-	unsigned char *temp;	/* temporary pointer			*/
-	unsigned char *temp2;	/* temporary pointer			*/
+	int	       counter;
+	int	       value;
+	unsigned char *temp;  /* temporary pointer			*/
+	unsigned char *temp2; /* temporary pointer			*/
 
 	if ((character == '\011') && (expand_tabs)) {
 		counter = len_char('\011', scr_horz);
@@ -891,17 +873,18 @@ insert(int character)
 	curr_line->line_length++;
 	temp = point;
 	counter = position;
-	while (counter < curr_line->line_length) {	/* find end of line */
+	while (counter < curr_line->line_length) { /* find end of line */
 		counter++;
 		temp++;
 	}
-	temp++;			/* increase length of line by one	*/
+	temp++; /* increase length of line by one	*/
 	while (point < temp) {
 		temp2 = temp - 1;
-		*temp = *temp2;	/* shift characters over by one		*/
+		*temp = *temp2; /* shift characters over by one		*/
 		temp--;
 	}
-	*point = (unsigned char)character;	/* insert new character		*/
+	*point = (unsigned char)character; /* insert new character
+					    */
 	wclrtoeol(text_win);
 	if (!isprint((unsigned char)character)) {
 		scr_pos = scr_horz += out_char(text_win, character, scr_horz);
@@ -946,9 +929,9 @@ insert(int character)
 static void
 insert_utf8(const unsigned char *mb, int len)
 {
-	int counter;
+	int	       counter;
 	unsigned char *temp;
-	int i;
+	int	       i;
 
 	text_changes = TRUE;
 	if ((curr_line->max_length - curr_line->line_length) < (len + 5))
@@ -1023,7 +1006,7 @@ static void
 insert_code(int code)
 {
 	unsigned char mb[4];
-	size_t n;
+	size_t	      n;
 
 	if (code < 0)
 		return;
@@ -1051,12 +1034,12 @@ delete(int disp)
 {
 	unsigned char *tp;
 	unsigned char *temp2;
-	struct text *temp_buff;
-	int temp_vert;
-	int temp_pos;
-	int del_width = 1;
+	struct text   *temp_buff;
+	int	       temp_vert;
+	int	       temp_pos;
+	int	       del_width = 1;
 
-	if (point != curr_line->line) {	/* if not at beginning of line	*/
+	if (point != curr_line->line) { /* if not at beginning of line	*/
 		text_changes = TRUE;
 		temp2 = tp = point;
 		unsigned char *prev = utf8_prev(curr_line->line, point);
@@ -1088,7 +1071,7 @@ delete(int disp)
 		text_changes = TRUE;
 		if (total_lines > 1)
 			total_lines--;
-		left(disp);			/* go to previous line	*/
+		left(disp); /* go to previous line	*/
 		temp_buff = curr_line->next_line;
 		point = resiz_line(temp_buff->line_length, curr_line, position);
 		if (temp_buff->next_line != NULL)
@@ -1138,7 +1121,7 @@ delete(int disp)
 static void
 scanline(unsigned char *pos)
 {
-	int temp;
+	int	       temp;
 	unsigned char *ptr;
 
 	ptr = curr_line->line;
@@ -1166,8 +1149,8 @@ scanline(unsigned char *pos)
 	if ((scr_horz - horiz_offset) > last_col) {
 		int old = horiz_offset;
 
-		horiz_offset = (scr_horz - (scr_horz % 8)) -
-		    ee_max(1, last_col - 7);
+		horiz_offset =
+		    (scr_horz - (scr_horz % 8)) - ee_max(1, last_col - 7);
 		if (horiz_offset < 0)
 			horiz_offset = 0;
 		/*
@@ -1205,14 +1188,14 @@ tabshift(int temp_int)
 static int
 out_char(WINDOW *window, int character, int column)
 {
-	int i1, i2;
+	int	    i1, i2;
 	const char *string;
 
 	if (character == TAB) {
 		i1 = tabshift(column);
-		for (i2 = 0;
-		    (i2 < i1) && (((column + i2 + 1) - horiz_offset) <
-		    last_col); i2++) {
+		for (i2 = 0; (i2 < i1) &&
+		    (((column + i2 + 1) - horiz_offset) < last_col);
+		    i2++) {
 			waddch(window, ' ');
 		}
 		return (i1);
@@ -1235,9 +1218,9 @@ out_char(WINDOW *window, int character, int column)
 		waddch(window, (unsigned char)character);
 		return (1);
 	}
-	for (i2 = 0;
-	    (string[i2] != '\0') &&
-	    (((column + i2 + 1) - horiz_offset) < last_col); i2++)
+	for (i2 = 0; (string[i2] != '\0') &&
+	    (((column + i2 + 1) - horiz_offset) < last_col);
+	    i2++)
 		waddch(window, (unsigned char)string[i2]);
 	return ((int)strlen(string));
 }
@@ -1266,9 +1249,9 @@ len_char(int character, int column)
 static void
 draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 {
-	int d;		/* partial length of special or tab char to display  */
-	unsigned char *temp;	/* temporary pointer to position in line	     */
-	int abs_column;	/* offset in screen units from begin of line	     */
+	int d; /* partial length of special or tab char to display  */
+	unsigned char *temp; /* temporary pointer to position in line	     */
+	int abs_column; /* offset in screen units from begin of line	     */
 	int column;	/* horizontal position on screen		     */
 	int row;	/* vertical position on screen			     */
 	int posit;	/* temporary position indicator within line	     */
@@ -1302,8 +1285,8 @@ draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 	wclrtoeol(text_win);
 	while ((posit < length) && (column <= last_col)) {
 		if (*temp >= 0x80) {
-			int clen = utf8_len(temp);
-			int dw = utf8_width(temp);
+			int  clen = utf8_len(temp);
+			int  dw = utf8_width(temp);
 			char buf[5];
 
 			/*
@@ -1344,11 +1327,11 @@ draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 static void
 insert_line(int disp)
 {
-	int temp_pos;
-	int temp_pos2;
+	int	       temp_pos;
+	int	       temp_pos2;
 	unsigned char *temp;
 	unsigned char *extra;
-	struct text *temp_nod;
+	struct text   *temp_nod;
 
 	text_changes = TRUE;
 	total_lines++;
@@ -1380,8 +1363,8 @@ insert_line(int disp)
 		}
 		temp = point;
 		*temp = '\0';
-		temp = resiz_line((1 - temp_nod->line_length), curr_line,
-		    position);
+		temp = resiz_line(
+		    (1 - temp_nod->line_length), curr_line, position);
 		curr_line->line_length = 1 + (int)(temp - curr_line->line);
 	}
 	curr_line->line_length = position;
@@ -1444,8 +1427,8 @@ prev_word(void)
 	if (position != 1) {
 		if ((position != 1) &&
 		    ((point[-1] == ' ') ||
-		     (point[-1] ==
-		      '\t'))) {	/* if at the start of a word	*/
+			(point[-1] ==
+			    '\t'))) { /* if at the start of a word	*/
 			while ((position != 1) &&
 			    ((*point != ' ') && (*point != '\t')))
 				left(TRUE);
@@ -1466,64 +1449,64 @@ control(void)
 {
 	char *string;
 
-	if (in == 1) {		/* control a	*/
+	if (in == 1) { /* control a	*/
 		string = get_string(ascii_code_str, TRUE);
 		if (string != NULL) {
 			if (*string != '\0')
 				insert_code((int)strtol(string, NULL, 10));
 			free(string);
 		}
-	} else if (in == 2)	/* control b	*/
+	} else if (in == 2) /* control b	*/
 		bottom();
-	else if (in == 3) {	/* control c	*/
+	else if (in == 3) { /* control c	*/
 		command_prompt();
-	} else if (in == 4)	/* control d	*/
+	} else if (in == 4) /* control d	*/
 		down();
-	else if (in == 5)	/* control e	*/
+	else if (in == 5) /* control e	*/
 		search_prompt();
-	else if (in == 6)	/* control f	*/
+	else if (in == 6) /* control f	*/
 		undel_char();
-	else if (in == 7)	/* control g	*/
+	else if (in == 7) /* control g	*/
 		bol();
-	else if (in == 8)	/* control h	*/
+	else if (in == 8) /* control h	*/
 		delete(TRUE);
-	else if (in == 9)	/* control i	*/
+	else if (in == 9) /* control i	*/
 		;
-	else if (in == 10)	/* control j	*/
+	else if (in == 10) /* control j	*/
 		insert_line(TRUE);
-	else if (in == 11)	/* control k	*/
+	else if (in == 11) /* control k	*/
 		del_char();
-	else if (in == 12)	/* control l	*/
+	else if (in == 12) /* control l	*/
 		left(TRUE);
-	else if (in == 13)	/* control m	*/
+	else if (in == 13) /* control m	*/
 		insert_line(TRUE);
-	else if (in == 14)	/* control n	*/
+	else if (in == 14) /* control n	*/
 		move_rel('d', ee_max(5, (last_line - 5)));
-	else if (in == 15)	/* control o	*/
+	else if (in == 15) /* control o	*/
 		eol();
-	else if (in == 16)	/* control p	*/
+	else if (in == 16) /* control p	*/
 		move_rel('u', ee_max(5, (last_line - 5)));
-	else if (in == 17)	/* control q	*/
+	else if (in == 17) /* control q	*/
 		leave_op();
-	else if (in == 18)	/* control r	*/
+	else if (in == 18) /* control r	*/
 		right(TRUE);
-	else if (in == 19)	/* control s	*/
+	else if (in == 19) /* control s	*/
 		save_op();
-	else if (in == 20)	/* control t	*/
+	else if (in == 20) /* control t	*/
 		top();
-	else if (in == 21)	/* control u	*/
+	else if (in == 21) /* control u	*/
 		up();
-	else if (in == 22)	/* control v	*/
+	else if (in == 22) /* control v	*/
 		undel_word();
-	else if (in == 23)	/* control w	*/
+	else if (in == 23) /* control w	*/
 		del_word();
-	else if (in == 24)	/* control x	*/
+	else if (in == 24) /* control x	*/
 		search(TRUE);
-	else if (in == 25)	/* control y	*/
+	else if (in == 25) /* control y	*/
 		del_line();
-	else if (in == 26)	/* control z	*/
+	else if (in == 26) /* control z	*/
 		undel_line();
-	else if (in == 27) {	/* control [ (escape)	*/
+	else if (in == 27) { /* control [ (escape)	*/
 		menu_op(main_menu);
 	}
 }
@@ -1537,64 +1520,64 @@ emacs_control(void)
 {
 	char *string;
 
-	if (in == 1)		/* control a	*/
+	if (in == 1) /* control a	*/
 		bol();
-	else if (in == 2)	/* control b	*/
+	else if (in == 2) /* control b	*/
 		left(TRUE);
-	else if (in == 3) {	/* control c	*/
+	else if (in == 3) { /* control c	*/
 		command_prompt();
-	} else if (in == 4)	/* control d	*/
+	} else if (in == 4) /* control d	*/
 		del_char();
-	else if (in == 5)	/* control e	*/
+	else if (in == 5) /* control e	*/
 		eol();
-	else if (in == 6)	/* control f	*/
+	else if (in == 6) /* control f	*/
 		right(TRUE);
-	else if (in == 7)	/* control g	*/
+	else if (in == 7) /* control g	*/
 		move_rel('u', ee_max(5, (last_line - 5)));
-	else if (in == 8)	/* control h	*/
+	else if (in == 8) /* control h	*/
 		delete(TRUE);
-	else if (in == 9)	/* control i	*/
+	else if (in == 9) /* control i	*/
 		;
-	else if (in == 10)	/* control j	*/
+	else if (in == 10) /* control j	*/
 		undel_char();
-	else if (in == 11)	/* control k	*/
+	else if (in == 11) /* control k	*/
 		del_line();
-	else if (in == 12)	/* control l	*/
+	else if (in == 12) /* control l	*/
 		undel_line();
-	else if (in == 13)	/* control m	*/
+	else if (in == 13) /* control m	*/
 		insert_line(TRUE);
-	else if (in == 14)	/* control n	*/
+	else if (in == 14) /* control n	*/
 		down();
-	else if (in == 15) {	/* control o	*/
+	else if (in == 15) { /* control o	*/
 		string = get_string(ascii_code_str, TRUE);
 		if (string != NULL) {
 			if (*string != '\0')
 				insert_code((int)strtol(string, NULL, 10));
 			free(string);
 		}
-	} else if (in == 16)	/* control p	*/
+	} else if (in == 16) /* control p	*/
 		up();
-	else if (in == 17)	/* control q	*/
+	else if (in == 17) /* control q	*/
 		leave_op();
-	else if (in == 18)	/* control r	*/
+	else if (in == 18) /* control r	*/
 		undel_word();
-	else if (in == 19)	/* control s	*/
+	else if (in == 19) /* control s	*/
 		save_op();
-	else if (in == 20)	/* control t	*/
+	else if (in == 20) /* control t	*/
 		top();
-	else if (in == 21)	/* control u	*/
+	else if (in == 21) /* control u	*/
 		bottom();
-	else if (in == 22)	/* control v	*/
+	else if (in == 22) /* control v	*/
 		move_rel('d', ee_max(5, (last_line - 5)));
-	else if (in == 23)	/* control w	*/
+	else if (in == 23) /* control w	*/
 		del_word();
-	else if (in == 24)	/* control x	*/
+	else if (in == 24) /* control x	*/
 		search(TRUE);
-	else if (in == 25)	/* control y	*/
+	else if (in == 25) /* control y	*/
 		search_prompt();
-	else if (in == 26)	/* control z	*/
+	else if (in == 26) /* control z	*/
 		adv_word();
-	else if (in == 27) {	/* control [ (escape)	*/
+	else if (in == 27) { /* control [ (escape)	*/
 		menu_op(main_menu);
 	}
 }
@@ -1672,9 +1655,9 @@ prevline(void)
 static void
 left(int disp)
 {
-	if (point != curr_line->line) {	/* if not at begin of line	*/
+	if (point != curr_line->line) { /* if not at begin of line	*/
 		unsigned char *prev = utf8_prev(curr_line->line, point);
-		int char_bytes = (int)(point - prev);
+		int	       char_bytes = (int)(point - prev);
 		point = prev;
 		position -= char_bytes;
 		scanline(point);
@@ -1754,8 +1737,8 @@ find_pos(void)
 		point++;
 	}
 	if ((scr_horz - horiz_offset) > last_col) {
-		horiz_offset = (scr_horz - (scr_horz % 8)) -
-		    ee_max(1, last_col - 7);
+		horiz_offset =
+		    (scr_horz - (scr_horz % 8)) - ee_max(1, last_col - 7);
 		if (horiz_offset < 0)
 			horiz_offset = 0;
 		midscreen(scr_vert, point);
@@ -1815,8 +1798,7 @@ function_key(void)
 		del_char();
 	else if (in == KEY_BACKSPACE)
 		delete(TRUE);
-	else if (in ==
-	    KEY_IL) {		/* insert a line before current line	*/
+	else if (in == KEY_IL) { /* insert a line before current line	*/
 		insert_line(TRUE);
 		left(TRUE);
 	} else if (in == KEY_F(1))
@@ -1870,7 +1852,7 @@ static void
 print_buffer(void)
 {
 	size_t len = strlen((char *)print_command);
-	char *buffer;
+	char  *buffer;
 
 	if (len > (SIZE_MAX - 3))
 		return;
@@ -1893,7 +1875,7 @@ static void
 command_prompt(void)
 {
 	char *cmd_str;
-	int result;
+	int   result;
 
 	cmd_str = get_string(command_str, TRUE);
 	if (cmd_str == NULL)
@@ -1933,8 +1915,8 @@ command(char *cmd_str1)
 		}
 		cmd_str = (char *)next_word(cmd_str);
 		if (*cmd_str == '\0') {
-			cmd_str = cmd_str2 = (char *)get_string(file_write_prompt_str,
-			    TRUE);
+			cmd_str = cmd_str2 =
+			    (char *)get_string(file_write_prompt_str, TRUE);
 			if (cmd_str == NULL)
 				return;
 		}
@@ -1948,8 +1930,8 @@ command(char *cmd_str1)
 		}
 		cmd_str = (char *)next_word(cmd_str);
 		if (*cmd_str == '\0') {
-			cmd_str = cmd_str2 = (char *)get_string(file_read_prompt_str,
-			    TRUE);
+			cmd_str = cmd_str2 =
+			    (char *)get_string(file_read_prompt_str, TRUE);
 			if (cmd_str == NULL)
 				return;
 		}
@@ -1982,8 +1964,8 @@ command(char *cmd_str1)
 	else if (compare(cmd_str, RESEQUENCE, FALSE)) {
 		tmp_line = first_line->next_line;
 		while (tmp_line != NULL) {
-			tmp_line->line_number = tmp_line->prev_line->line_number +
-			    1;
+			tmp_line->line_number =
+			    tmp_line->prev_line->line_number + 1;
 			tmp_line = tmp_line->next_line;
 		}
 	} else if (compare(cmd_str, AUTHOR, FALSE)) {
@@ -2037,8 +2019,8 @@ static int
 scan(char *line, int offset, int column)
 {
 	char *stemp;
-	int i;
-	int j;
+	int   i;
+	int   j;
 
 	stemp = line;
 	i = 0;
@@ -2067,9 +2049,9 @@ static void
 show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
 {
 	size_t start = 0;
-	int prompt_width = (int)strlen(prompt);
-	int cursor_col;
-	int col;
+	int    prompt_width = (int)strlen(prompt);
+	int    cursor_col;
+	int    col;
 	size_t i;
 
 	cursor_col = scan((char *)buf, (int)cur, prompt_width);
@@ -2082,12 +2064,12 @@ show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
 	wmove(com_win, 0, 0);
 	waddstr(com_win, prompt);
 	col = (start == 0) ? prompt_width :
-	    scan((char *)buf, (int)start, prompt_width);
+			     scan((char *)buf, (int)start, prompt_width);
 	wmove(com_win, 0, col);
 
 	for (i = start; i < len;) {
 		unsigned char c = (unsigned char)buf[i];
-		int clen, width;
+		int	      clen, width;
 
 		if (c >= 0x80) {
 			clen = utf8_len((const unsigned char *)buf + i);
@@ -2121,28 +2103,27 @@ static char *
 get_string(const char *prompt, int advance)
 {
 	static const char *const prompt_keys[] = {
-		"[Enter] Accept", "[Esc] Cancel", "[^V] Literal"
-	};
-	char *buf;
+	    "[Enter] Accept", "[Esc] Cancel", "[^V] Literal"};
+	char  *buf;
 	size_t bufsize = 128;
 	size_t len = 0;
 	size_t cur = 0;
-	int cancelled = FALSE;
-	int done = FALSE;
+	int    cancelled = FALSE;
+	int    done = FALSE;
 
 	buf = malloc(bufsize);
 	if (buf == NULL)
 		return (NULL);
 	buf[0] = '\0';
 
-	set_shortcuts(prompt_keys,
-	    (int)(sizeof(prompt_keys) / sizeof(prompt_keys[0])));
+	set_shortcuts(
+	    prompt_keys, (int)(sizeof(prompt_keys) / sizeof(prompt_keys[0])));
 	clear_com_win = TRUE;
 	show_prompt_line(prompt, buf, len, cur);
 
 	while (!done) {
 		wint_t win;
-		int wret;
+		int    wret;
 
 		wret = wget_wch(com_win, &win);
 		if (wret == ERR) {
@@ -2168,12 +2149,16 @@ get_string(const char *prompt, int advance)
 				break;
 			case KEY_BACKSPACE:
 				if (cur > 0) {
-					size_t prev = (size_t)(utf8_prev(
-					    (const unsigned char *)buf,
-					    (const unsigned char *)buf + cur) -
-					    (const unsigned char *)buf);
-					memmove(buf + prev, buf + cur,
-					    len - cur);
+					size_t prev =
+					    (size_t)(utf8_prev(
+							 (const unsigned char *)
+							     buf,
+							 (const unsigned char *)
+								 buf +
+							     cur) -
+						(const unsigned char *)buf);
+					memmove(
+					    buf + prev, buf + cur, len - cur);
 					len -= cur - prev;
 					cur = prev;
 				}
@@ -2216,7 +2201,7 @@ get_string(const char *prompt, int advance)
 			continue;
 		}
 
-		if ((in == 27) || (in == 3)) {	/* Esc or ^C */
+		if ((in == 27) || (in == 3)) { /* Esc or ^C */
 			cancelled = TRUE;
 			done = TRUE;
 			continue;
@@ -2227,10 +2212,12 @@ get_string(const char *prompt, int advance)
 		}
 		if ((in == 8) || (in == 127)) {
 			if (cur > 0) {
-				size_t prev = (size_t)(utf8_prev(
-				    (const unsigned char *)buf,
-				    (const unsigned char *)buf + cur) -
-				    (const unsigned char *)buf);
+				size_t prev =
+				    (size_t)(utf8_prev(
+						 (const unsigned char *)buf,
+						 (const unsigned char *)buf +
+						     cur) -
+					(const unsigned char *)buf);
 				memmove(buf + prev, buf + cur, len - cur);
 				len -= cur - prev;
 				cur = prev;
@@ -2240,10 +2227,10 @@ get_string(const char *prompt, int advance)
 		}
 
 		{
-			char mb[MB_LEN_MAX + 1];
+			char   mb[MB_LEN_MAX + 1];
 			size_t n = 0;
 
-			if (in == '\026') {	/* control-v: literal */
+			if (in == '\026') { /* control-v: literal */
 				wret = wget_wch(com_win, &win);
 				if (wret == ERR) {
 					if (ee_intr_flag) {
@@ -2275,7 +2262,7 @@ get_string(const char *prompt, int advance)
 			if (n > 0) {
 				if ((len + n + 1) > bufsize) {
 					size_t newsize = bufsize * 2;
-					char *nb;
+					char  *nb;
 
 					if (newsize < (len + n + 1))
 						newsize = len + n + 1;
@@ -2332,7 +2319,7 @@ compare(const char *string1, const char *string2, int sensitive)
 {
 	const char *strng1;
 	const char *strng2;
-	int equal;
+	int	    equal;
 
 	strng1 = string1;
 	strng2 = string2;
@@ -2361,10 +2348,10 @@ compare(const char *string1, const char *string2, int sensitive)
 static void
 goto_line(char *cmd_str)
 {
-	int number;
-	int i;
-	char *ptr;
-	char direction = '\0';
+	int	     number;
+	int	     i;
+	char	    *ptr;
+	char	     direction = '\0';
 	struct text *t_line;
 
 	ptr = cmd_str;
@@ -2411,7 +2398,7 @@ static void
 midscreen(int line, unsigned char *pnt)
 {
 	struct text *mid_line;
-	int i;
+	int	     i;
 
 	line = ee_min(line, last_line);
 	mid_line = curr_line;
@@ -2430,12 +2417,12 @@ midscreen(int line, unsigned char *pnt)
 static void
 get_options(int numargs, char *arguments[])
 {
-	char *buff;
-	int count;
+	char	     *buff;
+	int	      count;
 	struct files *temp_names = NULL;
-	char *name;
-	char *ptr;
-	int no_more_opts = FALSE;
+	char	     *name;
+	char	     *ptr;
+	int	      no_more_opts = FALSE;
 
 	/*
 	 |	see if editor was invoked as 'ree' (restricted mode)
@@ -2462,7 +2449,8 @@ get_options(int numargs, char *arguments[])
 			nohighlight = TRUE;
 		} else if (!strcmp("-?", buff)) {
 			fprintf(stderr,
-			    "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n",
+			    "usage: %s [-i] [-e] [-h] [+line_number] "
+			    "[file(s)]\n",
 			    arguments[0]);
 			fputs("       -i   turn off info window\n", stderr);
 			fputs("       -e   do not convert tabs to spaces\n",
@@ -2507,8 +2495,8 @@ get_options(int numargs, char *arguments[])
 static void
 check_fp(void)
 {
-	int line_num;
-	int temp;
+	int	    line_num;
+	int	    temp;
 	struct stat buf;
 
 	clear_com_win = TRUE;
@@ -2516,8 +2504,8 @@ check_fp(void)
 	tmp_horz = scr_horz;
 	tmp_line = curr_line;
 	if (input_file) {
-		in_file_name = (unsigned char *)(tmp_file =
-		    (char *)top_of_stack->name);
+		in_file_name =
+		    (unsigned char *)(tmp_file = (char *)top_of_stack->name);
 		top_of_stack = top_of_stack->next_name;
 	}
 	temp = stat(tmp_file, &buf);
@@ -2563,8 +2551,8 @@ check_fp(void)
 	if (input_file) {
 		input_file = FALSE;
 		if (start_at_line != NULL) {
-			line_num = (int)strtol((char *)start_at_line, NULL,
-			    10) - 1;
+			line_num =
+			    (int)strtol((char *)start_at_line, NULL, 10) - 1;
 			move_rel('d', line_num);
 			line_num = 0;
 			start_at_line = NULL;
@@ -2590,14 +2578,14 @@ check_fp(void)
 read_all(int fd, unsigned char **out, size_t *outlen)
 {
 	unsigned char *buf = NULL;
-	size_t cap = 0;
-	size_t len = 0;
+	size_t	       cap = 0;
+	size_t	       len = 0;
 
 	for (;;) {
 		ssize_t n;
 
 		if (len == cap) {
-			size_t ncap;
+			size_t	       ncap;
 			unsigned char *nb;
 
 			if (cap == 0)
@@ -2650,19 +2638,19 @@ read_all(int fd, unsigned char **out, size_t *outlen)
 static void
 get_file(char *file_name)
 {
-	int append;		/* should text be appended to current line */
-	int can_read;		/* file has at least one character	*/
-	struct text *temp_line;
-	char ro_flag = FALSE;
+	int	       append;	 /* should text be appended to current line */
+	int	       can_read; /* file has at least one character	*/
+	struct text   *temp_line;
+	char	       ro_flag = FALSE;
 	unsigned char *data = NULL;
-	size_t len = 0;
-	size_t bad;
+	size_t	       len = 0;
+	size_t	       bad;
 
-	if (recv_file) {		/* if reading a file			*/
+	if (recv_file) { /* if reading a file			*/
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
 		wprintw(com_win, reading_file_msg, file_name);
-		if (access(file_name, 2)) {	/* check permission to write */
+		if (access(file_name, 2)) { /* check permission to write */
 			if ((errno == ENOTDIR) || (errno == EACCES) ||
 			    (errno == EROFS) || (errno == ETXTBSY) ||
 			    (errno == EFAULT)) {
@@ -2698,8 +2686,8 @@ get_file(char *file_name)
 	if (bad != len) {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
-		wprintw(com_win, invalid_utf8_msg, file_name,
-		    (unsigned long)bad);
+		wprintw(
+		    com_win, invalid_utf8_msg, file_name, (unsigned long)bad);
 		wrefresh(com_win);
 		clear_com_win = TRUE;
 		free(data);
@@ -2709,7 +2697,7 @@ get_file(char *file_name)
 	}
 
 	can_read = (len > 0);
-	if (curr_line->line_length > 1) {	/* if current line not blank */
+	if (curr_line->line_length > 1) { /* if current line not blank */
 		insert_line(FALSE);
 		left(FALSE);
 		append = FALSE;
@@ -2739,7 +2727,8 @@ get_file(char *file_name)
 		free(curr_line);
 		curr_line = temp_line;
 	}
-	if (input_file) {	/* if this is the file to be edited display number of lines	*/
+	if (input_file) { /* if this is the file to be edited display number of
+			     lines	*/
 		read_only = ro_flag;
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
@@ -2748,12 +2737,12 @@ get_file(char *file_name)
 		if (ro_flag)
 			wprintw(com_win, "%s", read_only_msg);
 		wrefresh(com_win);
-	} else if (can_read)	/* not input_file and file is non-zero size */
+	} else if (can_read) /* not input_file and file is non-zero size */
 		text_changes = TRUE;
 
 	recount_lines();
 
-	if (recv_file) {		/* if reading a file			*/
+	if (recv_file) { /* if reading a file			*/
 		in = EOF;
 	}
 }
@@ -2764,11 +2753,11 @@ get_line(int length, unsigned char *input, int *append)
 {
 	unsigned char *str1;
 	unsigned char *str2;
-	int num;		/* offset from start of string		*/
-	int char_count;		/* length of new line (or added portion	*/
-	int temp_counter;	/* temporary counter value		*/
-	struct text *tline;	/* temporary pointer to new line	*/
-	int first_time;		/* if TRUE, the first time through the loop */
+	int	       num;	     /* offset from start of string		*/
+	int	       char_count;   /* length of new line (or added portion	*/
+	int	       temp_counter; /* temporary counter value		*/
+	struct text   *tline;	     /* temporary pointer to new line	*/
+	int first_time; /* if TRUE, the first time through the loop */
 
 	str2 = input;
 	num = 0;
@@ -2789,8 +2778,10 @@ get_line(int length, unsigned char *input, int *append)
 			num++;
 			char_count++;
 		}
-		if (!(*append)) {	/* if not append to current line, insert new one */
-			tline = txtalloc();	/* allocate data structure for next line */
+		if (!(*append)) { /* if not append to current line, insert new
+				     one */
+			tline = txtalloc(); /* allocate data structure for next
+					       line */
 			tline->line_number = curr_line->line_number + 1;
 			tline->next_line = curr_line->next_line;
 			tline->prev_line = curr_line;
@@ -2798,13 +2789,13 @@ get_line(int length, unsigned char *input, int *append)
 			if (tline->next_line != NULL)
 				tline->next_line->prev_line = tline;
 			curr_line = tline;
-			curr_line->line = point = (unsigned char *)xmalloc(
-			    (size_t)char_count);
+			curr_line->line = point =
+			    (unsigned char *)xmalloc((size_t)char_count);
 			curr_line->line_length = char_count;
 			curr_line->max_length = char_count;
 		} else {
-			point = resiz_line(char_count, curr_line,
-			    curr_line->line_length);
+			point = resiz_line(
+			    char_count, curr_line, curr_line->line_length);
 			curr_line->line_length += (char_count - 1);
 		}
 		for (temp_counter = 1; temp_counter < char_count;
@@ -2821,11 +2812,11 @@ get_line(int length, unsigned char *input, int *append)
 }
 
 static void
-draw_screen(void)	/* redraw the screen from current position */
+draw_screen(void) /* redraw the screen from current position */
 {
-	struct text *temp_line;
+	struct text   *temp_line;
 	unsigned char *line_out;
-	int temp_vert;
+	int	       temp_vert;
 
 	temp_line = curr_line;
 	temp_vert = scr_vert;
@@ -2913,12 +2904,10 @@ delete_text(void)
 static int
 confirm(const char *question)
 {
-	static const char *const keys[] = {
-		"[Y] Yes", "[N] No", "[Esc] Cancel"
-	};
-	int result = -1;
-	wint_t win;
-	int wret;
+	static const char *const keys[] = {"[Y] Yes", "[N] No", "[Esc] Cancel"};
+	int			 result = -1;
+	wint_t			 win;
+	int			 wret;
 
 	set_shortcuts(keys, (int)(sizeof(keys) / sizeof(keys[0])));
 
@@ -2967,14 +2956,14 @@ static int
 write_file(char *file_name, int warn_if_exists)
 {
 	struct text *out_line;
-	int lines;
-	int write_flag = TRUE;
-	int write_ok = TRUE;
+	int	     lines;
+	int	     write_flag = TRUE;
+	int	     write_ok = TRUE;
 
 	lines = 0;
 	if (warn_if_exists &&
 	    ((in_file_name == NULL) ||
-	     strcmp((char *)in_file_name, file_name))) {
+		strcmp((char *)in_file_name, file_name))) {
 		if ((temp_fp = fopen(file_name, "r"))) {
 			fclose(temp_fp);
 			if (confirm("File exists.  Overwrite it?") != 1)
@@ -3064,30 +3053,28 @@ search(int display_message)
 	while ((!found) && (srch_line != NULL)) {
 		while ((iter < srch_line->line_length) && (!found)) {
 			srch_2 = srch_1;
-			if (case_sen) {	/* if case sensitive		*/
+			if (case_sen) { /* if case sensitive		*/
 				srch_3 = srch_str;
-				while ((*srch_2 == *srch_3) &&
-				    (*srch_3 != '\0')) {
+				while (
+				    (*srch_2 == *srch_3) && (*srch_3 != '\0')) {
 					found = TRUE;
 					srch_2++;
 					srch_3++;
-				}	/* end while	*/
-			} else		/* if not case sensitive	*/ {
+				} /* end while	*/
+			} else /* if not case sensitive	*/ {
 				srch_3 = u_srch_str;
 				while (*srch_3 != '\0') {
-					wchar_t wc_text, wc_srch;
+					wchar_t	  wc_text, wc_srch;
 					mbstate_t mbs;
-					int len_text, len_srch;
+					int	  len_text, len_srch;
 					memset(&mbs, 0, sizeof(mbs));
 					len_text = (int)mbrtowc(&wc_text,
-					    (char *)srch_2,
-					    MB_CUR_MAX, &mbs);
+					    (char *)srch_2, MB_CUR_MAX, &mbs);
 					if (len_text <= 0)
 						len_text = 1;
 					memset(&mbs, 0, sizeof(mbs));
 					len_srch = (int)mbrtowc(&wc_srch,
-					    (char *)srch_3,
-					    MB_CUR_MAX, &mbs);
+					    (char *)srch_3, MB_CUR_MAX, &mbs);
 					if (len_srch <= 0)
 						len_srch = 1;
 					if (towupper((wint_t)wc_text) !=
@@ -3097,7 +3084,7 @@ search(int display_message)
 					srch_2 += len_text;
 					srch_3 += len_srch;
 				}
-			}	/* end else	*/
+			} /* end else	*/
 			if (!((*srch_3 == '\0') && (found))) {
 				found = FALSE;
 				if (iter < srch_line->line_length)
@@ -3153,7 +3140,7 @@ search(int display_message)
 static void
 search_prompt(void)
 {
-	char *query;
+	char  *query;
 	size_t alloc, used, qlen;
 
 	if (srch_str != NULL) {
@@ -3166,7 +3153,7 @@ search_prompt(void)
 	}
 	query = get_string(search_prompt_str, FALSE);
 	if (query == NULL)
-		return;			/* cancelled */
+		return; /* cancelled */
 
 	srch_str = (unsigned char *)query;
 	gold = FALSE;
@@ -3194,10 +3181,10 @@ search_prompt(void)
 	used = 0;
 	while ((*srch_3 != '\0') && ((used + MB_LEN_MAX) < alloc)) {
 		if (*srch_3 >= 0x80) {
-			wchar_t wc;
+			wchar_t	  wc;
 			mbstate_t mbs;
-			int clen;
-			size_t n;
+			int	  clen;
+			size_t	  n;
 
 			memset(&mbs, 0, sizeof(mbs));
 			clen = (int)mbrtowc(&wc, (char *)srch_3,
@@ -3216,8 +3203,8 @@ search_prompt(void)
 				used++;
 			}
 		} else {
-			*srch_1 = (unsigned char)toupper(
-			    (unsigned char)*srch_3);
+			*srch_1 =
+			    (unsigned char)toupper((unsigned char)*srch_3);
 			srch_1++;
 			srch_3++;
 			used++;
@@ -3231,9 +3218,8 @@ search_prompt(void)
 static void
 del_char(void)
 {
-	in = 8;  /* backspace */
-	if (position <
-	    curr_line->line_length) {	/* if not end of line	*/
+	in = 8;					 /* backspace */
+	if (position < curr_line->line_length) { /* if not end of line	*/
 		int clen = utf8_len(point);
 		if (position + clen > curr_line->line_length)
 			clen = curr_line->line_length - position;
@@ -3251,7 +3237,7 @@ del_char(void)
 static void
 undel_char(void)
 {
-	if (d_char[0] == '\n')	/* insert line if last del_char deleted eol */
+	if (d_char[0] == '\n') /* insert line if last del_char deleted eol */
 		insert_line(TRUE);
 	else if ((unsigned char)d_char[0] >= 0x80)
 		insert_utf8(d_char, (int)strlen((char *)d_char));
@@ -3265,11 +3251,11 @@ undel_char(void)
 static void
 del_word(void)
 {
-	int tposit;
-	int difference;
+	int	       tposit;
+	int	       difference;
 	unsigned char *d_word2;
 	unsigned char *d_word3;
-	unsigned char tmp_char[5];
+	unsigned char  tmp_char[5];
 
 	if (d_word != NULL)
 		free(d_word);
@@ -3313,8 +3299,8 @@ del_word(void)
 static void
 undel_word(void)
 {
-	int temp;
-	int tposit;
+	int	       temp;
+	int	       tposit;
 	unsigned char *tmp_old_ptr;
 	unsigned char *tmp_space;
 	unsigned char *tmp_ptr;
@@ -3325,8 +3311,8 @@ undel_word(void)
 	 */
 	if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5)
 		point = resiz_line(d_wrd_len, curr_line, position);
-	tmp_ptr = tmp_space = xmalloc((size_t)curr_line->line_length +
-	    (size_t)d_wrd_len);
+	tmp_ptr = tmp_space =
+	    xmalloc((size_t)curr_line->line_length + (size_t)d_wrd_len);
 	d_word_ptr = d_word;
 	temp = 1;
 	/*
@@ -3376,7 +3362,7 @@ del_line(void)
 {
 	unsigned char *dl1;
 	unsigned char *dl2;
-	int tposit;
+	int	       tposit;
 
 	if (d_line != NULL)
 		free(d_line);
@@ -3408,7 +3394,7 @@ undel_line(void)
 {
 	unsigned char *ud1;
 	unsigned char *ud2;
-	int tposit;
+	int	       tposit;
 
 	if (dlt_line->line_length == 0)
 		return;
@@ -3446,7 +3432,7 @@ adv_word(void)
 static void
 move_rel(int direction, int lines)
 {
-	int i;
+	int   i;
 	char *tmp;
 
 	if (direction == 'u') {
@@ -3544,7 +3530,7 @@ static void
 from_top(void)
 {
 	struct text *tmpline = first_line;
-	int x = 1;
+	int	     x = 1;
 
 	while ((tmpline != NULL) && (tmpline != curr_line)) {
 		x++;
@@ -3557,12 +3543,12 @@ from_top(void)
 static void
 sh_command(char *string)
 {
-	char *temp_point;
-	char *last_slash;
-	char *path;		/* directory path to executable		*/
-	int parent;		/* zero if child, child's pid if parent	*/
-	int value;
-	int return_val;
+	char	    *temp_point;
+	char	    *last_slash;
+	char	    *path;   /* directory path to executable		*/
+	int	     parent; /* zero if child, child's pid if parent	*/
+	int	     value;
+	int	     return_val;
 	struct text *line_holder;
 
 	if (restrict_mode()) {
@@ -3606,15 +3592,15 @@ sh_command(char *string)
 			fprintf(stderr, "ee: fork: %s\n", strerror(errno));
 			return;
 		}
-		if (!parent) {		/* if the child		*/
-/*
- |  child process which will fork and exec shell command (if shell output is
- |  to be read by editor)
- */
+		if (!parent) { /* if the child		*/
+			       /*
+				|  child process which will fork and exec shell command
+				(if shell output is |  to be read by editor)
+				*/
 			in_pipe = FALSE;
-/*
- |  redirect stdout and stderr to the pipe
- */
+			/*
+			 |  redirect stdout and stderr to the pipe
+			 */
 			close(1);
 			if (dup(pipe_in[1]) < 0)
 				_exit(127);
@@ -3626,10 +3612,10 @@ sh_command(char *string)
 			 |	child will now continue down 'if (!in_pipe)'
 			 |	path below
 			 */
-		} else  /* if the parent	*/ {
-/*
- |  prepare editor to read from the pipe
- */
+		} else /* if the parent	*/ {
+			/*
+			 |  prepare editor to read from the pipe
+			 */
 			signal(SIGCHLD, SIG_IGN);
 			line_holder = curr_line;
 			tmp_vert = scr_vert;
@@ -3645,11 +3631,11 @@ sh_command(char *string)
 			point = curr_line->line;
 			out_pipe = FALSE;
 			signal(SIGCHLD, SIG_DFL);
-/*
- |  since flag "in_pipe" is still TRUE, the path which waits for the child
- |  process to die will be avoided.
- |  (the pipe is closed, no more output can be expected)
- */
+			/*
+			 |  since flag "in_pipe" is still TRUE, the path which
+			 waits for the child |  process to die will be avoided.
+			 |  (the pipe is closed, no more output can be expected)
+			 */
 		}
 	}
 	if (!in_pipe) {
@@ -3658,9 +3644,9 @@ sh_command(char *string)
 			out_pipe = FALSE;
 			fprintf(stderr, "ee: pipe: %s\n", strerror(errno));
 		}
-/*
- |  fork process which will exec command
- */
+		/*
+		 |  fork process which will exec command
+		 */
 		parent = fork();
 		if (parent < 0) {
 			if (out_pipe) {
@@ -3672,14 +3658,15 @@ sh_command(char *string)
 			fprintf(stderr, "ee: fork: %s\n", strerror(errno));
 			return;
 		}
-		if (!parent) {		/* if the child	*/
+		if (!parent) { /* if the child	*/
 			if (shell_fork)
 				putchar('\n');
 			if (out_pipe) {
-/*
- |  prepare the child process (soon to exec a shell command) to read from the
- |  pipe (which will be output from the editor's buffer)
- */
+				/*
+				 |  prepare the child process (soon to exec a
+				 shell command) to read from the |  pipe (which
+				 will be output from the editor's buffer)
+				 */
 				close(0);
 				if (dup(pipe_out[0]) < 0)
 					_exit(127);
@@ -3689,21 +3676,21 @@ sh_command(char *string)
 			for (value = 1; value < 24; value++)
 				signal(value, SIG_DFL);
 			execl(path, last_slash, "-c", string, NULL);
-			fprintf(stderr,
-			    "unable to execute command %s\n", path);
+			fprintf(stderr, "unable to execute command %s\n", path);
 			_exit(127);
-		} else	/* if the parent	*/ {
+		} else /* if the parent	*/ {
 			if (out_pipe) {
-/*
- |  output the contents of the buffer to the pipe (to be read by the
- |  process forked and exec'd above as stdin)
- */
+				/*
+				 |  output the contents of the buffer to the
+				 pipe (to be read by the |  process forked and
+				 exec'd above as stdin)
+				 */
 				close(pipe_out[0]);
 				line_holder = first_line;
 				while (line_holder != NULL) {
 					write(pipe_out[1], line_holder->line,
 					    (size_t)(line_holder->line_length -
-					    1));
+						1));
 					write(pipe_out[1], "\n", 1);
 					line_holder = line_holder->next_line;
 				}
@@ -3712,20 +3699,22 @@ sh_command(char *string)
 			}
 			for (;;) {
 				return_val = waitpid(parent, NULL, 0);
-				if ((return_val == parent) || (return_val < 0 &&
-				    errno != EINTR))
+				if ((return_val == parent) ||
+				    (return_val < 0 && errno != EINTR))
 					break;
 			}
-/*
- |  if this process is actually the child of the editor, exit.  Here's how it
- |  works:
- |  The editor forks a process.  If output must be sent to the command to be
- |  exec'd another process is forked, and that process (the child's child)
- |  will exec the command.  In this case, "shell_fork" will be FALSE.  If no
- |  output is to be performed to the shell command, "shell_fork" will be TRUE.
- |  If this is the editor process, shell_fork will be true, otherwise this is
- |  the child of the edit process.
- */
+			/*
+			 |  if this process is actually the child of the editor,
+			 exit.  Here's how it |  works: |  The editor forks a
+			 process.  If output must be sent to the command to be
+			 |  exec'd another process is forked, and that process
+			 (the child's child) |  will exec the command.  In this
+			 case, "shell_fork" will be FALSE.  If no |  output is
+			 to be performed to the shell command, "shell_fork" will
+			 be TRUE. |  If this is the editor process, shell_fork
+			 will be true, otherwise this is |  the child of the
+			 edit process.
+			 */
 			if (!shell_fork)
 				exit(0);
 		}
@@ -3802,8 +3791,8 @@ set_up_term(void)
 
 	if (!curses_initialized) {
 		if (initscr() == NULL) {
-			fprintf(stderr,
-			    "ee: unable to initialize the terminal\n");
+			fprintf(
+			    stderr, "ee: unable to initialize the terminal\n");
 			exit(1);
 		}
 		savetty();
@@ -3968,8 +3957,8 @@ menu_geometry(struct menu_entries menu_list[], struct menu_geometry *g)
 	g->top_offset = 0;
 	if (g->list_size > LINES) {
 		g->max_height = LINES;
-		g->vert_size = (g->max_height > 11) ?
-		    g->max_height - 8 : g->max_height;
+		g->vert_size =
+		    (g->max_height > 11) ? g->max_height - 8 : g->max_height;
 	} else {
 		g->vert_size = g->list_size;
 		g->max_height = g->list_size;
@@ -3997,16 +3986,17 @@ menu_geometry(struct menu_entries menu_list[], struct menu_geometry *g)
 static int
 menu_op(struct menu_entries menu_list[])
 {
-	WINDOW *temp_win;
+	WINDOW		    *temp_win;
 	struct menu_geometry g;
-	int max_width, max_height;
-	int counter;
-	int input;
-	int temp = 0;
-	int list_size;
-	int top_offset;		/* offset from top where menu items start */
-	int vert_size;		/* vertical size for menu list item display */
-	int off_start = 1;	/* offset from start of menu items to start display */
+	int		     max_width, max_height;
+	int		     counter;
+	int		     input;
+	int		     temp = 0;
+	int		     list_size;
+	int top_offset; /* offset from top where menu items start */
+	int vert_size;	/* vertical size for menu list item display */
+	int off_start =
+	    1; /* offset from start of menu items to start display */
 
 	menu_geometry(menu_list, &g);
 	list_size = g.list_size;
@@ -4042,7 +4032,7 @@ menu_op(struct menu_entries menu_list[])
 		wrefresh(temp_win);
 		{
 			wint_t win;
-			int wret = wget_wch(temp_win, &win);
+			int    wret = wget_wch(temp_win, &win);
 
 			if (wret == ERR) {
 				if (ee_intr_flag)
@@ -4069,13 +4059,13 @@ menu_op(struct menu_entries menu_list[])
 					counter = 1;
 				if (off_start > list_size)
 					off_start = 1;
-				temp_win = newwin(max_height, max_width,
-				    g.y_off, g.x_off);
+				temp_win = newwin(
+				    max_height, max_width, g.y_off, g.x_off);
 				if (temp_win == NULL) {
 					wmove(com_win, 0, 0);
 					werase(com_win);
-					wprintw(com_win, "%s",
-					    menu_too_lrg_msg);
+					wprintw(
+					    com_win, "%s", menu_too_lrg_msg);
 					wrefresh(com_win);
 					clear_com_win = TRUE;
 					return (0);
@@ -4103,7 +4093,8 @@ menu_op(struct menu_entries menu_list[])
 		    (input >= 'A' && input <= 'Z') ||
 		    (input >= '0' && input <= '9')) {
 			int c = (input >= 'A' && input <= 'Z') ?
-			    input + ('a' - 'A') : input;
+			    input + ('a' - 'A') :
+			    input;
 
 			if (c >= 'a' && c <= 'z')
 				temp = 1 + c - 'a';
@@ -4116,17 +4107,17 @@ menu_op(struct menu_entries menu_list[])
 			}
 		} else {
 			switch (input) {
-			case ' ':	/* space	*/
-			case '\004':	/* ^d, down	*/
+			case ' ':    /* space	*/
+			case '\004': /* ^d, down	*/
 			case KEY_RIGHT:
 			case KEY_DOWN:
 				counter++;
 				if (counter > list_size)
 					counter = 1;
 				break;
-			case '\010':	/* ^h, backspace*/
-			case '\025':	/* ^u, up	*/
-			case 127:	/* ^?, delete	*/
+			case '\010': /* ^h, backspace*/
+			case '\025': /* ^u, up	*/
+			case 127:    /* ^?, delete	*/
 			case KEY_BACKSPACE:
 			case KEY_LEFT:
 			case KEY_UP:
@@ -4134,15 +4125,15 @@ menu_op(struct menu_entries menu_list[])
 				if (counter == 0)
 					counter = list_size;
 				break;
-			case '\033':	/* escape key	*/
+			case '\033': /* escape key	*/
 				if (menu_list[0].argument != MENU_WARN)
 					counter = 0;
 				break;
-			case '\014':	/* ^l       	*/
-			case '\022':	/* ^r, redraw	*/
+			case '\014': /* ^l       	*/
+			case '\022': /* ^r, redraw	*/
 				paint_menu(menu_list, max_width, max_height,
-				    list_size, top_offset, temp_win,
-				    off_start, vert_size, counter);
+				    list_size, top_offset, temp_win, off_start,
+				    vert_size, counter);
 				break;
 			default:
 				break;
@@ -4157,9 +4148,9 @@ menu_op(struct menu_entries menu_list[])
 			else
 				off_start++;
 
-			paint_menu(menu_list, max_width, max_height,
-			    list_size, top_offset, temp_win, off_start,
-			    vert_size, counter);
+			paint_menu(menu_list, max_width, max_height, list_size,
+			    top_offset, temp_win, off_start, vert_size,
+			    counter);
 		} else if ((list_size != vert_size) &&
 		    (counter > (off_start + vert_size - 2))) {
 			if (counter == list_size)
@@ -4169,18 +4160,18 @@ menu_op(struct menu_entries menu_list[])
 			else
 				off_start++;
 
-			paint_menu(menu_list, max_width, max_height,
-			    list_size, top_offset, temp_win, off_start,
-			    vert_size, counter);
+			paint_menu(menu_list, max_width, max_height, list_size,
+			    top_offset, temp_win, off_start, vert_size,
+			    counter);
 		} else if (counter < off_start) {
 			if (counter <= 2)
 				off_start = 1;
 			else
 				off_start = counter;
 
-			paint_menu(menu_list, max_width, max_height,
-			    list_size, top_offset, temp_win, off_start,
-			    vert_size, counter);
+			paint_menu(menu_list, max_width, max_height, list_size,
+			    top_offset, temp_win, off_start, vert_size,
+			    counter);
 		}
 
 		paint_menu(menu_list, max_width, max_height, list_size,
@@ -4219,8 +4210,7 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 	wmove(menu_win, row, MENU_ITEM_COL);
 	if (!nohighlight && highlight) {
 		wstandout(menu_win);
-		for (column = MENU_ITEM_COL; column < (max_width - 2);
-		    column++)
+		for (column = MENU_ITEM_COL; column < (max_width - 2); column++)
 			waddch(menu_win, ' ');
 		wmove(menu_win, row, MENU_ITEM_COL);
 	}
@@ -4229,7 +4219,7 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 		avail = 0;
 	if (list_size > 1) {
 		char prefix[8];
-		int plen;
+		int  plen;
 
 		snprintf(prefix, sizeof(prefix), "%c) ",
 		    item_alpha[ee_min((item - 1), max_alpha_char)]);
@@ -4272,8 +4262,7 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 
 		if (menu_list[0].argument != MENU_WARN) {
 			wmove(menu_win, (max_height - 4), 1);
-			for (counter = 0; counter < (max_width - 2);
-			    counter++)
+			for (counter = 0; counter < (max_width - 2); counter++)
 				waddch(menu_win, '-');
 			wmove(menu_win, (max_height - 3), MENU_ITEM_COL);
 			waddstr(menu_win, menu_cancel_msg);
@@ -4291,16 +4280,15 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 		for (counter = off_start;
 		    ((temp_int + counter - off_start) < (vert_size - 1));
 		    counter++) {
-			paint_menu_item(menu_list, counter, list_size,
-			    menu_win,
+			paint_menu_item(menu_list, counter, list_size, menu_win,
 			    (top_offset + temp_int + (counter - off_start)),
 			    max_width, (counter == selection));
 		}
 
 		if (counter == list_size)
-			paint_menu_item(menu_list, counter, list_size,
-			    menu_win, (top_offset + (vert_size - 1)),
-			    max_width, (counter == selection));
+			paint_menu_item(menu_list, counter, list_size, menu_win,
+			    (top_offset + (vert_size - 1)), max_width,
+			    (counter == selection));
 		else {
 			wmove(menu_win, (top_offset + (vert_size - 1)),
 			    MENU_ITEM_COL);
@@ -4308,9 +4296,9 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 		}
 	} else {
 		for (counter = 1; counter <= list_size; counter++) {
-			paint_menu_item(menu_list, counter, list_size,
-			    menu_win, (top_offset + counter - 1),
-			    max_width, (counter == selection));
+			paint_menu_item(menu_list, counter, list_size, menu_win,
+			    (top_offset + counter - 1), max_width,
+			    (counter == selection));
 		}
 	}
 }
@@ -4339,8 +4327,8 @@ static void
 help(void)
 {
 	char line[256];
-	int total, top = 0, rows, cols, pagesize;
-	int i, done = 0, header;
+	int  total, top = 0, rows, cols, pagesize;
+	int  i, done = 0, header;
 
 	total = ee_help_count(emacs_keys_mode);
 
@@ -4372,7 +4360,7 @@ help(void)
 
 		{
 			wint_t win;
-			int wret = wget_wch(help_win, &win);
+			int    wret = wget_wch(help_win, &win);
 
 			if (wret == ERR) {
 				if (ee_intr_flag)
@@ -4398,18 +4386,18 @@ help(void)
 				continue;
 			}
 			switch ((int)win) {
-			case 27:	/* Esc */
+			case 27: /* Esc */
 			case 'q':
 			case '\n':
 			case '\r':
 				done = 1;
 				break;
 			case ' ':
-			case '\016':	/* ^N */
+			case '\016': /* ^N */
 				if (top + pagesize < total)
 					top += pagesize;
 				break;
-			case '\020':	/* ^P */
+			case '\020': /* ^P */
 				top -= pagesize;
 				if (top < 0)
 					top = 0;
@@ -4436,17 +4424,18 @@ help(void)
 static void
 paint_status_line(void)
 {
-	char right[120];
+	char	    right[120];
 	const char *name;
-	int cols, width, right_col, avail;
-	int percent;
+	int	    cols, width, right_col, avail;
+	int	    percent;
 
 	if (title_win == NULL)
 		return;
 
 	cols = getmaxx(title_win);
 	name = ((in_file_name != NULL) && (*in_file_name != '\0')) ?
-	    (const char *)in_file_name : no_file_string;
+	    (const char *)in_file_name :
+	    no_file_string;
 
 	/*
 	 * The percentage runs from 0 on the first line to 100 on the last
@@ -4464,8 +4453,8 @@ paint_status_line(void)
 
 	if (read_only)
 		snprintf(right, sizeof(right),
-		    "Ln %d, Col %d  %d%%  [Read Only]",
-		    curr_line->line_number, scr_horz + 1, percent);
+		    "Ln %d, Col %d  %d%%  [Read Only]", curr_line->line_number,
+		    scr_horz + 1, percent);
 	else if (text_changes)
 		snprintf(right, sizeof(right),
 		    "Ln %d, Col %d  %d%%  [Modified]", curr_line->line_number,
@@ -4534,11 +4523,9 @@ set_shortcuts(const char *const *items, int count)
 static void
 default_shortcuts(void)
 {
-	static const char *const normal[] = {
-		"^[ Menu", "^S Save", "^Q Quit", "^E Search", "^X Find",
-		"^W Cut word", "^V Paste word", "^Y Cut line",
-		"^Z Paste line", "^U Up", "^D Down", "^C Command"
-	};
+	static const char *const normal[] = {"^[ Menu", "^S Save", "^Q Quit",
+	    "^E Search", "^X Find", "^W Cut word", "^V Paste word",
+	    "^Y Cut line", "^Z Paste line", "^U Up", "^D Down", "^C Command"};
 
 	set_shortcuts(normal, (int)(sizeof(normal) / sizeof(normal[0])));
 }
@@ -4565,7 +4552,7 @@ paint_shortcut_bar(void)
 	col = 0;
 	for (i = 0; i < shortcut_bar.count; i++) {
 		const char *item = shortcut_bar.items[i];
-		int w;
+		int	    w;
 
 		if (item == NULL)
 			continue;
@@ -4610,7 +4597,7 @@ static int
 save_op(void)
 {
 	char *string;
-	int have_name;
+	int   have_name;
 
 	if (restrict_mode())
 		return (FALSE);
@@ -4620,7 +4607,7 @@ save_op(void)
 	if (!have_name) {
 		string = get_string(save_file_name_prompt, TRUE);
 		if (string == NULL)
-			return (FALSE);		/* cancelled */
+			return (FALSE); /* cancelled */
 	}
 	if ((string == NULL) || (*string == '\0')) {
 		wmove(com_win, 0, 0);
@@ -4724,7 +4711,7 @@ static int
 Blank_Line(struct text *test_line)
 {
 	unsigned char *line;
-	int length;
+	int	       length;
 
 	if (test_line == NULL)
 		return (TRUE);
@@ -4756,42 +4743,42 @@ Blank_Line(struct text *test_line)
 static void
 Format(void)
 {
-	int string_count;
-	int offset;
-	int temp_case;
-	int status;
-	int tmp_af;
-	int counter;
-	int temp_dwl;
+	int	       string_count;
+	int	       offset;
+	int	       temp_case;
+	int	       status;
+	int	       tmp_af;
+	int	       counter;
+	int	       temp_dwl;
 	unsigned char *line;
 	unsigned char *tmp_srchstr;
 	unsigned char *temp1, *temp2;
 	unsigned char *temp_dword;
-	unsigned char temp_d_char[5];
+	unsigned char  temp_d_char[5];
 
 	memcpy(temp_d_char, d_char, sizeof(temp_d_char));
 
-/*
- |	if observ_margins is not set, or the current line is blank,
- |	do not format the current paragraph
- */
+	/*
+	 |	if observ_margins is not set, or the current line is blank,
+	 |	do not format the current paragraph
+	 */
 
 	if ((!observ_margins) || (Blank_Line(curr_line)))
 		return;
 
-/*
- |	save the currently set flags, and clear them
- */
+	/*
+	 |	save the currently set flags, and clear them
+	 */
 
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
 	wprintw(com_win, "%s", formatting_msg);
 	wrefresh(com_win);
 
-/*
- |	get current position in paragraph, so after formatting, the cursor
- |	will be in the same relative position
- */
+	/*
+	 |	get current position in paragraph, so after formatting, the
+	 cursor |	will be in the same relative position
+	 */
 
 	tmp_af = auto_format;
 	auto_format = FALSE;
@@ -4807,7 +4794,8 @@ Format(void)
 	tmp_srchstr = srch_str;
 	{
 		size_t srch_len = (curr_line->line_length > position) ?
-		    (size_t)(curr_line->line_length - position) : 0;
+		    (size_t)(curr_line->line_length - position) :
+		    0;
 
 		temp2 = srch_str = xmalloc(srch_len + 1);
 	}
@@ -4840,9 +4828,9 @@ Format(void)
 	wprintw(com_win, "%s", formatting_msg);
 	wrefresh(com_win);
 
-/*
- |	now get back to the start of the paragraph to start formatting
- */
+	/*
+	 |	now get back to the start of the paragraph to start formatting
+	 */
 
 	if (position != 1)
 		bol();
@@ -4851,11 +4839,11 @@ Format(void)
 
 	observ_margins = FALSE;
 
-/*
- |	Start going through lines, putting spaces at end of lines if they do
- |	not already exist.  Append lines together to get one long line, and
- |	eliminate spacing at begin of lines.
- */
+	/*
+	 |	Start going through lines, putting spaces at end of lines if
+	 they do |	not already exist.  Append lines together to get one
+	 long line, and |	eliminate spacing at begin of lines.
+	 */
 
 	while (!Blank_Line(curr_line->next_line)) {
 		eol();
@@ -4870,11 +4858,11 @@ Format(void)
 			del_word();
 	}
 
-/*
- |	Now there is one long line.  Eliminate extra spaces within the line
- |	after the first word (so as not to blow away any indenting the user
- |	may have put in).
- */
+	/*
+	 |	Now there is one long line.  Eliminate extra spaces within the
+	 line |	after the first word (so as not to blow away any indenting the
+	 user |	may have put in).
+	 */
 
 	bol();
 	adv_word();
@@ -4885,9 +4873,9 @@ Format(void)
 			right(TRUE);
 	}
 
-/*
- |	Now make sure there are two spaces after a '.'.
- */
+	/*
+	 |	Now make sure there are two spaces after a '.'.
+	 */
 
 	bol();
 	while (position < curr_line->line_length) {
@@ -4909,9 +4897,9 @@ Format(void)
 	wprintw(com_win, "%s", formatting_msg);
 	wrefresh(com_win);
 
-/*
- |	create lines between margins
- */
+	/*
+	 |	create lines between margins
+	 */
 
 	while (position < curr_line->line_length) {
 		while ((scr_pos < right_margin) &&
@@ -4925,35 +4913,37 @@ Format(void)
 		}
 	}
 
-/*
- |	go back to begin of paragraph, put cursor back to original position
- */
+	/*
+	 |	go back to begin of paragraph, put cursor back to original
+	 position
+	 */
 
 	bol();
 	while (!Blank_Line(curr_line->prev_line))
 		bol();
 
-/*
- |	find word cursor was in
- */
+	/*
+	 |	find word cursor was in
+	 */
 
 	while ((status) && (string_count > 0)) {
 		search(FALSE);
 		string_count--;
 	}
 
-/*
- |	offset the cursor to where it was before from the start of the word
- */
+	/*
+	 |	offset the cursor to where it was before from the start of the
+	 word
+	 */
 
 	while (offset > 0) {
 		offset--;
 		right(TRUE);
 	}
 
-/*
- |	reset flags and strings to what they were before formatting
- */
+	/*
+	 |	reset flags and strings to what they were before formatting
+	 */
 
 	if (d_word != NULL)
 		free(d_word);
@@ -4970,26 +4960,22 @@ Format(void)
 	wrefresh(com_win);
 }
 
-static char *init_name[3] = {
-	"/usr/share/misc/init.ee",
-	NULL,
-	".init.ee"
-};
+static char *init_name[3] = {"/usr/share/misc/init.ee", NULL, ".init.ee"};
 
 /* check for init file and read it if it exists	*/
 static void
 ee_init(void)
 {
-	FILE *init_file;
+	FILE	   *init_file;
 	const char *home_dir;
-	char *home;
-	char *line = NULL;
-	char *p;
-	size_t linecap = 0;
-	size_t home_size;
-	ssize_t linelen;
-	int counter;
-	int temp_int;
+	char	   *home;
+	char	   *line = NULL;
+	char	   *p;
+	size_t	    linecap = 0;
+	size_t	    home_size;
+	ssize_t	    linelen;
+	int	    counter;
+	int	    temp_int;
 
 	home_dir = getenv("HOME");
 	if (home_dir == NULL)
@@ -5042,8 +5028,8 @@ ee_init(void)
 			} else if (compare(p, PRINTCOMMAND, FALSE)) {
 				p = next_word(p);
 				print_command = xmalloc(strlen(p) + 1);
-				strlcpy((char *)print_command, p,
-				    strlen(p) + 1);
+				strlcpy(
+				    (char *)print_command, p, strlen(p) + 1);
 			} else if (compare(p, RIGHTMARGIN, FALSE)) {
 				p = next_word(p);
 				if ((*p >= '0') && (*p <= '9')) {
@@ -5077,18 +5063,18 @@ ee_init(void)
 static void
 dump_ee_conf(void)
 {
-	FILE *init_file;
-	FILE *old_init_file = NULL;
+	FILE	   *init_file;
+	FILE	   *old_init_file = NULL;
 	const char *file_name = ".init.ee";
 	const char *home_dir = "~/.init.ee";
-	char *resolved = NULL;
-	char *old_name = NULL;
+	char	   *resolved = NULL;
+	char	   *old_name = NULL;
 	struct stat buf;
-	char *line = NULL;
-	size_t linecap = 0;
-	ssize_t linelen;
-	int option = 0;
-	int write_ok = TRUE;
+	char	   *line = NULL;
+	size_t	    linecap = 0;
+	ssize_t	    linelen;
+	int	    option = 0;
+	int	    write_ok = TRUE;
 
 	if (restrict_mode())
 		return;
@@ -5138,8 +5124,8 @@ dump_ee_conf(void)
 		/*
 		 |	Copy non-configuration info into new .init.ee file.
 		 */
-		while ((linelen = getline(&line, &linecap, old_init_file)) !=
-		    -1) {
+		while (
+		    (linelen = getline(&line, &linecap, old_init_file)) != -1) {
 			if ((linelen > 0) && (line[linelen - 1] == '\n'))
 				line[--linelen] = '\0';
 
@@ -5162,8 +5148,8 @@ dump_ee_conf(void)
 	if (fprintf(init_file, "%s\n", observ_margins ? MARGINS : NOMARGINS) <
 	    0)
 		write_ok = FALSE;
-	if (fprintf(init_file, "%s\n",
-	    auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0)
+	if (fprintf(
+		init_file, "%s\n", auto_format ? AUTOFORMAT : NOAUTOFORMAT) < 0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command) < 0)
 		write_ok = FALSE;
@@ -5173,7 +5159,7 @@ dump_ee_conf(void)
 	    0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n",
-	    emacs_keys_mode ? EMACS_string : NOEMACS_string) < 0)
+		emacs_keys_mode ? EMACS_string : NOEMACS_string) < 0)
 		write_ok = FALSE;
 
 	if (fflush(init_file) != 0)
@@ -5186,8 +5172,8 @@ dump_ee_conf(void)
 	if (!write_ok) {
 		waddstr(com_win, conf_dump_err_msg);
 	} else {
-		wprintw(com_win, "ee configuration saved in file %s",
-		    file_name);
+		wprintw(
+		    com_win, "ee configuration saved in file %s", file_name);
 	}
 	wrefresh(com_win);
 	clear_com_win = TRUE;
@@ -5202,7 +5188,7 @@ static void
 echo_string(char *string)
 {
 	char *temp;
-	int Counter;
+	int   Counter;
 
 	temp = (char *)string;
 	while (*temp != '\0') {
@@ -5226,7 +5212,7 @@ echo_string(char *string)
 			else if (*temp == 'f')
 				putchar('\f');
 			else if ((*temp == 'e') || (*temp == 'E'))
-				putchar('\033');	/* escape */
+				putchar('\033'); /* escape */
 			else if (*temp == '\\')
 				putchar('\\');
 			else if (*temp == '\'')
@@ -5257,8 +5243,8 @@ spell_op(void)
 	if (restrict_mode()) {
 		return;
 	}
-	top();			/* go to top of file		*/
-	insert_line(FALSE);	/* create two blank lines	*/
+	top();		    /* go to top of file		*/
+	insert_line(FALSE); /* create two blank lines	*/
 	insert_line(FALSE);
 	top();
 	command(shell_echo_msg);
@@ -5267,18 +5253,18 @@ spell_op(void)
 	wclrtoeol(com_win);
 	wprintw(com_win, "%s", spell_in_prog_msg);
 	wrefresh(com_win);
-	command("<>!spell");	/* send contents of buffer to command 'spell'
-				   and read the results back into the editor */
+	command("<>!spell"); /* send contents of buffer to command 'spell'
+				and read the results back into the editor */
 }
 
 static void
 ispell_op(void)
 {
 	const char *tmpdir;
-	char *name;
-	char *cmd;
-	size_t len;
-	int fd;
+	char	   *name;
+	char	   *cmd;
+	size_t	    len;
+	int	    fd;
 
 	if (restrict_mode())
 		return;
@@ -5326,15 +5312,14 @@ ispell_op(void)
 static int
 first_word_len(struct text *test_line)
 {
-	int counter;
+	int	       counter;
 	unsigned char *pnt;
 
 	if (test_line == NULL)
 		return (0);
 
 	pnt = test_line->line;
-	if ((pnt == NULL) || (*pnt == '\0') ||
-	    (*pnt == '.') || (*pnt == '>'))
+	if ((pnt == NULL) || (*pnt == '\0') || (*pnt == '.') || (*pnt == '>'))
 		return (0);
 
 	if ((*pnt == ' ') || (*pnt == '\t')) {
@@ -5360,37 +5345,37 @@ first_word_len(struct text *test_line)
 static void
 Auto_Format(void)
 {
-	int string_count;
-	int offset;
-	int temp_case;
-	int word_len;
-	int temp_dwl;
-	int tmp_d_line_length;
-	int leave_loop = FALSE;
-	int status;
-	int counter;
-	char not_blank;
+	int	       string_count;
+	int	       offset;
+	int	       temp_case;
+	int	       word_len;
+	int	       temp_dwl;
+	int	       tmp_d_line_length;
+	int	       leave_loop = FALSE;
+	int	       status;
+	int	       counter;
+	char	       not_blank;
 	unsigned char *line;
 	unsigned char *tmp_srchstr;
 	unsigned char *temp1, *temp2;
 	unsigned char *temp_dword;
-	unsigned char temp_d_char[5];
+	unsigned char  temp_d_char[5];
 	unsigned char *tmp_d_line;
 
 	memcpy(temp_d_char, d_char, sizeof(temp_d_char));
 
-/*
- |	if observ_margins is not set, or the current line is blank,
- |	do not format the current paragraph
- */
+	/*
+	 |	if observ_margins is not set, or the current line is blank,
+	 |	do not format the current paragraph
+	 */
 
 	if ((!observ_margins) || (Blank_Line(curr_line)))
 		return;
 
-/*
- |	get current position in paragraph, so after formatting, the cursor
- |	will be in the same relative position
- */
+	/*
+	 |	get current position in paragraph, so after formatting, the
+	 cursor |	will be in the same relative position
+	 */
 
 	tmp_d_line = d_line;
 	tmp_d_line_length = dlt_line->line_length;
@@ -5399,7 +5384,7 @@ Auto_Format(void)
 	offset = position;
 	if ((position != 1) &&
 	    ((*point == ' ') || (*point == '\t') ||
-	     (position == curr_line->line_length) || (*point == '\0')))
+		(position == curr_line->line_length) || (*point == '\0')))
 		prev_word();
 	temp_dword = d_word;
 	temp_dwl = d_wrd_len;
@@ -5410,7 +5395,8 @@ Auto_Format(void)
 	tmp_srchstr = srch_str;
 	{
 		size_t srch_len = (curr_line->line_length > position) ?
-		    (size_t)(curr_line->line_length - position) : 0;
+		    (size_t)(curr_line->line_length - position) :
+		    0;
 
 		temp2 = srch_str = xmalloc(srch_len + 1);
 	}
@@ -5438,21 +5424,21 @@ Auto_Format(void)
 		string_count++;
 	}
 
-/*
- |	now get back to the start of the paragraph to start checking
- */
+	/*
+	 |	now get back to the start of the paragraph to start checking
+	 */
 
 	if (position != 1)
 		bol();
 	while (!Blank_Line(curr_line->prev_line))
 		bol();
 
-/*
- |	Start going through lines, putting spaces at end of lines if they do
- |	not already exist.  Check line length, and move words to the next line
- |	if they cross the margin.  Then get words from the next line if they
- |	will fit in before the margin.
- */
+	/*
+	 |	Start going through lines, putting spaces at end of lines if
+	 they do |	not already exist.  Check line length, and move words to
+	 the next line |	if they cross the margin.  Then get words from
+	 the next line if they |	will fit in before the margin.
+	 */
 
 	counter = 0;
 
@@ -5547,18 +5533,19 @@ Auto_Format(void)
 			leave_loop = TRUE;
 	}
 
-/*
- |	go back to begin of paragraph, put cursor back to original position
- */
+	/*
+	 |	go back to begin of paragraph, put cursor back to original
+	 position
+	 */
 
 	if (position != 1)
 		bol();
 	while ((counter-- > 0) || (!Blank_Line(curr_line->prev_line)))
 		bol();
 
-/*
- |	find word cursor was in
- */
+	/*
+	 |	find word cursor was in
+	 */
 
 	status = TRUE;
 	while ((status) && (string_count > 0)) {
@@ -5566,9 +5553,10 @@ Auto_Format(void)
 		string_count--;
 	}
 
-/*
- |	offset the cursor to where it was before from the start of the word
- */
+	/*
+	 |	offset the cursor to where it was before from the start of the
+	 word
+	 */
 
 	while (offset > 0) {
 		offset--;
@@ -5582,9 +5570,9 @@ Auto_Format(void)
 		}
 	}
 
-/*
- |	reset flags and strings to what they were before formatting
- */
+	/*
+	 |	reset flags and strings to what they were before formatting
+	 */
 
 	if (d_word != NULL)
 		free(d_word);
@@ -5612,8 +5600,8 @@ Auto_Format(void)
 static void
 modes_op(void)
 {
-	int ret_value;
-	int counter;
+	int   ret_value;
+	int   counter;
 	char *string;
 
 	do {
@@ -5683,7 +5671,7 @@ modes_op(void)
 [[nodiscard]] static int
 append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
 {
-	char *nb;
+	char  *nb;
 	size_t need, ncap;
 
 	if (n == 0)
@@ -5723,14 +5711,14 @@ append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
 static char *
 resolve_name(char *name)
 {
-	char *buffer;
-	char *buffer_owned = NULL;
-	char *out = NULL;
-	char *slash;
-	char *const_end;
-	size_t outlen = 0, outcap = 0;
+	char	      *buffer;
+	char	      *buffer_owned = NULL;
+	char	      *out = NULL;
+	char	      *slash;
+	char	      *const_end;
+	size_t	       outlen = 0, outcap = 0;
 	struct passwd *user;
-	size_t homelen, restlen, bufferlen;
+	size_t	       homelen, restlen, bufferlen;
 
 	if (name[0] == '~') {
 		if (name[1] == '/') {
@@ -5773,11 +5761,11 @@ resolve_name(char *name)
 		char *p = buffer;
 
 		while (*p != '\0') {
-			char *start;
-			char *vstart;
-			char *vend;
-			char *varname;
-			char *value;
+			char  *start;
+			char  *vstart;
+			char  *vend;
+			char  *varname;
+			char  *value;
 			size_t vlen;
 
 			if (*p != '$') {
@@ -5786,7 +5774,7 @@ resolve_name(char *name)
 				while ((*q != '\0') && (*q != '$'))
 					q++;
 				if (append_mem(&out, &outlen, &outcap, p,
-				    (size_t)(q - p)) < 0)
+					(size_t)(q - p)) < 0)
 					goto fail;
 				p = q;
 				continue;
@@ -5799,7 +5787,7 @@ resolve_name(char *name)
 				if (const_end == NULL) {
 					/* Unterminated: keep '$' literally. */
 					if (append_mem(&out, &outlen, &outcap,
-					    "$", 1) < 0)
+						"$", 1) < 0)
 						goto fail;
 					p++;
 					continue;
@@ -5826,12 +5814,12 @@ resolve_name(char *name)
 			free(varname);
 			if ((value != NULL) && (*value != '\0')) {
 				if (append_mem(&out, &outlen, &outcap, value,
-				    strlen(value)) < 0)
+					strlen(value)) < 0)
 					goto fail;
 			} else {
 				/* Unknown variable: keep the text as-is. */
 				if (append_mem(&out, &outlen, &outcap, start,
-				    (size_t)(p - start)) < 0)
+					(size_t)(p - start)) < 0)
 					goto fail;
 			}
 		}
@@ -5929,16 +5917,15 @@ locale_is_configured(void)
 static void
 select_utf8_locale(void)
 {
-	static const char *const fallback[] = {
-		"C.UTF-8", "en_US.UTF-8"
-	};
-	size_t i;
+	static const char *const fallback[] = {"C.UTF-8", "en_US.UTF-8"};
+	size_t			 i;
 
 	if ((setlocale(LC_CTYPE, "") != NULL) &&
 	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
 		return;
 	if (locale_is_configured()) {
-		fprintf(stderr, "ee: the configured locale is not UTF-8; "
+		fprintf(stderr,
+		    "ee: the configured locale is not UTF-8; "
 		    "set LC_CTYPE to a UTF-8 locale\n");
 		exit(1);
 	}
@@ -5947,7 +5934,8 @@ select_utf8_locale(void)
 		    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0))
 			return;
 	}
-	fprintf(stderr, "ee: no UTF-8 locale available; "
+	fprintf(stderr,
+	    "ee: no UTF-8 locale available; "
 	    "set LC_CTYPE to a UTF-8 locale\n");
 	exit(1);
 }

@@ -1,5 +1,3 @@
-#include "bsdcompat.h"
-
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -14,6 +12,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "bsdcompat.h"
+
 /*
  * Test-only hooks, compiled in only with -DDOASEDIT_TEST.  They allow
  * the behavioural test suite (doasedit/tests) to exercise the
@@ -25,7 +25,7 @@
 static uid_t
 our_uid(void)
 {
-	const char	*s = getenv("DOASEDIT_TEST_UID");
+	const char *s = getenv("DOASEDIT_TEST_UID");
 
 	if (s != NULL && s[0] != '\0')
 		return ((uid_t)strtoul(s, NULL, 10));
@@ -48,9 +48,9 @@ force_unreadable(void)
 static int
 our_access(const char *path, int mode)
 {
-	const char	*s = getenv("DOASEDIT_TEST_UID");
-	struct stat	 st;
-	mode_t		 bits;
+	const char *s = getenv("DOASEDIT_TEST_UID");
+	struct stat st;
+	mode_t	    bits;
 
 	if (s == NULL || s[0] == '\0')
 		return (access(path, mode));
@@ -71,9 +71,9 @@ our_access(const char *path, int mode)
 	return (0);
 }
 #else
-#define our_uid()		(getuid())
-#define force_unreadable()	(0)
-#define our_access(path, mode)	(access(path, mode))
+#define our_uid() (getuid())
+#define force_unreadable() (0)
+#define our_access(path, mode) (access(path, mode))
 #endif
 
 /*
@@ -83,29 +83,28 @@ our_access(const char *path, int mode)
  * The test build deliberately resolves doas(1) through PATH only, so
  * that the suite's fake doas is found even where a system doas exists.
  */
-#define DOAS_PATH	"/usr/bin/doas"
+#define DOAS_PATH "/usr/bin/doas"
 
 /* state used by the signal handler for cleanup */
-static char	*cur_tmpfile;
-static char	*cur_tmpcopy;
-static char	*cur_tmpdir;
-static pid_t	 editor_pid = -1;
+static char *cur_tmpfile;
+static char *cur_tmpcopy;
+static char *cur_tmpdir;
+static pid_t editor_pid = -1;
 
-[[noreturn]] static void	usage(void);
-[[nodiscard]] static int	doas_exec(const char *const *argv, int outfd,
-    int infd);
-[[nodiscard]] static int	run_editor(char *const *editor, const char *file);
-[[nodiscard]] static int	files_equal(const char *, const char *);
-[[nodiscard]] static int	copy_file(const char *, const char *);
-static int	is_doas_conf(const char *);
-static void	cleanup_current(void);
-static void	sighandler(int);
+[[noreturn]] static void usage(void);
+[[nodiscard]] static int doas_exec(
+    const char *const *argv, int outfd, int infd);
+[[nodiscard]] static int run_editor(char *const *editor, const char *file);
+[[nodiscard]] static int files_equal(const char *, const char *);
+[[nodiscard]] static int copy_file(const char *, const char *);
+static int		 is_doas_conf(const char *);
+static void		 cleanup_current(void);
+static void		 sighandler(int);
 
 [[noreturn]] static void
 usage(void)
 {
-	fprintf(stderr,
-	    "usage: doasedit [-h] [--] file ...\n");
+	fprintf(stderr, "usage: doasedit [-h] [--] file ...\n");
 	exit(1);
 }
 
@@ -152,10 +151,10 @@ cleanup_current(void)
 static char *
 resolve_target(const char *path)
 {
-	const char	*base, *dir, *end;
-	char		 dirbuf[PATH_MAX];
-	char		*rdir, *ret;
-	size_t		 dlen, blen;
+	const char *base, *dir, *end;
+	char	    dirbuf[PATH_MAX];
+	char	   *rdir, *ret;
+	size_t	    dlen, blen;
 
 	if (path[0] == '\0')
 		return (NULL);
@@ -164,7 +163,7 @@ resolve_target(const char *path)
 	while (end > path && end[-1] == '/')
 		end--;
 	if (end == path)
-		return (NULL);		/* "/" or "///" */
+		return (NULL); /* "/" or "///" */
 
 	base = end;
 	while (base > path && base[-1] != '/')
@@ -188,7 +187,7 @@ resolve_target(const char *path)
 	if (dlen == 0)
 		rdir = strdup(".");
 	else {
-		char	 rbuf[PATH_MAX];
+		char rbuf[PATH_MAX];
 
 		if (realpath(dir, rbuf) == NULL) {
 			warn("%s", dirbuf);
@@ -216,7 +215,7 @@ is_doas_conf(const char *path)
 	if (strcmp(path, "/etc/doas.conf") == 0)
 		return (1);
 	if (strncmp(path, "/etc/doas.d/", 12) == 0) {
-		size_t	len = strlen(path);
+		size_t len = strlen(path);
 
 		if (len > 12 && strcmp(path + len - 5, ".conf") == 0)
 			return (1);
@@ -232,10 +231,10 @@ is_doas_conf(const char *path)
 static int
 run_editor(char *const *editor, const char *file)
 {
-	pid_t	  pid;
-	int	  status;
-	char	**argv;
-	size_t	  n = 0;
+	pid_t  pid;
+	int    status;
+	char **argv;
+	size_t n = 0;
 
 	while (editor[n] != NULL)
 		n++;
@@ -276,8 +275,8 @@ run_editor(char *const *editor, const char *file)
 static int
 doas_exec(const char *const *argv, int outfd, int infd)
 {
-	pid_t	pid;
-	int	status;
+	pid_t pid;
+	int   status;
 
 	pid = fork();
 	switch (pid) {
@@ -317,9 +316,9 @@ doas_exec(const char *const *argv, int outfd, int infd)
 static int
 copy_file(const char *src, const char *dst)
 {
-	char	 buf[65536];
-	ssize_t	 n, off;
-	int	 in, out;
+	char	buf[65536];
+	ssize_t n, off;
+	int	in, out;
 
 	in = open(src, O_RDONLY | O_NOFOLLOW);
 	if (in == -1)
@@ -332,8 +331,7 @@ copy_file(const char *src, const char *dst)
 	while ((n = read(in, buf, sizeof(buf))) > 0) {
 		off = 0;
 		while (off < n) {
-			ssize_t	w = write(out, buf + off,
-			    (size_t)(n - off));
+			ssize_t w = write(out, buf + off, (size_t)(n - off));
 
 			if (w == -1) {
 				close(in);
@@ -351,9 +349,9 @@ copy_file(const char *src, const char *dst)
 static int
 files_equal(const char *a, const char *b)
 {
-	char	 ba[65536], bb[65536];
-	ssize_t	 na, nb;
-	int	 fa, fb, rc = 1;
+	char	ba[65536], bb[65536];
+	ssize_t na, nb;
+	int	fa, fb, rc = 1;
 
 	fa = open(a, O_RDONLY | O_NOFOLLOW);
 	if (fa == -1)
@@ -389,12 +387,12 @@ files_equal(const char *a, const char *b)
 static char **
 split_editor(const char *cmd)
 {
-	char	**argv = NULL;
-	size_t	  n = 0;
+	char **argv = NULL;
+	size_t n = 0;
 
 	while (*cmd != '\0') {
-		char	*word;
-		size_t	 len;
+		char  *word;
+		size_t len;
 
 		while (isspace((unsigned char)*cmd))
 			cmd++;
@@ -434,13 +432,13 @@ struct snapshot {
 	uid_t		uid;
 	gid_t		gid;
 	off_t		size;
-	struct timespec	mtim;
+	struct timespec mtim;
 };
 
 static int
 snapshot_of(const char *path, struct snapshot *snap)
 {
-	struct stat	 st;
+	struct stat st;
 
 	if (lstat(path, &st) == -1)
 		return (-1);
@@ -457,7 +455,7 @@ snapshot_of(const char *path, struct snapshot *snap)
 static int
 snapshot_equal(const char *path, const struct snapshot *snap)
 {
-	struct stat	 st;
+	struct stat st;
 
 	if (lstat(path, &st) == -1)
 		return (0);
@@ -472,14 +470,13 @@ snapshot_equal(const char *path, const struct snapshot *snap)
 [[nodiscard]] static int
 fd_copy_to(int in, int out)
 {
-	char	 buf[65536];
-	ssize_t	 n, off;
+	char	buf[65536];
+	ssize_t n, off;
 
 	while ((n = read(in, buf, sizeof(buf))) > 0) {
 		off = 0;
 		while (off < n) {
-			ssize_t	w = write(out, buf + off,
-			    (size_t)(n - off));
+			ssize_t w = write(out, buf + off, (size_t)(n - off));
 
 			if (w == -1)
 				return (-1);
@@ -493,7 +490,7 @@ fd_copy_to(int in, int out)
 [[nodiscard]] static int
 file_into_fd(const char *src, int outfd)
 {
-	int	in, rc;
+	int in, rc;
 
 	in = open(src, O_RDONLY | O_NOFOLLOW);
 	if (in == -1)
@@ -510,8 +507,8 @@ file_into_fd(const char *src, int outfd)
 static int
 command_exists(const char *cmd)
 {
-	const char	*path, *p;
-	char		 buf[PATH_MAX];
+	const char *path, *p;
+	char	    buf[PATH_MAX];
 
 	if (strchr(cmd, '/') != NULL)
 		return (our_access(cmd, X_OK) == 0);
@@ -519,7 +516,7 @@ command_exists(const char *cmd)
 	if (path == NULL)
 		path = "/usr/bin:/bin";
 	for (p = path; *p != '\0';) {
-		size_t	len;
+		size_t len;
 
 		while (*p == ':')
 			p++;
@@ -545,12 +542,11 @@ command_exists(const char *cmd)
 }
 
 static int
-check_doas_conf(const char *target, const char *tmpfile,
-    char *const *editor)
+check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 {
-	const char	*doas_argv[] = { "doas", "-C", tmpfile, NULL };
-	char		 line[16];
-	int		 status;
+	const char *doas_argv[] = {"doas", "-C", tmpfile, NULL};
+	char	    line[16];
+	int	    status;
 
 	if (!is_doas_conf(target))
 		return (0);
@@ -560,9 +556,10 @@ check_doas_conf(const char *target, const char *tmpfile,
 		if (status == 0)
 			return (0);
 		printf("doasedit: Replacing '%s' would introduce the "
-		    "above error and break doas.\n", target);
+		       "above error and break doas.\n",
+		    target);
 		printf("(E)dit again, (O)verwrite anyway, (A)bort: "
-		    "[E/o/a]? ");
+		       "[E/o/a]? ");
 		fflush(stdout);
 		if (fgets(line, sizeof(line), stdin) == NULL)
 			return (1);
@@ -585,17 +582,17 @@ check_doas_conf(const char *target, const char *tmpfile,
 	}
 }
 
-static char	**editor_cmd;
+static char **editor_cmd;
 
 int
 main(int argc, char *argv[])
 {
-	const char	*editor_env;
-	const char	*env_editor;
-	char		*tmpdir = NULL;
-	char		 tdir_tmpl[] = "/tmp/doasedit.XXXXXXXXXX";
-	const char	*tmpenv;
-	int		 i, exit_code = 1;
+	const char *editor_env;
+	const char *env_editor;
+	char	   *tmpdir = NULL;
+	char	    tdir_tmpl[] = "/tmp/doasedit.XXXXXXXXXX";
+	const char *tmpenv;
+	int	    i, exit_code = 1;
 
 	setprogname(argv[0]);
 
@@ -641,8 +638,8 @@ main(int argc, char *argv[])
 	 * the same probe as the original implementation.
 	 */
 	{
-		const char *probe[] = { "doas", "dd", "status=none",
-			"count=0", "of=/dev/null", NULL };
+		const char *probe[] = {"doas", "dd", "status=none", "count=0",
+		    "of=/dev/null", NULL};
 
 		if (doas_exec(probe, -1, -1) != 0)
 			errx(1, "unable to run 'doas dd'");
@@ -668,7 +665,7 @@ main(int argc, char *argv[])
 	/* private temporary directory */
 	tmpenv = getenv("TMPDIR");
 	if (tmpenv != NULL && tmpenv[0] != '\0') {
-		size_t	len = strlen(tmpenv);
+		size_t len = strlen(tmpenv);
 
 		/*
 		 * Leave room for the separating '/' that may be added
@@ -701,15 +698,15 @@ main(int argc, char *argv[])
 	signal(SIGQUIT, sighandler);
 
 	for (; i < argc; i++) {
-		const char	*file = argv[i];
-		char		*target = NULL;
-		char		*tmpfile = NULL;
-		char		*tmpcopy = NULL;
-		struct stat	 lst;
-		struct snapshot	 snap;
-		int		 exists = 0, readable = 0, writable = 0;
-		int		 fd, tmpfd, rc;
-		const char	*base;
+		const char     *file = argv[i];
+		char	       *target = NULL;
+		char	       *tmpfile = NULL;
+		char	       *tmpcopy = NULL;
+		struct stat	lst;
+		struct snapshot snap;
+		int		exists = 0, readable = 0, writable = 0;
+		int		fd, tmpfd, rc;
+		const char     *base;
 
 		cur_tmpfile = cur_tmpcopy = NULL;
 
@@ -745,8 +742,8 @@ main(int argc, char *argv[])
 			}
 			/* does not exist: check the parent directory */
 			{
-				char		*dir, *slash;
-				struct stat	 dstat;
+				char	   *dir, *slash;
+				struct stat dstat;
 
 				dir = strdup(target);
 				if (dir == NULL)
@@ -760,7 +757,8 @@ main(int argc, char *argv[])
 					if (errno == ENOENT ||
 					    errno == ENOTDIR) {
 						warnx("%s: no such "
-						    "directory", dir);
+						      "directory",
+						    dir);
 						free(dir);
 						free(target);
 						continue;
@@ -773,23 +771,25 @@ main(int argc, char *argv[])
 				}
 				if (dstat.st_uid == our_uid()) {
 					warnx("%s: creating files in your "
-					    "own directory is not "
-					    "permitted", file);
+					      "own directory is not "
+					      "permitted",
+					    file);
 					free(dir);
 					free(target);
 					continue;
 				}
 				if (our_access(dir, W_OK) == 0) {
 					warnx("%s: creating files in a "
-					    "user-writable directory is "
-					    "not permitted", file);
+					      "user-writable directory is "
+					      "not permitted",
+					    file);
 					free(dir);
 					free(target);
 					continue;
 				}
 				free(dir);
 			}
-create_root_only:
+		create_root_only:
 			exists = 0;
 			memset(&snap, 0, sizeof(snap));
 		} else {
@@ -800,7 +800,8 @@ create_root_only:
 			}
 			if (lst.st_uid == our_uid()) {
 				warnx("%s: editing your own files is not "
-				    "permitted", file);
+				      "permitted",
+				    file);
 				free(target);
 				continue;
 			}
@@ -821,7 +822,7 @@ create_root_only:
 			writable = (our_access(target, W_OK) == 0);
 			if (readable && writable) {
 				warnx("%s: editing user-readable and "
-				    "-writable files is not permitted",
+				      "-writable files is not permitted",
 				    file);
 				free(target);
 				continue;
@@ -830,9 +831,9 @@ create_root_only:
 
 		/* create the private temporary files */
 		{
-			size_t	 tlen = strlen(tmpdir);
-			size_t	 blen = strlen(base);
-			char	*cname;
+			size_t tlen = strlen(tmpdir);
+			size_t blen = strlen(base);
+			char  *cname;
 
 			cname = malloc(blen + 12);
 			if (cname == NULL)
@@ -843,8 +844,8 @@ create_root_only:
 			tmpcopy = malloc(tlen + strlen(cname) + 2);
 			if (tmpfile == NULL || tmpcopy == NULL)
 				err(1, "malloc");
-			snprintf(tmpfile, tlen + blen + 2, "%s/%s", tmpdir,
-			    base);
+			snprintf(
+			    tmpfile, tlen + blen + 2, "%s/%s", tmpdir, base);
 			snprintf(tmpcopy, tlen + strlen(cname) + 2, "%s/%s",
 			    tmpdir, cname);
 			free(cname);
@@ -875,21 +876,21 @@ create_root_only:
 					goto next;
 				}
 				{
-					struct stat	 fst;
+					struct stat fst;
 
 					if (fstat(fd, &fst) == -1 ||
 					    fst.st_dev != snap.dev ||
 					    fst.st_ino != snap.ino) {
 						warnx("%s: file changed "
-						    "while reading",
+						      "while reading",
 						    file);
 						close(fd);
 						goto next;
 					}
 				}
 				{
-					int	out = open(tmpfile,
-					    O_WRONLY | O_TRUNC);
+					int out =
+					    open(tmpfile, O_WRONLY | O_TRUNC);
 					if (out == -1) {
 						warn("%s", tmpfile);
 						close(fd);
@@ -910,14 +911,13 @@ create_root_only:
 				 * target was not replaced while cat(1)
 				 * read it, and retry a few times.
 				 */
-				const char	*cat_argv[] = {
-					"doas", "cat", target, NULL
-				};
-				int		 tries;
+				const char *cat_argv[] = {
+				    "doas", "cat", target, NULL};
+				int tries;
 
 				for (tries = 0; tries < 3; tries++) {
-					int	out = open(tmpfile,
-					    O_WRONLY | O_TRUNC);
+					int out =
+					    open(tmpfile, O_WRONLY | O_TRUNC);
 					if (out == -1) {
 						warn("%s", tmpfile);
 						rc = -1;
@@ -928,13 +928,13 @@ create_root_only:
 					if (rc != 0) {
 						if (rc == 127)
 							warnx("unable to "
-							    "run 'doas "
-							    "cat'");
+							      "run 'doas "
+							      "cat'");
 						else
 							warnx("you are "
-							    "not permitted "
-							    "to call "
-							    "'doas cat'");
+							      "not permitted "
+							      "to call "
+							      "'doas cat'");
 						rc = -1;
 						break;
 					}
@@ -943,7 +943,8 @@ create_root_only:
 					if (tries < 2)
 						continue;
 					warnx("%s: file changed while "
-					    "reading", file);
+					      "reading",
+					    file);
 					rc = -1;
 					break;
 				}
@@ -961,8 +962,7 @@ create_root_only:
 		/* run the editor */
 		rc = run_editor(editor_cmd, tmpfile);
 		if (rc == -1 || rc == 127) {
-			warnx("invalid editor command: '%s'",
-			    editor_cmd[0]);
+			warnx("invalid editor command: '%s'", editor_cmd[0]);
 			goto next;
 		}
 
@@ -983,11 +983,9 @@ create_root_only:
 
 		/* write back */
 		if (!exists) {
-			const char	*inst_argv[] = {
-				"doas", "install", "-m", "0644", tmpfile,
-				target, NULL
-			};
-			int		 tries;
+			const char *inst_argv[] = {"doas", "install", "-m",
+			    "0644", tmpfile, target, NULL};
+			int	    tries;
 
 			/* like the original: retry after failed password
 			 * attempts, three tries in total */
@@ -996,7 +994,8 @@ create_root_only:
 					break;
 				if (tries == 2) {
 					warnx("unable to save '%s' with "
-					    "'doas install'", file);
+					      "'doas install'",
+					    file);
 					goto next;
 				}
 			}
@@ -1007,7 +1006,8 @@ create_root_only:
 		/* existing file: refuse to write if it changed */
 		if (!snapshot_equal(target, &snap)) {
 			warnx("%s: file changed during editing, not "
-			    "saving", file);
+			      "saving",
+			    file);
 			goto next;
 		}
 
@@ -1017,12 +1017,13 @@ create_root_only:
 		if (our_access(target, W_OK) == 0)
 			fd = open(target, O_WRONLY | O_NOFOLLOW);
 		if (fd != -1) {
-			struct stat	 fst;
+			struct stat fst;
 
-			if (fstat(fd, &fst) == -1 ||
-			    fst.st_dev != snap.dev || fst.st_ino != snap.ino) {
+			if (fstat(fd, &fst) == -1 || fst.st_dev != snap.dev ||
+			    fst.st_ino != snap.ino) {
 				warnx("%s: file changed during editing, "
-				    "not saving", file);
+				      "not saving",
+				    file);
 				close(fd);
 				goto next;
 			}
@@ -1049,17 +1050,14 @@ create_root_only:
 		 * preserves the target's owner, group and mode.
 		 */
 		{
-			const char	*inst_argv[] = {
-				"doas", "install", "-o", NULL, "-g", NULL,
-				"-m", NULL, tmpfile, target, NULL
-			};
-			char		 ubuf[32], gbuf[32], mbuf[8];
-			int		 tries;
+			const char *inst_argv[] = {"doas", "install", "-o",
+			    NULL, "-g", NULL, "-m", NULL, tmpfile, target,
+			    NULL};
+			char	    ubuf[32], gbuf[32], mbuf[8];
+			int	    tries;
 
-			snprintf(ubuf, sizeof(ubuf), "%u",
-			    (unsigned)snap.uid);
-			snprintf(gbuf, sizeof(gbuf), "%u",
-			    (unsigned)snap.gid);
+			snprintf(ubuf, sizeof(ubuf), "%u", (unsigned)snap.uid);
+			snprintf(gbuf, sizeof(gbuf), "%u", (unsigned)snap.gid);
 			snprintf(mbuf, sizeof(mbuf), "%o",
 			    (unsigned)(snap.mode & 07777));
 			inst_argv[3] = ubuf;
@@ -1070,14 +1068,15 @@ create_root_only:
 					break;
 				if (tries == 2) {
 					warnx("unable to save '%s' with "
-					    "'doas install'", file);
+					      "'doas install'",
+					    file);
 					goto next;
 				}
 			}
 			exit_code = 0;
 			goto next;
 		}
-next:
+	next:
 		if (tmpfile != NULL)
 			(void)unlink(tmpfile);
 		if (tmpcopy != NULL)

@@ -1,5 +1,3 @@
-#include "bsdcompat.h"
-
 #include <sys/stat.h>
 
 #include <ctype.h>
@@ -21,60 +19,62 @@
 #include <wchar.h>
 #include <wctype.h>
 
-/* display flags */
-static int		 aflag;		/* -a: include hidden entries */
-static int		 dflag;		/* -d: directories only */
-static int		 fflag;		/* -f: print full path */
-static int		 Fflag;		/* -F: classify entries */
-static int		 iflag;		/* -i: no indentation */
-static int		 lflag;		/* -l: follow directory symlinks */
-static int		 rflag;		/* -r: reverse sort */
-static int		 xflag;		/* -x: stay on filesystem */
-static int		 sflag;		/* -s: print sizes */
-static int		 hflag;		/* -h: human sizes (1024) */
-static int		 siflag;		/* --si: human sizes (1000) */
-static int		 pflag;		/* -p: permissions */
-static int		 uflag;		/* -u: user */
-static int		 gflag;		/* -g: group */
-static int		 Dflag;		/* -D: dates */
-static int		 cflag;		/* -c: use ctime with -D */
-static int		 inoflag;	/* --inodes */
-static int		 Nflag;		/* -N: raw non-printable chars */
-static int		 Qflag;		/* -Q: quote names */
-static int		 qflag;		/* -q: non-printable as '?' */
-static int		 Jflag;		/* -J: JSON output */
-static int		 Uflag;		/* -U: unsorted */
-static int		 pruneflag;	/* --prune: prune empty directories */
-static int		 dirsfirst;	/* --dirsfirst */
-static int		 noreport;	/* --noreport */
-static int		 filelimit;	/* --filelimit */
-static int		 maxdepth;	/* -L */
-static int		 sortflag;	/* 0 name, 1 mtime, 2 size, 3 ctime */
-static const char	*timefmt;	/* --timefmt */
-static const char	*outpath;	/* -o */
-static FILE		*outfile;
+#include "bsdcompat.h"
 
-static char	**patterns;	/* -P */
-static size_t	  npatterns;
-static char	**ipatterns;	/* -I */
-static size_t	  nipatterns;
+/* display flags */
+static int	   aflag;     /* -a: include hidden entries */
+static int	   dflag;     /* -d: directories only */
+static int	   fflag;     /* -f: print full path */
+static int	   Fflag;     /* -F: classify entries */
+static int	   iflag;     /* -i: no indentation */
+static int	   lflag;     /* -l: follow directory symlinks */
+static int	   rflag;     /* -r: reverse sort */
+static int	   xflag;     /* -x: stay on filesystem */
+static int	   sflag;     /* -s: print sizes */
+static int	   hflag;     /* -h: human sizes (1024) */
+static int	   siflag;    /* --si: human sizes (1000) */
+static int	   pflag;     /* -p: permissions */
+static int	   uflag;     /* -u: user */
+static int	   gflag;     /* -g: group */
+static int	   Dflag;     /* -D: dates */
+static int	   cflag;     /* -c: use ctime with -D */
+static int	   inoflag;   /* --inodes */
+static int	   Nflag;     /* -N: raw non-printable chars */
+static int	   Qflag;     /* -Q: quote names */
+static int	   qflag;     /* -q: non-printable as '?' */
+static int	   Jflag;     /* -J: JSON output */
+static int	   Uflag;     /* -U: unsorted */
+static int	   pruneflag; /* --prune: prune empty directories */
+static int	   dirsfirst; /* --dirsfirst */
+static int	   noreport;  /* --noreport */
+static int	   filelimit; /* --filelimit */
+static int	   maxdepth;  /* -L */
+static int	   sortflag;  /* 0 name, 1 mtime, 2 size, 3 ctime */
+static const char *timefmt;   /* --timefmt */
+static const char *outpath;   /* -o */
+static FILE	  *outfile;
+
+static char **patterns; /* -P */
+static size_t npatterns;
+static char **ipatterns; /* -I */
+static size_t nipatterns;
 
 /* counters */
-static long	nfiles;
-static long	ndirs;
-static int	had_error;
+static long nfiles;
+static long ndirs;
+static int  had_error;
 
 /* (dev, ino) set of directories already descended into */
 struct seen {
-	dev_t	 dev;
-	ino_t	 ino;
+	dev_t dev;
+	ino_t ino;
 };
-static struct seen	*seen_dirs;
-static size_t		 seen_cnt;
-static size_t		 seen_alloc;
+static struct seen *seen_dirs;
+static size_t	    seen_cnt;
+static size_t	    seen_alloc;
 
-static int	use_unicode;
-static int	multibyte;
+static int use_unicode;
+static int multibyte;
 
 /*
  * Sibling state of the directory ancestors, indexed by depth.  The
@@ -83,67 +83,61 @@ static int	multibyte;
  * its ancestors.  Keeping it off the stack avoids exhausting the stack
  * on a pathologically deep tree while preserving the recursion limit.
  */
-#define MAX_DEPTH	4096
-static int	dirbars[MAX_DEPTH];
+#define MAX_DEPTH 4096
+static int dirbars[MAX_DEPTH];
 
-static const char *u_hier[] = {
-	"\342\224\234\342\224\200\342\224\200 ",
-	"\342\224\224\342\224\200\342\224\200 "
-};
+static const char *u_hier[] = {"\342\224\234\342\224\200\342\224\200 ",
+    "\342\224\224\342\224\200\342\224\200 "};
 static const char *u_vline[] = {
-	"\342\224\202\302\240\302\240 ",
-	"\302\240\302\240\302\240\302\240"
-};
-static const char *a_hier[] = { "|-- ", "`-- " };
-static const char *a_vline[] = { "|   ", "    " };
+    "\342\224\202\302\240\302\240 ", "\302\240\302\240\302\240\302\240"};
+static const char *a_hier[] = {"|-- ", "`-- "};
+static const char *a_vline[] = {"|   ", "    "};
 
 /*
  * HIER/VLINE are indexed by the 0/1 "is the last sibling" flag, so
  * every line-drawing table must have exactly two entries.
  */
 static_assert(sizeof(a_hier) / sizeof(a_hier[0]) == 2 &&
-    sizeof(a_vline) / sizeof(a_vline[0]) == 2 &&
-    sizeof(u_hier) / sizeof(u_hier[0]) == 2 &&
-    sizeof(u_vline) / sizeof(u_vline[0]) == 2,
+	sizeof(a_vline) / sizeof(a_vline[0]) == 2 &&
+	sizeof(u_hier) / sizeof(u_hier[0]) == 2 &&
+	sizeof(u_vline) / sizeof(u_vline[0]) == 2,
     "the line-drawing tables are indexed by the 0/1 sibling flag");
 
-#define HIER	(use_unicode ? u_hier : a_hier)
-#define VLINE	(use_unicode ? u_vline : a_vline)
+#define HIER (use_unicode ? u_hier : a_hier)
+#define VLINE (use_unicode ? u_vline : a_vline)
 
 /* one directory entry */
 struct ent {
-	char		*name;
-	char		*target;	/* symlink target or NULL */
-	struct stat	 lst;		/* lstat(2) */
-	struct stat	 st;		/* stat(2) of target for symlinks */
-	int		 broken;	/* symlink whose target is missing */
-	int		 isdir;		/* directory or dir symlink */
+	char	   *name;
+	char	   *target; /* symlink target or NULL */
+	struct stat lst;    /* lstat(2) */
+	struct stat st;	    /* stat(2) of target for symlinks */
+	int	    broken; /* symlink whose target is missing */
+	int	    isdir;  /* directory or dir symlink */
 };
 
-static void		 report(void);
-static void		 dirwalk(const char *, const char *, int, const int *,
-    dev_t,
+static void report(void);
+static void dirwalk(const char *, const char *, int, const int *, dev_t,
     struct ent *, size_t, int);
-static void		 jsonwalk(const char *, const char *, int, dev_t, int);
-static void		 jsonentries(const char *, int, dev_t, int);
-[[nodiscard]] static int		 collect(const char *, struct ent **, size_t *);
+static void jsonwalk(const char *, const char *, int, dev_t, int);
+static void jsonentries(const char *, int, dev_t, int);
+[[nodiscard]] static int collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
-static void		 entryline(const struct ent *, const char *, int,
-    const int *, int);
-static const char	*fillinfo(const struct stat *);
-static int		 psize(char *, size_t, off_t);
-static const char	*do_date(time_t);
-static const char	*prot(mode_t);
-static const char	*uidtoname(uid_t);
-static const char	*gidtoname(gid_t);
-static const char	*jtype(mode_t);
-static void		 printname(const char *);
-static void		 json_enc(const char *);
-static char		 ftype(mode_t);
-static int		 seen(dev_t, ino_t);
-static void		 addseen(dev_t, ino_t);
-static char		*joinpath(const char *, const char *);
-static char		*resolvelink(const char *, const char *);
+static void entryline(const struct ent *, const char *, int, const int *, int);
+static const char *fillinfo(const struct stat *);
+static int	   psize(char *, size_t, off_t);
+static const char *do_date(time_t);
+static const char *prot(mode_t);
+static const char *uidtoname(uid_t);
+static const char *gidtoname(gid_t);
+static const char *jtype(mode_t);
+static void	   printname(const char *);
+static void	   json_enc(const char *);
+static char	   ftype(mode_t);
+static int	   seen(dev_t, ino_t);
+static void	   addseen(dev_t, ino_t);
+static char	  *joinpath(const char *, const char *);
+static char	  *resolvelink(const char *, const char *);
 
 static int
 patmatch(const char *name, const char *pat)
@@ -166,7 +160,7 @@ patmatch(const char *name, const char *pat)
 static int
 patinclude(const char *name)
 {
-	size_t	i;
+	size_t i;
 
 	for (i = 0; i < npatterns; i++)
 		if (patmatch(name, patterns[i]))
@@ -177,7 +171,7 @@ patinclude(const char *name)
 static int
 patignore(const char *name)
 {
-	size_t	i;
+	size_t i;
 
 	for (i = 0; i < nipatterns; i++)
 		if (patmatch(name, ipatterns[i]))
@@ -188,10 +182,10 @@ patignore(const char *name)
 static int
 psize(char *buf, size_t bufsize, off_t size)
 {
-	static const char	 iec_unit[] = "BKMGTPEZY";
-	static const char	 si_unit[] = "dkMGTPEZY";
-	const char		*unit;
-	int			 idx, base;
+	static const char iec_unit[] = "BKMGTPEZY";
+	static const char si_unit[] = "dkMGTPEZY";
+	const char	 *unit;
+	int		  idx, base;
 
 	unit = siflag ? si_unit : iec_unit;
 	base = siflag ? 1000 : 1024;
@@ -209,8 +203,8 @@ psize(char *buf, size_t bufsize, off_t size)
 		 * user sets.
 		 */
 		return (snprintf(buf, bufsize,
-		    (((size + base / 2) / base) >= 10) ?
-		    " %3.0f%c" : " %3.1f%c",
+		    (((size + base / 2) / base) >= 10) ? " %3.0f%c" :
+							 " %3.1f%c",
 		    (double)size / (double)base, unit[idx]));
 	}
 	return (snprintf(buf, bufsize, " %11lld", (long long)size));
@@ -219,8 +213,8 @@ psize(char *buf, size_t bufsize, off_t size)
 static const char *
 do_date(time_t t)
 {
-	static char	 buf[256];
-	struct tm	*tm;
+	static char buf[256];
+	struct tm  *tm;
 
 	tm = localtime(&t);
 	if (tm == NULL)
@@ -229,7 +223,7 @@ do_date(time_t t)
 		if (strftime(buf, sizeof(buf), timefmt, tm) == 0)
 			buf[0] = '\0';
 	} else {
-		time_t	 c = time(NULL);
+		time_t c = time(NULL);
 
 		if (t > c || (t + 6 * 31 * 24 * 60 * 60) < c)
 			strftime(buf, sizeof(buf), "%b %e  %Y", tm);
@@ -242,13 +236,11 @@ do_date(time_t t)
 static const char *
 prot(mode_t mode)
 {
-	static char		buf[11];
-	int			i;
-	static const mode_t	bits[] = {
-		S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP, S_IXGRP,
-		S_IROTH, S_IWOTH, S_IXOTH
-	};
-	static const char	letters[] = "rwxrwxrwx";
+	static char	    buf[11];
+	int		    i;
+	static const mode_t bits[] = {S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP,
+	    S_IWGRP, S_IXGRP, S_IROTH, S_IWOTH, S_IXOTH};
+	static const char   letters[] = "rwxrwxrwx";
 
 	switch (mode & S_IFMT) {
 	case S_IFDIR:
@@ -286,9 +278,9 @@ prot(mode_t mode)
 static const char *
 uidtoname(uid_t uid)
 {
-	static uid_t	 cuid = (uid_t)-1;
-	static char	 cbuf[32];
-	struct passwd	*pw;
+	static uid_t   cuid = (uid_t)-1;
+	static char    cbuf[32];
+	struct passwd *pw;
 
 	if (uid != cuid || cbuf[0] == '\0') {
 		pw = getpwuid(uid);
@@ -304,9 +296,9 @@ uidtoname(uid_t uid)
 static const char *
 gidtoname(gid_t gid)
 {
-	static gid_t	 cgid = (gid_t)-1;
-	static char	 cbuf[32];
-	struct group	*gr;
+	static gid_t  cgid = (gid_t)-1;
+	static char   cbuf[32];
+	struct group *gr;
 
 	if (gid != cgid || cbuf[0] == '\0') {
 		gr = getgrgid(gid);
@@ -322,17 +314,17 @@ gidtoname(gid_t gid)
 static const char *
 fillinfo(const struct stat *st)
 {
-	static char	 buf[512];
-	char		 nbuf[64];
-	size_t		 n = 0;
+	static char buf[512];
+	char	    nbuf[64];
+	size_t	    n = 0;
 
 	buf[0] = '\0';
 	if (inoflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %7lld",
-		    (long long)st->st_ino);
+		n += (size_t)snprintf(
+		    buf + n, sizeof(buf) - n, " %7lld", (long long)st->st_ino);
 	if (pflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %s",
-		    prot(st->st_mode));
+		n += (size_t)snprintf(
+		    buf + n, sizeof(buf) - n, " %s", prot(st->st_mode));
 	if (uflag)
 		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %-8.32s",
 		    uidtoname(st->st_uid));
@@ -364,10 +356,10 @@ printname(const char *s)
 		return;
 	}
 	if (multibyte) {
-		wchar_t		 wc;
-		size_t		 n;
-		mbstate_t	 mbs;
-		const char	*p = s;
+		wchar_t	    wc;
+		size_t	    n;
+		mbstate_t   mbs;
+		const char *p = s;
 
 		memset(&mbs, 0, sizeof(mbs));
 		if (Qflag)
@@ -405,8 +397,8 @@ printname(const char *s)
 	for (; *s != '\0'; s++) {
 		int c = (unsigned char)*s;
 
-		if ((c >= 7 && c <= 13) || c == '\\' ||
-		    (c == '"' && Qflag) || (c == ' ' && !Qflag)) {
+		if ((c >= 7 && c <= 13) || c == '\\' || (c == '"' && Qflag) ||
+		    (c == ' ' && !Qflag)) {
 			putc('\\', outfile);
 			if (c > 13)
 				putc(c, outfile);
@@ -494,7 +486,7 @@ jtype(mode_t mode)
 static int
 seen(dev_t dev, ino_t ino)
 {
-	size_t	i;
+	size_t i;
 
 	for (i = 0; i < seen_cnt; i++)
 		if (seen_dirs[i].dev == dev && seen_dirs[i].ino == ino)
@@ -507,8 +499,8 @@ addseen(dev_t dev, ino_t ino)
 {
 	if (seen_cnt == seen_alloc) {
 		seen_alloc = seen_alloc ? seen_alloc * 2 : 64;
-		seen_dirs = reallocarray(seen_dirs, seen_alloc,
-		    sizeof(*seen_dirs));
+		seen_dirs =
+		    reallocarray(seen_dirs, seen_alloc, sizeof(*seen_dirs));
 		if (seen_dirs == NULL)
 			err(1, "reallocarray");
 	}
@@ -520,22 +512,22 @@ addseen(dev_t dev, ino_t ino)
 static int
 entcmp(const void *va, const void *vb)
 {
-	const struct ent	*a = va, *b = vb;
-	int			 r = 0;
+	const struct ent *a = va, *b = vb;
+	int		  r = 0;
 
 	if (dirsfirst && a->isdir != b->isdir)
 		return (a->isdir ? -1 : 1);
 
 	switch (sortflag) {
-	case 1:			/* mtime, newest first */
+	case 1: /* mtime, newest first */
 		if (a->lst.st_mtime != b->lst.st_mtime)
 			r = a->lst.st_mtime > b->lst.st_mtime ? -1 : 1;
 		break;
-	case 2:			/* size, largest first */
+	case 2: /* size, largest first */
 		if (a->lst.st_size != b->lst.st_size)
 			r = a->lst.st_size > b->lst.st_size ? -1 : 1;
 		break;
-	case 3:			/* ctime, newest first */
+	case 3: /* ctime, newest first */
 		if (a->lst.st_ctime != b->lst.st_ctime)
 			r = a->lst.st_ctime > b->lst.st_ctime ? -1 : 1;
 		break;
@@ -555,10 +547,10 @@ entcmp(const void *va, const void *vb)
 [[nodiscard]] static int
 collect(const char *path, struct ent **out, size_t *nout)
 {
-	DIR		*dirp;
-	struct dirent	*de;
-	struct ent	*ents = NULL;
-	size_t		 n = 0, alloc = 0, i;
+	DIR	      *dirp;
+	struct dirent *de;
+	struct ent    *ents = NULL;
+	size_t	       n = 0, alloc = 0, i;
 
 	*out = NULL;
 	*nout = 0;
@@ -567,9 +559,9 @@ collect(const char *path, struct ent **out, size_t *nout)
 		return (-1);
 
 	while ((de = readdir(dirp)) != NULL) {
-		struct ent	*e;
-		char		*join = NULL;
-		size_t		 plen, dlen;
+		struct ent *e;
+		char	   *join = NULL;
+		size_t	    plen, dlen;
 
 		if (strcmp(de->d_name, ".") == 0 ||
 		    strcmp(de->d_name, "..") == 0)
@@ -583,8 +575,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 		if (join == NULL)
 			err(1, "malloc");
 		snprintf(join, plen + dlen + 2, "%s%s%s", path,
-		    plen != 0 && path[plen - 1] == '/' ? "" : "/",
-		    de->d_name);
+		    plen != 0 && path[plen - 1] == '/' ? "" : "/", de->d_name);
 
 		if (n == alloc) {
 			alloc = alloc ? alloc * 2 : 32;
@@ -607,8 +598,8 @@ collect(const char *path, struct ent **out, size_t *nout)
 		e->st = e->lst;
 
 		if (S_ISLNK(e->lst.st_mode)) {
-			char		 lbuf[PATH_MAX + 1];
-			ssize_t		 len;
+			char	lbuf[PATH_MAX + 1];
+			ssize_t len;
 
 			len = readlink(join, lbuf, sizeof(lbuf));
 			if (len == -1) {
@@ -637,11 +628,11 @@ collect(const char *path, struct ent **out, size_t *nout)
 	closedir(dirp);
 
 	if (n > 0) {
-		size_t	j;
+		size_t j;
 
 		for (i = j = 0; i < n; i++) {
-			struct ent	*e = &ents[i];
-			int		 drop = 0;
+			struct ent *e = &ents[i];
+			int	    drop = 0;
 
 			if (dflag && !e->isdir)
 				drop = 1;
@@ -651,7 +642,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 				drop = 1;
 			if (!drop && nipatterns > 0 &&
 			    (patignore(e->name) ||
-			     (e->target != NULL && patignore(e->target))))
+				(e->target != NULL && patignore(e->target))))
 				drop = 1;
 			if (drop) {
 				free(e->name);
@@ -676,7 +667,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 static void
 freeents(struct ent *ents, size_t n)
 {
-	size_t	i;
+	size_t i;
 
 	for (i = 0; i < n; i++) {
 		free(ents[i].name);
@@ -688,8 +679,8 @@ freeents(struct ent *ents, size_t n)
 static char *
 joinpath(const char *path, const char *name)
 {
-	char	*p;
-	size_t	 plen = strlen(path), nlen = strlen(name);
+	char  *p;
+	size_t plen = strlen(path), nlen = strlen(name);
 
 	p = malloc(plen + nlen + 2);
 	if (p == NULL)
@@ -704,8 +695,8 @@ joinpath(const char *path, const char *name)
 static char *
 resolvelink(const char *path, const char *target)
 {
-	char	*p;
-	size_t	 plen = strlen(path), tlen = strlen(target);
+	char  *p;
+	size_t plen = strlen(path), tlen = strlen(target);
 
 	if (target[0] == '/') {
 		p = strdup(target);
@@ -728,10 +719,10 @@ resolvelink(const char *path, const char *target)
  * newline, so that the caller can append a message).
  */
 static void
-entryline(const struct ent *e, const char *path, int depth,
-    const int *bars, int last)
+entryline(
+    const struct ent *e, const char *path, int depth, const int *bars, int last)
 {
-	int	j;
+	int j;
 
 	if (!iflag) {
 		for (j = 0; j < depth; j++)
@@ -782,7 +773,7 @@ static void
 dirwalk(const char *path, const char *disp, int depth, const int *bars,
     dev_t xdev, struct ent *ents, size_t n, int open_ok)
 {
-	size_t	i;
+	size_t i;
 
 	if (!open_ok) {
 		if (depth == 0) {
@@ -801,14 +792,14 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 	}
 
 	for (i = 0; i < n; i++) {
-		struct ent	*e = &ents[i];
-		int		 last = (i == n - 1);
-		int		 d = depth + 1;
-		int		 follow = 0;
-		char		*cp = NULL;
-		struct ent	*ch = NULL;
-		size_t		 nch = 0;
-		int		 opened = 1;
+		struct ent *e = &ents[i];
+		int	    last = (i == n - 1);
+		int	    d = depth + 1;
+		int	    follow = 0;
+		char	   *cp = NULL;
+		struct ent *ch = NULL;
+		size_t	    nch = 0;
+		int	    opened = 1;
 
 		/* depth filter for files */
 		if (!e->isdir && maxdepth > 0 && d > maxdepth)
@@ -816,17 +807,18 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 
 		if (e->isdir) {
 			follow = (e->target != NULL && lflag && !dflag &&
-			    !e->broken && seen(e->st.st_dev, e->st.st_ino) ==
-			    0 && (!xflag || e->st.st_dev == xdev));
+			    !e->broken &&
+			    seen(e->st.st_dev, e->st.st_ino) == 0 &&
+			    (!xflag || e->st.st_dev == xdev));
 
 			/* symlink shown but not followed */
 			if (e->target != NULL && !follow) {
 				if (pruneflag && !dflag && e->isdir &&
 				    !e->broken) {
-					char		*cp2 = resolvelink(path,
-					    e->target);
-					struct ent	*ch2 = NULL;
-					size_t		 nch2 = 0;
+					char *cp2 =
+					    resolvelink(path, e->target);
+					struct ent *ch2 = NULL;
+					size_t	    nch2 = 0;
 
 					if (collect(cp2, &ch2, &nch2) == 0)
 						freeents(ch2, nch2);
@@ -854,16 +846,15 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 
 			/* collect children to detect prune/filelimit
 			 * conditions and open errors */
-			cp = e->target != NULL ?
-			    resolvelink(path, e->target) :
-			    joinpath(path, e->name);
+			cp = e->target != NULL ? resolvelink(path, e->target) :
+						 joinpath(path, e->name);
 			if (collect(cp, &ch, &nch) == -1)
 				opened = 0;
 
-			if (filelimit > 0 && opened &&
-			    (int)nch > filelimit) {
+			if (filelimit > 0 && opened && (int)nch > filelimit) {
 				entryline(e, path, depth, bars, last);
-				fprintf(outfile, "  [%d entries exceeds "
+				fprintf(outfile,
+				    "  [%d entries exceeds "
 				    "filelimit, not opening dir]\n",
 				    (int)nch);
 				ndirs++;
@@ -911,7 +902,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 static void
 jindent(int lvl)
 {
-	int	i;
+	int i;
 
 	if (iflag)
 		return;
@@ -936,8 +927,10 @@ json_info(const struct stat *st)
 		fprintf(outfile, ",\"inode\":%lld", (long long)st->st_ino);
 	if (pflag)
 		fprintf(outfile, ",\"mode\":\"%04o\",\"prot\":\"%s\"",
-		    (unsigned)(st->st_mode & (S_IRWXU | S_IRWXG | S_IRWXO |
-		    S_ISUID | S_ISGID | S_ISVTX)), prot(st->st_mode));
+		    (unsigned)(st->st_mode &
+			(S_IRWXU | S_IRWXG | S_IRWXO | S_ISUID | S_ISGID |
+			    S_ISVTX)),
+		    prot(st->st_mode));
 	if (uflag) {
 		fprintf(outfile, ",\"user\":\"");
 		json_enc(uidtoname(st->st_uid));
@@ -961,16 +954,16 @@ json_info(const struct stat *st)
 static void
 jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 {
-	struct ent	*ents;
-	size_t		 n, i;
+	struct ent *ents;
+	size_t	    n, i;
 
 	if (collect(path, &ents, &n) == -1)
 		return;
 
 	for (i = 0; i < n; i++) {
-		struct ent	*e = &ents[i];
-		int		 d = depth + 1;
-		int		 follow;
+		struct ent *e = &ents[i];
+		int	    d = depth + 1;
+		int	    follow;
 
 		jindent(lvl);
 
@@ -987,7 +980,7 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 			    (!xflag || e->st.st_dev == xdev) &&
 			    !(maxdepth > 0 && d > maxdepth);
 			if (follow) {
-				char	*cp = resolvelink(path, e->target);
+				char *cp = resolvelink(path, e->target);
 
 				addseen(e->st.st_dev, e->st.st_ino);
 				fprintf(outfile, ",\"contents\":[");
@@ -1012,11 +1005,11 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 			continue;
 		}
 		if (e->isdir) {
-			char	*cp = joinpath(path, e->name);
+			char *cp = joinpath(path, e->name);
 
 			if (pruneflag && !dflag) {
-				struct ent	*ch = NULL;
-				size_t		 nch = 0;
+				struct ent *ch = NULL;
+				size_t	    nch = 0;
 
 				if (collect(cp, &ch, &nch) == 0)
 					freeents(ch, nch);
@@ -1052,10 +1045,10 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 static void
 jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
 {
-	struct ent	*ents;
-	size_t		 n;
-	struct stat	 st;
-	int		 opened;
+	struct ent *ents;
+	size_t	    n;
+	struct stat st;
+	int	    opened;
 
 	fprintf(outfile, "{\"type\":\"directory\",\"name\":\"");
 	json_enc(disp);
@@ -1098,41 +1091,29 @@ report(void)
 {
 	if (noreport)
 		return;
-	fprintf(outfile, "\n%ld director%s", ndirs,
-	    ndirs == 1 ? "y" : "ies");
+	fprintf(outfile, "\n%ld director%s", ndirs, ndirs == 1 ? "y" : "ies");
 	if (!dflag)
-		fprintf(outfile, ", %ld file%s", nfiles,
-		    nfiles == 1 ? "" : "s");
+		fprintf(
+		    outfile, ", %ld file%s", nfiles, nfiles == 1 ? "" : "s");
 	fprintf(outfile, "\n");
 }
 
 struct lopt {
-	const char	*name;
-	int		 hasarg;
-	int		 val;
+	const char *name;
+	int	    hasarg;
+	int	    val;
 };
 
-static const struct lopt longopts[] = {
-	{ "all",	0,	'a' },
-	{ "dirsfirst",	0,	'1' },
-	{ "dirs-only",	0,	'd' },
-	{ "filelimit",	1,	'2' },
-	{ "fullpath",	0,	'f' },
-	{ "help",	0,	'h' },
-	{ "inodes",	0,	'3' },
-	{ "noindent",	0,	'i' },
-	{ "noreport",	0,	'4' },
-	{ "prune",	0,	'5' },
-	{ "si",		0,	'6' },
-	{ "sort",	1,	'7' },
-	{ "timefmt",	1,	'8' },
-	{ NULL,		0,	0 }
-};
+static const struct lopt longopts[] = {{"all", 0, 'a'}, {"dirsfirst", 0, '1'},
+    {"dirs-only", 0, 'd'}, {"filelimit", 1, '2'}, {"fullpath", 0, 'f'},
+    {"help", 0, 'h'}, {"inodes", 0, '3'}, {"noindent", 0, 'i'},
+    {"noreport", 0, '4'}, {"prune", 0, '5'}, {"si", 0, '6'}, {"sort", 1, '7'},
+    {"timefmt", 1, '8'}, {NULL, 0, 0}};
 
 static void
 setopt(int c, const char *val)
 {
-	const char	*estr;
+	const char *estr;
 
 	switch (c) {
 	case 'a':
@@ -1214,8 +1195,8 @@ setopt(int c, const char *val)
 	case 'P':
 		if (val == NULL)
 			errx(1, "missing option argument");
-		patterns = reallocarray(patterns, npatterns + 1,
-		    sizeof(char *));
+		patterns =
+		    reallocarray(patterns, npatterns + 1, sizeof(char *));
 		if (patterns == NULL)
 			err(1, "reallocarray");
 		patterns[npatterns++] = (char *)val;
@@ -1223,8 +1204,8 @@ setopt(int c, const char *val)
 	case 'I':
 		if (val == NULL)
 			errx(1, "missing option argument");
-		ipatterns = reallocarray(ipatterns, nipatterns + 1,
-		    sizeof(char *));
+		ipatterns =
+		    reallocarray(ipatterns, nipatterns + 1, sizeof(char *));
 		if (ipatterns == NULL)
 			err(1, "reallocarray");
 		ipatterns[nipatterns++] = (char *)val;
@@ -1285,10 +1266,10 @@ setopt(int c, const char *val)
 int
 main(int argc, char *argv[])
 {
-	int		  i, nroots = 0;
-	char		**roots;
-	static char	 *defroot[] = { ".", NULL };
-	static const int  zbars[] = { 0 };
+	int		 i, nroots = 0;
+	char	       **roots;
+	static char	*defroot[] = {".", NULL};
+	static const int zbars[] = {0};
 
 	setprogname(argv[0]);
 
@@ -1307,26 +1288,26 @@ main(int argc, char *argv[])
 	 */
 	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL)
 		warnx("en_US.UTF-8 locale unavailable; "
-		    "using byte-oriented output");
+		      "using byte-oriented output");
 	outfile = stdout;
 
 	multibyte = MB_CUR_MAX > 1;
 	if (nl_langinfo(CODESET) != NULL &&
 	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0 ||
-	     strcmp(nl_langinfo(CODESET), "utf8") == 0))
+		strcmp(nl_langinfo(CODESET), "utf8") == 0))
 		use_unicode = 1;
 
 	for (i = 1; i < argc; i++) {
-		char	*arg = argv[i];
+		char *arg = argv[i];
 
 		if (strcmp(arg, "--") == 0) {
 			i++;
 			break;
 		}
 		if (strncmp(arg, "--", 2) == 0) {
-			char	*eq, *val = NULL;
-			int	 k, found = 0;
-			size_t	 len;
+			char  *eq, *val = NULL;
+			int    k, found = 0;
+			size_t len;
 
 			eq = strchr(arg, '=');
 			if (eq != NULL) {
@@ -1337,9 +1318,8 @@ main(int argc, char *argv[])
 			}
 			for (k = 0; longopts[k].name != NULL; k++) {
 				if (strncmp(longopts[k].name, arg + 2,
-				    len - 2) != 0 ||
-				    strlen(longopts[k].name) !=
-				    len - 2)
+					len - 2) != 0 ||
+				    strlen(longopts[k].name) != len - 2)
 					continue;
 				found = 1;
 				if (longopts[k].val == 'h') {
@@ -1359,7 +1339,8 @@ main(int argc, char *argv[])
 				}
 				if (longopts[k].hasarg && val == NULL) {
 					if (++i >= argc)
-						errx(1, "missing argument "
+						errx(1,
+						    "missing argument "
 						    "to --%s",
 						    longopts[k].name);
 					val = argv[i];
@@ -1372,8 +1353,8 @@ main(int argc, char *argv[])
 			continue;
 		}
 		if (arg[0] == '-' && arg[1] != '\0') {
-			int	c;
-			size_t	j;
+			int    c;
+			size_t j;
 
 			for (j = 1; arg[j] != '\0'; j++) {
 				c = arg[j];
@@ -1382,15 +1363,17 @@ main(int argc, char *argv[])
 				case 'P':
 				case 'I':
 				case 'o': {
-					char	*val;
+					char *val;
 
 					if (arg[j + 1] != '\0')
 						val = arg + j + 1;
 					else if (++i < argc)
 						val = argv[i];
 					else
-						errx(1, "missing argument "
-						    "to -%c", c);
+						errx(1,
+						    "missing argument "
+						    "to -%c",
+						    c);
 					setopt(c, val);
 					j = strlen(arg) - 1;
 					break;
@@ -1436,13 +1419,13 @@ main(int argc, char *argv[])
 	}
 
 	if (Jflag) {
-		int	j, first = 1;
+		int j, first = 1;
 
 		fputs("[", outfile);
 		if (!iflag)
 			fputs("\n", outfile);
 		for (j = 0; j < nroots; j++) {
-			struct stat	 st;
+			struct stat st;
 
 			if (!first) {
 				if (iflag)
@@ -1452,8 +1435,8 @@ main(int argc, char *argv[])
 			}
 			first = 0;
 			if (lstat(roots[j], &st) == -1) {
-				fprintf(outfile,
-				    "{\"type\":\"file\",\"name\":\"");
+				fprintf(
+				    outfile, "{\"type\":\"file\",\"name\":\"");
 				json_enc(roots[j]);
 				fprintf(outfile, "\"}");
 				nfiles++;
@@ -1473,8 +1456,8 @@ main(int argc, char *argv[])
 					continue;
 				}
 			} else if (!S_ISDIR(st.st_mode)) {
-				fprintf(outfile,
-				    "{\"type\":\"file\",\"name\":\"");
+				fprintf(
+				    outfile, "{\"type\":\"file\",\"name\":\"");
 				json_enc(roots[j]);
 				fprintf(outfile, "\"}");
 				nfiles++;
@@ -1491,8 +1474,10 @@ main(int argc, char *argv[])
 				fputs(",", outfile);
 			else
 				fputs(",\n    ", outfile);
-			fprintf(outfile, "{\"type\":\"report\","
-			    "\"directories\":%ld", ndirs);
+			fprintf(outfile,
+			    "{\"type\":\"report\","
+			    "\"directories\":%ld",
+			    ndirs);
 			if (!dflag)
 				fprintf(outfile, ",\"files\":%ld", nfiles);
 			fprintf(outfile, "}");
@@ -1507,9 +1492,9 @@ main(int argc, char *argv[])
 	}
 
 	for (i = 0; i < nroots; i++) {
-		struct stat	 st;
-		struct ent	*ents;
-		size_t		 n;
+		struct stat st;
+		struct ent *ents;
+		size_t	    n;
 
 		if (lstat(roots[i], &st) == -1) {
 			printname(roots[i]);
@@ -1521,8 +1506,7 @@ main(int argc, char *argv[])
 			/* a symlink root: follow it like -l */
 			if (stat(roots[i], &st) == -1 || !S_ISDIR(st.st_mode)) {
 				printname(roots[i]);
-				fprintf(outfile,
-				    "  [error opening dir]\n");
+				fprintf(outfile, "  [error opening dir]\n");
 				nfiles++;
 				had_error = 1;
 				continue;
@@ -1553,8 +1537,10 @@ main(int argc, char *argv[])
 			continue;
 		}
 		if (filelimit > 0 && (int)n > filelimit) {
-			fprintf(outfile, "  [%d entries exceeds filelimit, "
-			    "not opening dir]\n", (int)n);
+			fprintf(outfile,
+			    "  [%d entries exceeds filelimit, "
+			    "not opening dir]\n",
+			    (int)n);
 			freeents(ents, n);
 			ndirs++;
 			continue;

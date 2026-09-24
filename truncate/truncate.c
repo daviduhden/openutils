@@ -1,5 +1,3 @@
-#include "bsdcompat.h"
-
 #include <sys/stat.h>
 
 #include <ctype.h>
@@ -14,6 +12,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "bsdcompat.h"
+
 /*
  * Representable bounds of the signed off_t, derived from its width.
  * The shift is performed in uintmax_t, so the derivation is
@@ -24,28 +24,28 @@
 static_assert(sizeof(off_t) <= 8, "off_t wider than 64 bits is not supported");
 static_assert(sizeof(uintmax_t) >= sizeof(off_t),
     "uintmax_t must be at least as wide as off_t");
-#define OFF_MAX	((off_t)(((uintmax_t)1 << (sizeof(off_t) * CHAR_BIT - 1)) - 1))
-#define OFF_MIN	(-OFF_MAX - 1)
+#define OFF_MAX ((off_t)(((uintmax_t)1 << (sizeof(off_t) * CHAR_BIT - 1)) - 1))
+#define OFF_MIN (-OFF_MAX - 1)
 
 enum relmode {
-	RM_ABS = 0,	/* absolute size */
-	RM_REL,		/* '+': extend by, '-': reduce by */
-	RM_MIN,		/* '>': at least */
-	RM_MAX,		/* '<': at most */
-	RM_RDN,		/* '/': round down to multiple of */
-	RM_RUP		/* '%': round up to multiple of */
+	RM_ABS = 0, /* absolute size */
+	RM_REL,	    /* '+': extend by, '-': reduce by */
+	RM_MIN,	    /* '>': at least */
+	RM_MAX,	    /* '<': at most */
+	RM_RDN,	    /* '/': round down to multiple of */
+	RM_RUP	    /* '%': round up to multiple of */
 };
 
-static int		 no_create;
-static int		 block_mode;
-static int		 got_size;
-static enum relmode	 rel_mode = RM_ABS;
-static off_t		 rsize = -1;
-static off_t		 sizev;
-static const char	*ref_file;
+static int	    no_create;
+static int	    block_mode;
+static int	    got_size;
+static enum relmode rel_mode = RM_ABS;
+static off_t	    rsize = -1;
+static off_t	    sizev;
+static const char  *ref_file;
 
-[[noreturn]] static void	usage(void);
-[[nodiscard]] static int	parse_size(const char *, off_t *, enum relmode *);
+[[noreturn]] static void usage(void);
+[[nodiscard]] static int parse_size(const char *, off_t *, enum relmode *);
 
 [[noreturn]] static void
 usage(void)
@@ -60,35 +60,35 @@ usage(void)
 help(void)
 {
 	printf("Usage: truncate OPTION... FILE...\n"
-	    "Shrink or extend the size of each FILE to the specified size\n"
-	    "\n"
-	    "A FILE argument that does not exist is created.\n"
-	    "\n"
-	    "If a FILE is larger than the specified size, the extra data "
-	    "is lost.\n"
-	    "If a FILE is shorter, it is extended and the sparse extended "
-	    "part (hole)\n"
-	    "reads as zero bytes.\n"
-	    "\n"
-	    "  -c, --no-create        do not create any files\n"
-	    "  -o, --io-blocks        treat SIZE as number of IO blocks "
-	    "instead of bytes\n"
-	    "  -r, --reference=RFILE  base size on RFILE\n"
-	    "  -s, --size=SIZE        set or adjust the file size by SIZE "
-	    "bytes\n"
-	    "      --help     display this help and exit\n"
-	    "\n"
-	    "SIZE is an integer and optional unit (example: 10K is "
-	    "10*1024).\n"
-	    "Units are K, M, G, T, P, E, Z, Y, R, Q (powers of 1024) or\n"
-	    "KB, MB, ... (powers of 1000).  Binary prefixes can be used,\n"
-	    "too: KiB=K, MiB=M, and so on.\n"
-	    "\n"
-	    "SIZE may also be prefixed by one of the following modifying\n"
-	    "characters:\n"
-	    "'+' extend by, '-' reduce by, '<' at most, '>' at least,\n"
-	    "'/' round down to multiple of, '%%' round up to multiple "
-	    "of.\n");
+	       "Shrink or extend the size of each FILE to the specified size\n"
+	       "\n"
+	       "A FILE argument that does not exist is created.\n"
+	       "\n"
+	       "If a FILE is larger than the specified size, the extra data "
+	       "is lost.\n"
+	       "If a FILE is shorter, it is extended and the sparse extended "
+	       "part (hole)\n"
+	       "reads as zero bytes.\n"
+	       "\n"
+	       "  -c, --no-create        do not create any files\n"
+	       "  -o, --io-blocks        treat SIZE as number of IO blocks "
+	       "instead of bytes\n"
+	       "  -r, --reference=RFILE  base size on RFILE\n"
+	       "  -s, --size=SIZE        set or adjust the file size by SIZE "
+	       "bytes\n"
+	       "      --help     display this help and exit\n"
+	       "\n"
+	       "SIZE is an integer and optional unit (example: 10K is "
+	       "10*1024).\n"
+	       "Units are K, M, G, T, P, E, Z, Y, R, Q (powers of 1024) or\n"
+	       "KB, MB, ... (powers of 1000).  Binary prefixes can be used,\n"
+	       "too: KiB=K, MiB=M, and so on.\n"
+	       "\n"
+	       "SIZE may also be prefixed by one of the following modifying\n"
+	       "characters:\n"
+	       "'+' extend by, '-' reduce by, '<' at most, '>' at least,\n"
+	       "'/' round down to multiple of, '%%' round up to multiple "
+	       "of.\n");
 	exit(0);
 }
 
@@ -101,10 +101,10 @@ help(void)
 [[nodiscard]] static int
 parse_size(const char *arg, off_t *val, enum relmode *relp)
 {
-	const char	*p = arg;
-	uintmax_t	 acc = 0;
-	int		 sign = 1;
-	int		 anydigit = 0;
+	const char *p = arg;
+	uintmax_t   acc = 0;
+	int	    sign = 1;
+	int	    anydigit = 0;
 
 	while (isspace((unsigned char)*p))
 		p++;
@@ -150,8 +150,8 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 	}
 
 	if (*p != '\0') {
-		int	 base = 1024;
-		int	 power = -1;
+		int base = 1024;
+		int power = -1;
 
 		switch (*p) {
 		case 'E':
@@ -239,8 +239,8 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 [[nodiscard]] static int
 do_ftruncate(const char *fname, int fd, off_t ssize)
 {
-	struct stat	 sb;
-	off_t		 nsize, fsize = -1;
+	struct stat sb;
+	off_t	    nsize, fsize = -1;
 
 	if ((block_mode || (rel_mode != RM_ABS && rsize < 0))) {
 		if (fstat(fd, &sb) == -1) {
@@ -250,10 +250,11 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 	}
 
 	if (block_mode) {
-		off_t	bs = sb.st_blksize ? sb.st_blksize : 512;
+		off_t bs = sb.st_blksize ? sb.st_blksize : 512;
 
 		if (ckd_mul(&ssize, ssize, bs)) {
-			warnx("overflow in %lld * %lld byte blocks for file '%s'",
+			warnx(
+			    "overflow in %lld * %lld byte blocks for file '%s'",
 			    (long long)sizev, (long long)bs, fname);
 			return (1);
 		}
@@ -283,7 +284,7 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 			nsize = fsize - fsize % ssize;
 			break;
 		case RM_RUP: {
-			off_t	r = fsize % ssize;
+			off_t r = fsize % ssize;
 
 			if (r == 0) {
 				nsize = fsize;
@@ -320,14 +321,14 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 int
 main(int argc, char *argv[])
 {
-	struct stat	 sb;
-	off_t		 file_size = -1;
-	int		 i, error = 0;
+	struct stat sb;
+	off_t	    file_size = -1;
+	int	    i, error = 0;
 
 	setprogname(argv[0]);
 
 	for (i = 1; i < argc; i++) {
-		char	*arg = argv[i];
+		char *arg = argv[i];
 
 		if (strcmp(arg, "--") == 0) {
 			i++;
@@ -336,10 +337,10 @@ main(int argc, char *argv[])
 		if (strcmp(arg, "--help") == 0)
 			help();
 		if (strncmp(arg, "--", 2) == 0) {
-			char	*eq, *val = NULL;
-			char	 name[32];
-			size_t	 len;
-			int	 opt = -1;
+			char  *eq, *val = NULL;
+			char   name[32];
+			size_t len;
+			int    opt = -1;
 
 			eq = strchr(arg, '=');
 			if (eq != NULL) {
@@ -367,7 +368,8 @@ main(int argc, char *argv[])
 			if (opt == 'r' || opt == 's') {
 				if (val == NULL) {
 					if (++i >= argc)
-						errx(1, "missing argument "
+						errx(1,
+						    "missing argument "
 						    "to --%s",
 						    arg + 2);
 					val = argv[i];
@@ -384,12 +386,12 @@ main(int argc, char *argv[])
 				ref_file = val;
 				break;
 			case 's': {
-				int	r;
+				int r;
 
 				r = parse_size(val, &sizev, &rel_mode);
 				if (r == -2) {
 					warnx("multiple relative modifiers "
-					    "specified");
+					      "specified");
 					usage();
 				}
 				if (r == -1) {
@@ -399,7 +401,8 @@ main(int argc, char *argv[])
 					errx(1, "Invalid number: '%s'", val);
 				}
 				if ((rel_mode == RM_RDN ||
-				    rel_mode == RM_RUP) && sizev == 0)
+					rel_mode == RM_RUP) &&
+				    sizev == 0)
 					errx(1, "division by zero");
 				got_size = 1;
 				break;
@@ -408,8 +411,8 @@ main(int argc, char *argv[])
 			continue;
 		}
 		if (arg[0] == '-' && arg[1] != '\0') {
-			int	c;
-			size_t	j;
+			int    c;
+			size_t j;
 
 			for (j = 1; arg[j] != '\0'; j++) {
 				c = arg[j];
@@ -422,43 +425,48 @@ main(int argc, char *argv[])
 					break;
 				case 'r':
 				case 's': {
-					char	*val;
+					char *val;
 
 					if (arg[j + 1] != '\0')
 						val = arg + j + 1;
 					else if (++i < argc)
 						val = argv[i];
 					else
-						errx(1, "missing argument "
-						    "to -%c", c);
+						errx(1,
+						    "missing argument "
+						    "to -%c",
+						    c);
 					if (c == 'r') {
 						ref_file = val;
 					} else {
-						int	r;
+						int r;
 
-						r = parse_size(val, &sizev,
-						    &rel_mode);
+						r = parse_size(
+						    val, &sizev, &rel_mode);
 						if (r == -2) {
 							warnx("multiple "
-							    "relative "
-							    "modifiers "
-							    "specified");
+							      "relative "
+							      "modifiers "
+							      "specified");
 							usage();
 						}
 						if (r == -1) {
 							if (errno == ERANGE)
 								err(1,
 								    "Invalid "
-								    "number: " "'%s'",
+								    "number: "
+								    "'%s'",
 								    val);
-							errx(1, "Invalid "
+							errx(1,
+							    "Invalid "
 							    "number: '%s'",
 							    val);
 						}
 						if ((rel_mode == RM_RDN ||
-						    rel_mode == RM_RUP) &&
+							rel_mode == RM_RUP) &&
 						    sizev == 0)
-							errx(1, "division "
+							errx(1,
+							    "division "
 							    "by zero");
 						got_size = 1;
 					}
@@ -514,8 +522,8 @@ main(int argc, char *argv[])
 		if (sb.st_size >= 0) {
 			file_size = sb.st_size;
 		} else {
-			int	ref_fd;
-			off_t	file_end;
+			int   ref_fd;
+			off_t file_end;
 
 			ref_fd = open(ref_file, O_RDONLY | O_NONBLOCK);
 			if (ref_fd >= 0) {
@@ -534,8 +542,8 @@ main(int argc, char *argv[])
 	}
 
 	for (; argc > 0; argc--, argv++) {
-		const char	*fname = argv[0];
-		int		 fd, oflags;
+		const char *fname = argv[0];
+		int	    fd, oflags;
 
 		oflags = O_WRONLY | (no_create ? 0 : O_CREAT) | O_NONBLOCK;
 		fd = open(fname, oflags, 0666);

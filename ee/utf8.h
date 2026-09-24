@@ -33,8 +33,7 @@
  * *cp and *len unspecified.  A NUL byte terminates the sequence and is
  * treated as invalid for the purpose of text decoding.
  */
-int ee_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp,
-    size_t *len);
+int ee_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp, size_t *len);
 
 /*
  * Validate n bytes of UTF-8.  Returns the offset of the first byte that
@@ -78,7 +77,7 @@ size_t ee_utf8_seqlen(const unsigned char *s);
  * the start of the line and a pointer to the current character.  ptr
  * must be within [start, ...] and aligned to a character boundary.
  */
-const unsigned char *ee_utf8_prev(const unsigned char *start,
-    const unsigned char *ptr);
+const unsigned char *ee_utf8_prev(
+    const unsigned char *start, const unsigned char *ptr);
 
 #endif /* EE_UTF8_H */

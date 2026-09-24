@@ -1,9 +1,8 @@
-#include "bsdcompat.h"
-
-#include "utf8.h"
-
 #include <limits.h>
 #include <wchar.h>
+
+#include "bsdcompat.h"
+#include "utf8.h"
 
 /*
  * The encoder/decoder treat unsigned char as an octet: the lead and
@@ -19,9 +18,9 @@ int
 ee_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp, size_t *len)
 {
 	unsigned char c;
-	uint32_t value;
-	size_t need;
-	size_t i;
+	uint32_t      value;
+	size_t	      need;
+	size_t	      i;
 
 	if (n == 0)
 		return (0);
@@ -79,7 +78,7 @@ ee_utf8_validate(const unsigned char *s, size_t n)
 
 	while (i < n) {
 		uint32_t cp;
-		size_t len;
+		size_t	 len;
 
 		if (!ee_utf8_decode(s + i, n - i, &cp, &len))
 			return (i);
@@ -122,7 +121,7 @@ int
 ee_wcwidth(uint32_t cp)
 {
 	wchar_t wc = (wchar_t)cp;
-	int w;
+	int	w;
 
 	/*
 	 * wchar_t must be able to hold the whole Unicode range for
@@ -156,9 +155,9 @@ ee_utf8_seqlen(const unsigned char *s)
 int
 ee_utf8_width(const unsigned char *s)
 {
-	size_t len = ee_utf8_seqlen(s);
+	size_t	 len = ee_utf8_seqlen(s);
 	uint32_t cp;
-	size_t used;
+	size_t	 used;
 
 	if ((len == 0) || !ee_utf8_decode(s, len, &cp, &used) || (used != len))
 		return (1);
