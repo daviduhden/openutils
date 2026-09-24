@@ -21,7 +21,7 @@ trap 'rm -f "$bin"' EXIT HUP INT TERM
 
 # shellcheck disable=SC2086  # the options are intentionally split
 "$CC" $CFLAGS $CSTD $WARNINGS -I"$COMPAT_DIR" \
-    -DOPENUTILS_STDCKDINT_FORCE_FALLBACK \
-    -o "$bin" "$TESTS_DIR/stdckdint.c" || exit 1
+	-DOPENUTILS_STDCKDINT_FORCE_FALLBACK \
+	-o "$bin" "$TESTS_DIR/stdckdint.c" || exit 1
 
 "$bin"
