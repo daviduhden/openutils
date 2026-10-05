@@ -18,6 +18,17 @@ around C functionality, no large portability layers.  The repository
 builds with OpenBSD `make` (GNU make also works for testing on other
 systems).
 
+## Documentation
+
+Each utility directory documents its contents, requirements, usage and
+tests:
+
+- [compat](compat/README.md)
+- [doasedit](doasedit/README.md)
+- [tree](tree/README.md)
+- [ee](ee/README.md) and its [spell engine](ee/spell/README.md)
+- [truncate](truncate/README.md)
+
 ## Language standard
 
 All C code is C23 (`-std=c23`, strict ISO mode, no compiler
@@ -84,8 +95,13 @@ presentation is new, with a monochrome title/status bar, a contextual
 shortcut bar, unambiguous prompts and a paged help screen.  The editor
 is UTF-8 only and its interface is U.S. English only; text is validated
 before it is loaded, so a file containing a NUL byte or malformed UTF-8
-is rejected instead of being silently accepted.  Also installed as
-`ree` (restricted mode) and `edit`, as upstream does.
+is rejected instead of being silently accepted.  The settings menu can
+select the traditional, Emacs or vi key bindings; menus are drawn with a
+Unicode box frame (ASCII fallback), prose is reflowed to 72 columns while
+patches and code are left untouched, and spelling is checked by a small
+affix checker written for ee (`ee/spell/`) with no external spell
+program and no bundled dictionary.  Also installed as `ree` (restricted
+mode) and `edit`, as upstream does.
 
 ### truncate
 
@@ -197,7 +213,13 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   that contain a NUL byte, are rejected rather than edited.  A
   configured non-UTF-8 locale makes `ee` refuse to start (there is no
   byte-oriented mode).  The historical `eightbit`/`noeightbit` settings
-  are accepted but have no effect (text is always UTF-8).
+  are accepted but have no effect (text is always UTF-8).  `spell` and
+  `ispell` integration has been removed and replaced by ee's own small
+  affix checker (`ee/spell/`, no third-party code or dictionary);
+  `EMACS`/`NOEMACS` init lines are
+  joined by `VI`, `SPELL` and `NOSPELL`.  The paragraph formatter now
+  targets 72 columns for prose and refuses to reflow diffs, patches and
+  code-like text.
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

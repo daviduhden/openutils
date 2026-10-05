@@ -1,5 +1,6 @@
 #include "bsdcompat.h"
 #include "help.h"
+#include "spell/spell.h"
 #include "utf8.h"
 
 /*
@@ -44,6 +45,9 @@
 #include <wctype.h>
 
 #define TAB 9
+
+/* Prose is wrapped to at most this many columns (plain text, mail style). */
+#define EE_PROSE_WIDTH 72
 
 /*
  *	SIGINT handler: only set a flag; terminal restoration happens in
@@ -164,7 +168,38 @@ int nohighlight = FALSE;	/* turns off highlighting		*/
 int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
 int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
 int curses_initialized = FALSE; /* flag indicating if curses has been started*/
-int emacs_keys_mode = FALSE;	/* mode for if emacs key binings are used    */
+int box_unicode = TRUE; /* terminal and locale can render Unicode boxes */
+
+/*
+ * Spell checking state.  There is exactly one engine, ee's own affix
+ * checker (see the spell/ directory); no external programs are run.
+ * The dictionary is loaded lazily on first use and cached.
+ */
+int spell_enabled = TRUE;	       /* toggle from the spell menu */
+static struct ee_spell *spell_engine = NULL;
+static int	       spell_tried = FALSE;
+
+/*
+ * Active key binding set.  The historical editor bindings (EE_KEYS_EE),
+ * a set closer to Emacs (EE_KEYS_EMACS) and a small vi-style normal/
+ * insert pair (EE_KEYS_VI).  All three dispatch to the same editing
+ * operations (left(), del_word(), ...) so the editing logic exists
+ * only once.
+ */
+int keys_mode = EE_KEYS_EE;
+int vi_insert = FALSE;	 /* vi: insertion sub-mode (KEYS_VI only) */
+static int vi_pending = 0; /* vi: pending operator, e.g. 'd' in "dd" */
+
+/*
+ * What the last cut operation removed, so that "u" can restore it with
+ * the editor's existing single-level undelete buffers.  There is no
+ * multi-level undo history in the buffer model.
+ */
+#define DEL_NOTHING 0
+#define DEL_CHAR 1
+#define DEL_WORD 2
+#define DEL_LINE 3
+static int last_delete = DEL_NOTHING;
 
 /*
  * Total number of lines in the buffer.  Maintained incrementally by
@@ -367,6 +402,10 @@ static char	    *next_word(char *string);
 static void	     prev_word(void);
 static void	     control(void);
 static void	     emacs_control(void);
+static void	     vi_normal(int key);
+static void	     vi_control(void);
+static void	     vi_ex_command(void);
+static void	     vi_undo(void);
 static void	     bottom(void);
 static void	     top(void);
 static void	     nextline(void);
@@ -437,11 +476,20 @@ static void  Format(void);
 static void  ee_init(void);
 static void  dump_ee_conf(void);
 static void  echo_string(char *string);
-static void  spell_op(void);
-static void  ispell_op(void);
+static void  spell_check_word(void);
+static void  spell_suggest_word(void);
+static void  spell_toggle(void);
+static int   spell_ensure(void);
 static int   first_word_len(struct text *test_line);
 static void  Auto_Format(void);
+static int   prose_width(void);
+static int   prose_is_structured(void);
+static int   line_is_diff(const unsigned char *line, int len);
+static int   line_is_code(const unsigned char *line, int len);
+static int   starts_with_repeat(
+    const unsigned char *line, int len, int c, int min);
 static void  modes_op(void);
+static int   key_binding_op(int mode);
 [[nodiscard]] static int append_mem(
     char **buf, size_t *len, size_t *cap, const char *s, size_t n);
 static char *resolve_name(char *name);
@@ -461,6 +509,8 @@ static void  strings_init(void);
  * generated strings at run time (mode_strings[]); everything else is a
  * literal in the initializer, so there is no run-time string wiring.
  */
+struct menu_entries key_bindings_menu[];
+
 struct menu_entries modes_menu[] = {
     {"modes menu", NULL, NULL, NULL, NULL, 0}, /* title */
     {"", NULL, NULL, NULL, NULL, -1},	       /* 1. tabs */
@@ -468,11 +518,25 @@ struct menu_entries modes_menu[] = {
     {"", NULL, NULL, NULL, NULL, -1},	       /* 3. margins */
     {"", NULL, NULL, NULL, NULL, -1},	       /* 4. autoformat */
     {"", NULL, NULL, NULL, NULL, -1},	       /* 5. info window */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 6. emacs keys */
+    {"", menu_op, key_bindings_menu, NULL, NULL, -1}, /* 6. key bindings */
     {"", NULL, NULL, NULL, NULL, -1},	       /* 7. right margin */
     {"save editor configuration", NULL, NULL, NULL, dump_ee_conf, -1},
     {NULL, NULL, NULL, NULL, NULL, -1} /* terminator */
 };
+
+/*
+ * Key binding set selection.  The three entries set keys_mode; this is
+ * how the editor keeps the historical bindings while offering Emacs and
+ * vi styles without duplicating editing logic.
+ */
+struct menu_entries key_bindings_menu[] = {
+    {"key bindings", NULL, NULL, NULL, NULL, -1},
+    {"Easy Editor (traditional)", NULL, NULL, key_binding_op, NULL,
+	EE_KEYS_EE},
+    {"Emacs", NULL, NULL, key_binding_op, NULL, EE_KEYS_EMACS},
+    {"vi (normal and insert modes)", NULL, NULL, key_binding_op, NULL,
+	EE_KEYS_VI},
+    {NULL, NULL, NULL, NULL, NULL, -1}};
 
 const char *mode_strings[9];
 
@@ -519,8 +583,10 @@ struct menu_entries search_menu[] = {{"search menu", NULL, NULL, NULL, NULL, 0},
     {NULL, NULL, NULL, NULL, NULL, -1}};
 
 struct menu_entries spell_menu[] = {{"spell menu", NULL, NULL, NULL, NULL, -1},
-    {"use 'spell'", NULL, NULL, NULL, spell_op, -1},
-    {"use 'ispell'", NULL, NULL, NULL, ispell_op, -1},
+    {"check the word at the cursor", NULL, NULL, NULL, spell_check_word, -1},
+    {"suggest for the word at the cursor", NULL, NULL, NULL,
+	spell_suggest_word, -1},
+    {"toggle spell checking", NULL, NULL, NULL, spell_toggle, -1},
     {NULL, NULL, NULL, NULL, NULL, -1}};
 
 struct menu_entries misc_menu[] = {
@@ -590,8 +656,8 @@ static const char continue_msg[] = "press return to continue ";
 static const char menu_cancel_msg[] = "press Esc to cancel";
 static const char shell_prompt[] = "Shell command: ";
 static const char formatting_msg[] = "...formatting paragraph...";
-static const char spell_in_prog_msg[] =
-    "sending contents of edit buffer to 'spell'";
+static const char structured_msg[] =
+    "not reformatted: code, diff or structured text";
 static const char margin_prompt[] = "Right margin: ";
 static const char restricted_msg[] =
     "restricted mode: unable to perform requested operation";
@@ -634,17 +700,18 @@ static const char HIGHLIGHT[] = "HIGHLIGHT";
 static const char NOHIGHLIGHT[] = "NOHIGHLIGHT";
 static const char EMACS_string[] = "EMACS";
 static const char NOEMACS_string[] = "NOEMACS";
+static const char VI_string[] = "VI";
+static const char SPELL_string[] = "SPELL";
+static const char NOSPELL_string[] = "NOSPELL";
 
-/* A command string that command() may advance through, hence mutable. */
-static char shell_echo_msg[] =
-    "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-";
 const char *commands[] = {HELP, WRITE, READ, LINE, FILE_str, REDRAW, RESEQUENCE,
     AUTHOR, CASE, NOCASE, EXPAND, NOEXPAND, Exit_string, QUIT_string, "<", ">",
     "!", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", CHARACTER, NULL};
 
 const char *init_strings[] = {CASE, NOCASE, EXPAND, NOEXPAND, INFO, NOINFO,
     MARGINS, NOMARGINS, AUTOFORMAT, NOAUTOFORMAT, Echo, PRINTCOMMAND,
-    RIGHTMARGIN, HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string, NULL};
+    RIGHTMARGIN, HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string,
+    VI_string, SPELL_string, NOSPELL_string, NULL};
 
 /* beginning of main program		*/
 int
@@ -670,6 +737,7 @@ main(int argc, char *argv[])
 	 * is built.  Failure is fatal and leaves the terminal untouched.
 	 */
 	select_utf8_locale();
+	box_unicode = (strcmp(nl_langinfo(CODESET), "UTF-8") == 0);
 
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGSEGV, SIG_DFL);
@@ -800,10 +868,28 @@ main(int argc, char *argv[])
 				    wcrtomb((char *)mb, (wchar_t)win, &mbs);
 				if (n != (size_t)-1)
 					insert_utf8(mb, (int)n);
-			} else if ((in > 31) || (in == 9))
-				insert(in);
-			else if ((in >= 0) && (in <= 31)) {
-				if (emacs_keys_mode)
+			} else if ((in > 31) || (in == 9)) {
+				if ((keys_mode == EE_KEYS_VI) && !vi_insert)
+					vi_normal(in);
+				else
+					insert(in);
+			} else if ((in >= 0) && (in <= 31)) {
+				if (keys_mode == EE_KEYS_VI) {
+					if (in == 27) {
+						/*
+						 * Escape: leave insertion
+						 * mode, or open the menu
+						 * from normal mode.
+						 */
+						if (vi_insert)
+							vi_insert = FALSE;
+						else
+							menu_op(main_menu);
+					} else if (vi_insert)
+						control();
+					else
+						vi_control();
+				} else if (keys_mode == EE_KEYS_EMACS)
 					emacs_control();
 				else
 					control();
@@ -1579,6 +1665,182 @@ emacs_control(void)
 		adv_word();
 	else if (in == 27) { /* control [ (escape)	*/
 		menu_op(main_menu);
+	}
+}
+
+/*
+ |	Small vi-style key bindings.
+ |
+ |	This is deliberately not a Vim emulation.  It provides the
+ |	normal/insert distinction and the basic operations that map
+ |	cleanly onto ee's existing editor commands.  Normal-mode keys
+ |	call the same primitives as the editor bindings, so there is no
+ |	second editing implementation here.
+ */
+
+/* Restore whatever the last cut operation saved (single level). */
+static void
+vi_undo(void)
+{
+	switch (last_delete) {
+	case DEL_CHAR:
+		undel_char();
+		break;
+	case DEL_WORD:
+		undel_word();
+		break;
+	case DEL_LINE:
+		undel_line();
+		break;
+	default:
+		break;
+	}
+	last_delete = DEL_NOTHING;
+}
+
+/*
+ |	Minimal command-line interface for the few Ex-style commands
+ |	that map directly onto existing operations.  Anything else is
+ |	reported as unknown; there is no general Ex parser.
+ */
+static void
+vi_ex_command(void)
+{
+	char *cmd;
+
+	cmd = get_string(":", TRUE);
+	if (cmd == NULL)
+		return;
+	if ((strcmp(cmd, "w") == 0) || (strcmp(cmd, "write") == 0))
+		(void)save_op();
+	else if ((strcmp(cmd, "q") == 0) || (strcmp(cmd, "quit") == 0))
+		leave_op();
+	else if ((strcmp(cmd, "wq") == 0) || (strcmp(cmd, "x") == 0))
+		finish();
+	else if ((strcmp(cmd, "q!") == 0) || (strcmp(cmd, "quit!") == 0))
+		quit(TRUE);
+	else {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, "unknown command \"%s\"", cmd);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+	}
+	free(cmd);
+}
+
+/*
+ |	Control keys while in vi normal mode.  Save, command, search and
+ |	the menu keep their usual ee meanings so that no functionality is
+ |	lost when vi bindings are selected.
+ */
+static void
+vi_control(void)
+{
+	if (in == 3) /* control c	*/
+		command_prompt();
+	else if (in == 17) /* control q	*/
+		leave_op();
+	else if (in == 19) /* control s	*/
+		save_op();
+	else if (in == 24) /* control x	*/
+		search(TRUE);
+	else if (in == 5) /* control e	*/
+		search_prompt();
+	else if (in == 12) /* control l	*/
+		redraw();
+	else if (in == 27) /* control [	*/
+		menu_op(main_menu);
+}
+
+/*
+ |	Handle one key in vi normal mode.
+ */
+static void
+vi_normal(int key)
+{
+	/* A pending operator consumes the next key. */
+	if (vi_pending == 'd') {
+		vi_pending = 0;
+		if (key == 'd') {
+			bol();
+			del_line();
+			return;
+		}
+		/* Not "dd": ignore the operator and handle this key. */
+	}
+
+	switch (key) {
+	case 'h':
+		left(TRUE);
+		break;
+	case 'j':
+		down();
+		break;
+	case 'k':
+		up();
+		break;
+	case 'l':
+		right(TRUE);
+		break;
+	case '0':
+		bol();
+		break;
+	case '$':
+		eol();
+		break;
+	case 'w':
+		adv_word();
+		break;
+	case 'b':
+		prev_word();
+		break;
+	case 'i':
+		vi_insert = TRUE;
+		break;
+	case 'a':
+		if (position < curr_line->line_length)
+			right(TRUE);
+		vi_insert = TRUE;
+		break;
+	case 'I':
+		bol();
+		vi_insert = TRUE;
+		break;
+	case 'A':
+		eol();
+		vi_insert = TRUE;
+		break;
+	case 'x':
+		del_char();
+		break;
+	case 'D':
+		del_line();
+		break;
+	case 'd':
+		vi_pending = 'd';
+		break;
+	case 'o':
+		eol();
+		insert_line(TRUE);
+		vi_insert = TRUE;
+		break;
+	case 'O':
+		bol();
+		insert_line(TRUE);
+		vi_insert = TRUE;
+		break;
+	case 'u':
+		vi_undo();
+		break;
+	case ':':
+		vi_ex_command();
+		break;
+	case 27: /* Esc from normal mode opens the menu */
+		menu_op(main_menu);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -3218,6 +3480,7 @@ search_prompt(void)
 static void
 del_char(void)
 {
+	last_delete = DEL_CHAR;
 	in = 8;					 /* backspace */
 	if (position < curr_line->line_length) { /* if not end of line	*/
 		int clen = utf8_len(point);
@@ -3257,6 +3520,7 @@ del_word(void)
 	unsigned char *d_word3;
 	unsigned char  tmp_char[5];
 
+	last_delete = DEL_WORD;
 	if (d_word != NULL)
 		free(d_word);
 	d_word = xmalloc((size_t)curr_line->line_length);
@@ -3364,6 +3628,7 @@ del_line(void)
 	unsigned char *dl2;
 	int	       tposit;
 
+	last_delete = DEL_LINE;
 	if (d_line != NULL)
 		free(d_line);
 	d_line = xmalloc((size_t)curr_line->line_length);
@@ -4201,6 +4466,61 @@ menu_op(struct menu_entries menu_list[])
 	return (counter);
 }
 
+/*
+ * Box-drawing characters for the menu frame.  Unicode is used when the
+ * active codeset is UTF-8 (which ee always selects), with an ASCII
+ * fallback that keeps the menus usable on a terminal or locale that
+ * cannot render the glyphs.  Universal character names keep the source
+ * itself pure ASCII.
+ */
+#define BOX_TL (box_unicode ? "\u250c" : "+")
+#define BOX_TR (box_unicode ? "\u2510" : "+")
+#define BOX_BL (box_unicode ? "\u2514" : "+")
+#define BOX_BR (box_unicode ? "\u2518" : "+")
+#define BOX_H (box_unicode ? "\u2500" : "-")
+#define BOX_V (box_unicode ? "\u2502" : "|")
+#define BOX_LT (box_unicode ? "\u251c" : "+")
+#define BOX_RT (box_unicode ? "\u2524" : "+")
+
+static void
+box_repeat(WINDOW *w, const char *glyph, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+		waddstr(w, glyph);
+}
+
+/* A horizontal rule with left/right junctions, spanning the frame. */
+static void
+box_rule(WINDOW *w, int row, int width, const char *left, const char *right)
+{
+	if (width < 2)
+		return;
+	wmove(w, row, 0);
+	waddstr(w, left);
+	box_repeat(w, BOX_H, width - 2);
+	waddstr(w, right);
+}
+
+/* Draw the rectangular frame; interior rows are left for the caller. */
+static void
+box_frame(WINDOW *w, int height, int width)
+{
+	int row;
+
+	if ((height < 3) || (width < 3))
+		return;
+	box_rule(w, 0, width, BOX_TL, BOX_TR);
+	box_rule(w, height - 1, width, BOX_BL, BOX_BR);
+	for (row = 1; row < height - 1; row++) {
+		wmove(w, row, 0);
+		waddstr(w, BOX_V);
+		wmove(w, row, width - 1);
+		waddstr(w, BOX_V);
+	}
+}
+
 static void
 paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
     WINDOW *menu_win, int row, int max_width, int highlight)
@@ -4210,11 +4530,11 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 	wmove(menu_win, row, MENU_ITEM_COL);
 	if (!nohighlight && highlight) {
 		wstandout(menu_win);
-		for (column = MENU_ITEM_COL; column < (max_width - 2); column++)
+		for (column = 1; column < (max_width - 1); column++)
 			waddch(menu_win, ' ');
 		wmove(menu_win, row, MENU_ITEM_COL);
 	}
-	avail = max_width - MENU_ITEM_COL - 1;
+	avail = max_width - MENU_ITEM_COL - 2;
 	if (avail < 0)
 		avail = 0;
 	if (list_size > 1) {
@@ -4240,32 +4560,38 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int vert_size, int selection)
 {
 	int counter, temp_int;
+	int framed;
 
 	werase(menu_win);
 
 	/*
-	 |	output the title and the separating rules only if the
-	 |	window is large enough for the framed layout
+	 |	Draw the title and rules inside a bordered frame when the
+	 |	window is large enough for the framed layout.
 	 */
+	framed = (max_height > vert_size) && (max_width >= 4) &&
+	    (max_height >= 3);
 
-	if (max_height > vert_size) {
+	if (framed) {
+		int avail = max_width - MENU_ITEM_COL - 2;
+
+		box_frame(menu_win, max_height, max_width);
+
+		if (avail < 0)
+			avail = 0;
 		wmove(menu_win, 1, MENU_ITEM_COL);
 		if (!nohighlight)
 			wstandout(menu_win);
-		waddstr(menu_win, menu_list[0].item_string);
+		waddnstr(menu_win, menu_list[0].item_string, avail);
 		if (!nohighlight)
 			wstandend(menu_win);
 
-		wmove(menu_win, 2, 1);
-		for (counter = 0; counter < (max_width - 2); counter++)
-			waddch(menu_win, '-');
+		box_rule(menu_win, 2, max_width, BOX_LT, BOX_RT);
 
 		if (menu_list[0].argument != MENU_WARN) {
-			wmove(menu_win, (max_height - 4), 1);
-			for (counter = 0; counter < (max_width - 2); counter++)
-				waddch(menu_win, '-');
+			box_rule(
+			    menu_win, (max_height - 4), max_width, BOX_LT, BOX_RT);
 			wmove(menu_win, (max_height - 3), MENU_ITEM_COL);
-			waddstr(menu_win, menu_cancel_msg);
+			waddnstr(menu_win, menu_cancel_msg, avail);
 		}
 	}
 
@@ -4330,7 +4656,7 @@ help(void)
 	int  total, top = 0, rows, cols, pagesize;
 	int  i, done = 0, header;
 
-	total = ee_help_count(emacs_keys_mode);
+	total = ee_help_count(keys_mode);
 
 	for (;;) {
 		rows = getmaxy(help_win);
@@ -4346,7 +4672,7 @@ help(void)
 		werase(help_win);
 		clearok(help_win, TRUE);
 		for (i = 0; (i < pagesize) && ((top + i) < total); i++) {
-			ee_help_line(emacs_keys_mode, top + i, line,
+			ee_help_line(keys_mode, top + i, line,
 			    sizeof(line), &header);
 			wmove(help_win, i, 0);
 			if (header && !nohighlight)
@@ -4526,8 +4852,17 @@ default_shortcuts(void)
 	static const char *const normal[] = {"^[ Menu", "^S Save", "^Q Quit",
 	    "^E Search", "^X Find", "^W Cut word", "^V Paste word",
 	    "^Y Cut line", "^Z Paste line", "^U Up", "^D Down", "^C Command"};
+	static const char *const vi[] = {"i Insert", ": Command", "h j k l Move",
+	    "w b Word", "0 $ Line ends", "x Delete", "dd Del line",
+	    "u Undo", "Esc Menu"};
+	const char *const *items = normal;
+	int		   count = (int)(sizeof(normal) / sizeof(normal[0]));
 
-	set_shortcuts(normal, (int)(sizeof(normal) / sizeof(normal[0])));
+	if ((keys_mode == EE_KEYS_VI) && !vi_insert) {
+		items = vi;
+		count = (int)(sizeof(vi) / sizeof(vi[0]));
+	}
+	set_shortcuts(items, count);
 }
 
 static void
@@ -4739,6 +5074,217 @@ Blank_Line(struct text *test_line)
 		return (TRUE);
 }
 
+/*
+ * Paragraph-formatting heuristics.
+ *
+ * The formatter must reflow prose but leave code and patches untouched.
+ * Rather than trying to parse a language, it recognises a few strong
+ * signals and, once a paragraph looks structured, refuses to touch it.
+ * All of these are deliberately conservative: a false positive only
+ * means that a paragraph is not reformatted, which is safe.
+ */
+
+static int
+line_starts_with(const unsigned char *line, int len, const char *prefix)
+{
+	size_t pl = strlen(prefix);
+
+	if ((len < 0) || ((size_t)len < pl))
+		return (FALSE);
+	return (memcmp(line, prefix, pl) == 0);
+}
+
+/* True when the line is (or belongs to) a CVS/Git/Got diff or patch. */
+static int
+line_is_diff(const unsigned char *line, int len)
+{
+	if (len <= 0)
+		return (FALSE);
+
+	/*
+	 * Recognise the structural headers first; only then are the
+	 * leading '+', '-' and ' ' lines known to be patch content.
+	 */
+	if (line_starts_with(line, len, "Index: ") ||
+	    line_starts_with(line, len, "RCS file:") ||
+	    line_starts_with(line, len, "retrieving revision") ||
+	    line_starts_with(line, len, "diff ") ||
+	    line_starts_with(line, len, "diff\t") ||
+	    line_starts_with(line, len, "index ") ||
+	    line_starts_with(line, len, "@@ ") ||
+	    line_starts_with(line, len, "--- ") ||
+	    line_starts_with(line, len, "+++ ") ||
+	    line_starts_with(line, len, "*** ") ||
+	    line_starts_with(line, len, "Only in ") ||
+	    line_starts_with(line, len, "Binary files ") ||
+	    line_starts_with(line, len, "commit ") ||
+	    line_starts_with(line, len, "conflicts detected"))
+		return (TRUE);
+
+	/* A CVS separator line: six or more '='. */
+	if (starts_with_repeat(line, len, '=', 6))
+		return (TRUE);
+
+	return (FALSE);
+}
+
+static int
+starts_with_repeat(const unsigned char *line, int len, int c, int min)
+{
+	int i;
+
+	if (len < min)
+		return (FALSE);
+	for (i = 0; i < min; i++) {
+		if (line[i] != (unsigned char)c)
+			return (FALSE);
+	}
+	return (TRUE);
+}
+
+/* True when the line looks like code, a table or another fixed layout. */
+static int
+line_is_code(const unsigned char *line, int len)
+{
+	int i, spaces;
+
+	if (len <= 0)
+		return (FALSE);
+
+	/* Significant leading tab (indentation). */
+	if (line[0] == '\t')
+		return (TRUE);
+
+	/* Shebang, C preprocessor and Markdown code fences. */
+	if (line_starts_with(line, len, "#!"))
+		return (TRUE);
+	if ((line[0] == '#') &&
+	    (line_starts_with(line, len, "#include") ||
+		line_starts_with(line, len, "#define") ||
+		line_starts_with(line, len, "#if") ||
+		line_starts_with(line, len, "#else") ||
+		line_starts_with(line, len, "#endif") ||
+		line_starts_with(line, len, "#undef") ||
+		line_starts_with(line, len, "#pragma") ||
+		line_starts_with(line, len, "#error")))
+		return (TRUE);
+	if (line_starts_with(line, len, "```"))
+		return (TRUE);
+
+	/* Mail signatures and PGP blocks must survive verbatim. */
+	if ((len == 2) && (memcmp(line, "--", 2) == 0))
+		return (TRUE);
+	if ((len == 3) && (memcmp(line, "-- ", 3) == 0))
+		return (TRUE);
+	if (line_starts_with(line, len, "-----BEGIN ") ||
+	    line_starts_with(line, len, "-----END "))
+		return (TRUE);
+
+	/* XML/HTML-ish markup. */
+	if ((line[0] == '<') && (memchr(line, '>', (size_t)len) != NULL))
+		return (TRUE);
+
+	/* Statement/block punctuation at the end of the line. */
+	switch (line[len - 1]) {
+	case ';':
+	case '{':
+	case '}':
+		return (TRUE);
+	default:
+		break;
+	}
+
+	/*
+	 * Several runs of two or more spaces, or three or more spaces in
+	 * a row, indicate aligned columns (a table) rather than prose.
+	 */
+	spaces = 0;
+	for (i = 0; i < len; i++) {
+		if (line[i] == ' ') {
+			spaces++;
+			if (spaces >= 3)
+				return (TRUE);
+		} else {
+			spaces = 0;
+		}
+	}
+
+	/*
+	 * A high density of programming punctuation is a weak but useful
+	 * signal for shell/C fragments without other markers.
+	 */
+	{
+		int count = 0;
+
+		for (i = 0; i < len; i++) {
+			switch (line[i]) {
+			case '(':
+			case ')':
+			case '=':
+			case '{':
+			case '}':
+			case ';':
+				count++;
+				break;
+			default:
+				break;
+			}
+		}
+		if ((count > 0) && ((count * 4) > len))
+			return (TRUE);
+	}
+
+	return (FALSE);
+}
+
+/*
+ * True when the paragraph that contains curr_line looks like a patch,
+ * code or fixed-width structure and must not be reflowed.
+ */
+static int
+prose_is_structured(void)
+{
+	struct text   *start;
+	struct text   *line;
+	int	       len;
+	int	       diff = FALSE;
+	int	       code = FALSE;
+
+	if (curr_line == NULL)
+		return (FALSE);
+
+	start = curr_line;
+	while ((start->prev_line != NULL) && !Blank_Line(start->prev_line))
+		start = start->prev_line;
+
+	for (line = start; (line != NULL) && !Blank_Line(line);
+	    line = line->next_line) {
+		len = line->line_length - 1;
+		if (line_is_diff(line->line, len))
+			diff = TRUE;
+		else if (line_is_code(line->line, len))
+			code = TRUE;
+	}
+
+	/*
+	 * A diff is recognised as a block: once one structural diff line
+	 * is present, the surrounding '+'/'-'/' ' lines are patch
+	 * content, never prose.
+	 */
+	return (diff || code);
+}
+
+/* Prose width: at most EE_PROSE_WIDTH, and never wider than the margin. */
+static int
+prose_width(void)
+{
+	int w = right_margin;
+
+	if ((w <= 0) || (w > EE_PROSE_WIDTH))
+		w = EE_PROSE_WIDTH;
+	return (w);
+}
+
 /* format the paragraph according to set margins	*/
 static void
 Format(void)
@@ -4750,6 +5296,7 @@ Format(void)
 	int	       tmp_af;
 	int	       counter;
 	int	       temp_dwl;
+	int	       wrap;
 	unsigned char *line;
 	unsigned char *tmp_srchstr;
 	unsigned char *temp1, *temp2;
@@ -4765,6 +5312,21 @@ Format(void)
 
 	if ((!observ_margins) || (Blank_Line(curr_line)))
 		return;
+
+	/*
+	 |	Never reflow a patch, a code block or another fixed-layout
+	 |	structure: the meaning would change.  Only plain prose is
+	 |	formatted, to at most EE_PROSE_WIDTH columns.
+	 */
+	if (prose_is_structured()) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		wprintw(com_win, "%s", structured_msg);
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+		return;
+	}
+	wrap = prose_width();
 
 	/*
 	 |	save the currently set flags, and clear them
@@ -4902,7 +5464,7 @@ Format(void)
 	 */
 
 	while (position < curr_line->line_length) {
-		while ((scr_pos < right_margin) &&
+		while ((scr_pos < wrap) &&
 		    (position < curr_line->line_length))
 			right(TRUE);
 		if (position < curr_line->line_length) {
@@ -5041,10 +5603,19 @@ ee_init(void)
 				nohighlight = FALSE;
 			else if (compare(p, NOHIGHLIGHT, FALSE))
 				nohighlight = TRUE;
-			else if (compare(p, EMACS_string, FALSE))
-				emacs_keys_mode = TRUE;
-			else if (compare(p, NOEMACS_string, FALSE))
-				emacs_keys_mode = FALSE;
+			else if (compare(p, EMACS_string, FALSE)) {
+				keys_mode = EE_KEYS_EMACS;
+				vi_insert = FALSE;
+			} else if (compare(p, VI_string, FALSE)) {
+				keys_mode = EE_KEYS_VI;
+				vi_insert = FALSE;
+			} else if (compare(p, NOEMACS_string, FALSE)) {
+				keys_mode = EE_KEYS_EE;
+				vi_insert = FALSE;
+			} else if (compare(p, SPELL_string, FALSE))
+				spell_enabled = TRUE;
+			else if (compare(p, NOSPELL_string, FALSE))
+				spell_enabled = FALSE;
 		}
 		free(line);
 		line = NULL;
@@ -5159,7 +5730,11 @@ dump_ee_conf(void)
 	    0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n",
-		emacs_keys_mode ? EMACS_string : NOEMACS_string) < 0)
+		(keys_mode == EE_KEYS_EMACS) ? EMACS_string :
+		(keys_mode == EE_KEYS_VI) ? VI_string : NOEMACS_string) < 0)
+		write_ok = FALSE;
+	if (fprintf(init_file, "%s\n",
+		spell_enabled ? SPELL_string : NOSPELL_string) < 0)
 		write_ok = FALSE;
 
 	if (fflush(init_file) != 0)
@@ -5236,77 +5811,296 @@ echo_string(char *string)
 	fflush(stdout);
 }
 
-/* check spelling of words in the editor	*/
+/*
+ |	Spell checking.
+ |
+ |	The only engine is ee's own small affix checker in spell/.  No
+ |	external program is executed and no daemon is started: a
+ |	dictionary is read from disk on first use and kept in memory.
+ |	If no dictionary is available the editor says so and the rest of
+ |	its functionality is unaffected.
+ */
+
 static void
-spell_op(void)
+spell_message(const char *msg)
 {
-	if (restrict_mode()) {
-		return;
-	}
-	top();		    /* go to top of file		*/
-	insert_line(FALSE); /* create two blank lines	*/
-	insert_line(FALSE);
-	top();
-	command(shell_echo_msg);
-	adv_line();
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	wprintw(com_win, "%s", spell_in_prog_msg);
+	wprintw(com_win, "%s", msg);
 	wrefresh(com_win);
-	command("<>!spell"); /* send contents of buffer to command 'spell'
-				and read the results back into the editor */
+	clear_com_win = TRUE;
+}
+
+/* ASCII word characters, including the apostrophe for contractions. */
+static int
+is_word_char(unsigned char c)
+{
+	return (((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) ||
+	    (c == '\''));
+}
+
+/*
+ |	Find the word under the cursor.  Returns 1 and sets *start (1-based
+ |	byte position) and *len when the cursor is on a word; only ASCII
+ |	words are recognised, which matches the en_US dictionary.
+ */
+static int
+word_at_cursor(int *start, int *len)
+{
+	unsigned char *line = curr_line->line;
+	int	       n = curr_line->line_length - 1;
+	int	       i, s, e;
+
+	if (n <= 0)
+		return (FALSE);
+	i = position - 1;
+	if (i >= n)
+		i = n - 1;
+	if ((i < 0) || !is_word_char(line[i]))
+		return (FALSE);
+	s = i;
+	while ((s > 0) && is_word_char(line[s - 1]))
+		s--;
+	e = i;
+	while ((e < n) && is_word_char(line[e]))
+		e++;
+	*start = s + 1;
+	*len = e - s;
+	return (TRUE);
+}
+
+static int
+ends_with(const char *s, const char *suffix)
+{
+	size_t sl = strlen(s);
+	size_t fl = strlen(suffix);
+
+	if (sl < fl)
+		return (FALSE);
+	return (strcmp(s + sl - fl, suffix) == 0);
+}
+
+/*
+ |	Locate an en_US dictionary.  EE_DICTIONARY may name a .dic file, an
+ |	.aff file, a directory or a base path; otherwise the usual system
+ |	locations are searched.  The .dic file is required; the .aff file
+ |	is optional (without it only exact words are recognised).
+ */
+static int
+spell_locate(char *aff, size_t affsz, char *dic, size_t dicsz)
+{
+	static const char *const dirs[] = {
+	    "/usr/local/share/myspell",
+	    "/usr/share/myspell",
+	    "/usr/local/share/hunspell",
+	    "/usr/share/hunspell",
+	    NULL,
+	};
+	const char *env = getenv("EE_DICTIONARY");
+	size_t	    i;
+
+	aff[0] = '\0';
+	if ((env != NULL) && (*env != '\0')) {
+		if (ends_with(env, ".dic")) {
+			snprintf(dic, dicsz, "%s", env);
+			if (access(dic, R_OK) != 0)
+				return (FALSE);
+			snprintf(aff, affsz, "%.*s.aff",
+			    (int)(strlen(env) - 4), env);
+			if (access(aff, R_OK) != 0)
+				aff[0] = '\0';
+			return (TRUE);
+		}
+		if (ends_with(env, ".aff")) {
+			snprintf(aff, affsz, "%s", env);
+			if (access(aff, R_OK) != 0)
+				aff[0] = '\0';
+			snprintf(dic, dicsz, "%.*s.dic",
+			    (int)(strlen(env) - 4), env);
+			return (access(dic, R_OK) == 0);
+		}
+		snprintf(dic, dicsz, "%s/en_US.dic", env);
+		if (access(dic, R_OK) == 0) {
+			snprintf(aff, affsz, "%s/en_US.aff", env);
+			if (access(aff, R_OK) != 0)
+				aff[0] = '\0';
+			return (TRUE);
+		}
+		snprintf(dic, dicsz, "%s.dic", env);
+		if (access(dic, R_OK) == 0) {
+			snprintf(aff, affsz, "%s.aff", env);
+			if (access(aff, R_OK) != 0)
+				aff[0] = '\0';
+			return (TRUE);
+		}
+		return (FALSE);
+	}
+
+	for (i = 0; dirs[i] != NULL; i++) {
+		snprintf(dic, dicsz, "%s/en_US.dic", dirs[i]);
+		if (access(dic, R_OK) != 0)
+			continue;
+		snprintf(aff, affsz, "%s/en_US.aff", dirs[i]);
+		if (access(aff, R_OK) != 0)
+			aff[0] = '\0';
+		return (TRUE);
+	}
+	return (FALSE);
+}
+
+/* Load the dictionary once; report failure once per session. */
+static int
+spell_ensure(void)
+{
+	char aff[1024];
+	char dic[1024];
+	char msg[1200];
+
+	if (spell_engine != NULL)
+		return (TRUE);
+	if (spell_tried)
+		return (FALSE);
+	spell_tried = TRUE;
+
+	if (!spell_locate(aff, sizeof(aff), dic, sizeof(dic))) {
+		spell_message("no en_US dictionary found; set EE_DICTIONARY");
+		return (FALSE);
+	}
+	spell_engine =
+	    ee_spell_open((aff[0] != '\0') ? aff : NULL, dic);
+	if (spell_engine == NULL) {
+		snprintf(msg, sizeof(msg), "unable to read dictionary \"%s\"",
+		    dic);
+		spell_message(msg);
+		return (FALSE);
+	}
+	return (TRUE);
+}
+
+/*
+ |	Replace the ASCII word at [start, start+len) with repl.  The
+ |	cursor is moved to the word end, the word is deleted backwards
+ |	with the editor's own delete() and the replacement is inserted,
+ |	so undo, redisplay and change tracking stay consistent.
+ */
+static void
+spell_replace(int start, int len, const char *repl)
+{
+	int end = start + len;
+	int i;
+
+	while ((position < end) && (position < curr_line->line_length))
+		right(TRUE);
+	for (i = 0; i < len; i++) {
+		if (position <= start)
+			break;
+		delete(TRUE);
+	}
+	for (i = 0; repl[i] != '\0'; i++)
+		insert((unsigned char)repl[i]);
+	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
 static void
-ispell_op(void)
+spell_check_word(void)
 {
-	const char *tmpdir;
-	char	   *name;
-	char	   *cmd;
-	size_t	    len;
-	int	    fd;
+	int   start, len;
+	char  word[256];
+	char  msg[320];
 
-	if (restrict_mode())
-		return;
-
-	/*
-	 * A private temporary file created with mkstemp(3): the name is
-	 * unpredictable and the file is created with mode 0600, so the
-	 * document contents are not exposed.  It is removed on every path
-	 * out of the function.
-	 */
-	tmpdir = getenv("TMPDIR");
-	if ((tmpdir == NULL) || (*tmpdir == '\0'))
-		tmpdir = "/tmp";
-	len = strlen(tmpdir) + sizeof("/ee.XXXXXXXX");
-	name = xmalloc(len);
-	snprintf(name, len, "%s/ee.XXXXXXXX", tmpdir);
-	fd = mkstemp(name);
-	if (fd < 0) {
-		wmove(com_win, 0, 0);
-		wclrtoeol(com_win);
-		wprintw(com_win, "unable to create file \"%s\"", name);
-		wrefresh(com_win);
-		free(name);
+	if (!spell_enabled) {
+		spell_message("spell checking is off (spell menu: toggle)");
 		return;
 	}
-	close(fd);
-
-	if (write_file(name, 0)) {
-		len = strlen("ispell ") + strlen(name) + 1;
-		cmd = xmalloc(len);
-		snprintf(cmd, len, "ispell %s", name);
-		sh_command(cmd);
-		free(cmd);
-		delete_text();
-		tmp_file = name;
-		recv_file = TRUE;
-		check_fp();
+	if (!spell_ensure())
+		return;
+	if (!word_at_cursor(&start, &len) || (len >= (int)sizeof(word))) {
+		spell_message("no word at the cursor");
+		return;
 	}
-	unlink(name);
-	if (tmp_file == name)
-		tmp_file = NULL;
-	free(name);
+	memcpy(word, curr_line->line + (start - 1), (size_t)len);
+	word[len] = '\0';
+	if (ee_spell_check(spell_engine, word, (size_t)len))
+		snprintf(msg, sizeof(msg), "\"%s\" is correctly spelled", word);
+	else
+		snprintf(msg, sizeof(msg), "\"%s\" is not in the dictionary",
+		    word);
+	spell_message(msg);
+}
+
+static void
+spell_suggest_word(void)
+{
+	char  sug[8][64];
+	char  word[256];
+	char  prompt[320];
+	char *answer;
+	int   start, len, n, i, chosen;
+	int   pick = -1;
+
+	if (!spell_enabled) {
+		spell_message("spell checking is off (spell menu: toggle)");
+		return;
+	}
+	if (!spell_ensure())
+		return;
+	if (!word_at_cursor(&start, &len) || (len >= (int)sizeof(word))) {
+		spell_message("no word at the cursor");
+		return;
+	}
+	memcpy(word, curr_line->line + (start - 1), (size_t)len);
+	word[len] = '\0';
+	n = ee_spell_suggest(spell_engine, word, (size_t)len, sug, 8);
+	if (n == 0) {
+		snprintf(prompt, sizeof(prompt), "no suggestions for \"%s\"",
+		    word);
+		spell_message(prompt);
+		return;
+	}
+
+	/* Show the suggestions and let the user pick one by number/text. */
+	wmove(com_win, 0, 0);
+	werase(com_win);
+	wprintw(com_win, "%s:", word);
+	for (i = 0; i < n; i++)
+		wprintw(com_win, "  %d)%s", i + 1, sug[i]);
+	wrefresh(com_win);
+
+	answer = get_string("Replace with (Esc cancels): ", TRUE);
+	if (answer == NULL)
+		return;
+	if (answer[0] != '\0') {
+		char *endp;
+		long  num = strtol(answer, &endp, 10);
+
+		if ((*endp == '\0') && (num >= 1) && (num <= n))
+			pick = (int)num - 1;
+		else {
+			for (i = 0; i < n; i++) {
+				if (strcmp(answer, sug[i]) == 0) {
+					pick = i;
+					break;
+				}
+			}
+		}
+	}
+	free(answer);
+	if (pick < 0)
+		return;
+	chosen = pick;
+	spell_replace(start, len, sug[chosen]);
+	spell_message("word replaced");
+}
+
+static void
+spell_toggle(void)
+{
+	char msg[64];
+
+	spell_enabled = !spell_enabled;
+	snprintf(msg, sizeof(msg), "spell checking %s",
+	    spell_enabled ? "on" : "off");
+	spell_message(msg);
 }
 
 static int
@@ -5354,6 +6148,7 @@ Auto_Format(void)
 	int	       leave_loop = FALSE;
 	int	       status;
 	int	       counter;
+	int	       wrap;
 	char	       not_blank;
 	unsigned char *line;
 	unsigned char *tmp_srchstr;
@@ -5371,6 +6166,11 @@ Auto_Format(void)
 
 	if ((!observ_margins) || (Blank_Line(curr_line)))
 		return;
+
+	/* Leave code, patches and structured text alone (see Format()). */
+	if (prose_is_structured())
+		return;
+	wrap = prose_width();
 
 	/*
 	 |	get current position in paragraph, so after formatting, the
@@ -5461,7 +6261,7 @@ Auto_Format(void)
 
 		while ((curr_line->next_line != NULL) &&
 		    ((word_len = first_word_len(curr_line->next_line)) > 0) &&
-		    ((scr_pos + word_len) < right_margin)) {
+		    ((scr_pos + word_len) < wrap)) {
 			adv_line();
 			if ((*point == ' ') || (*point == '\t'))
 				adv_word();
@@ -5508,7 +6308,7 @@ Auto_Format(void)
 		 |	make sure line does not cross right margin
 		 */
 
-		while (right_margin <= scr_pos) {
+		while (wrap <= scr_pos) {
 			prev_word();
 			if (position != 1) {
 				del_word();
@@ -5597,6 +6397,17 @@ Auto_Format(void)
 	midscreen(scr_vert, point);
 }
 
+static int
+key_binding_op(int mode)
+{
+	keys_mode = mode;
+	vi_insert = FALSE;
+	vi_pending = 0;
+	if (info_window)
+		paint_shortcut_bar();
+	return (0);
+}
+
 static void
 modes_op(void)
 {
@@ -5616,7 +6427,9 @@ modes_op(void)
 		snprintf(modes_menu[5].item_string, MODES_ITEM_SIZE, "%s %s",
 		    mode_strings[5], (info_window ? ON : OFF));
 		snprintf(modes_menu[6].item_string, MODES_ITEM_SIZE, "%s %s",
-		    mode_strings[6], (emacs_keys_mode ? ON : OFF));
+		    mode_strings[6],
+		    (keys_mode == EE_KEYS_EMACS) ? "EMACS" :
+		    (keys_mode == EE_KEYS_VI) ? "VI" : "EE");
 		snprintf(modes_menu[7].item_string, MODES_ITEM_SIZE, "%s %d",
 		    mode_strings[7], right_margin);
 
@@ -5644,9 +6457,7 @@ modes_op(void)
 				create_info_window();
 			break;
 		case 6:
-			emacs_keys_mode = !emacs_keys_mode;
-			if (info_window)
-				paint_shortcut_bar();
+			/* handled by the key bindings submenu */
 			break;
 		case 7:
 			string = get_string(margin_prompt, TRUE);
@@ -5957,7 +6768,7 @@ strings_init(void)
 	mode_strings[3] = "margins observed     ";
 	mode_strings[4] = "auto-paragraph format";
 	mode_strings[5] = "info window          ";
-	mode_strings[6] = "emacs key bindings   ";
+	mode_strings[6] = "key bindings         ";
 	mode_strings[7] = "right margin         ";
 
 	/*

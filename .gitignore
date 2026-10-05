@@ -4,6 +4,7 @@ doasedit/doasedit_test
 tree/tree
 ee/ee
 truncate/truncate
+ee/tests/test-spell
 
 # objects and cores
 *.o

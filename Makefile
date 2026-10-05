@@ -56,6 +56,7 @@ test: all
 	perl ee/tests/run.pl
 	perl ee/tests/signals.pl
 	perl ee/tests/modern.pl
+	perl ee/tests/features.pl
 
 # build one utility with -g -O0 and run it under lldb(1)
 debug:

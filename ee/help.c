@@ -1,7 +1,7 @@
+#include "bsdcompat.h"
 #include <stdio.h>
 #include <string.h>
 
-#include "bsdcompat.h"
 #include "help.h"
 
 /*
@@ -18,6 +18,32 @@ struct help_section {
 	const char		*title;
 	const struct help_entry *items;
 	int			 count;
+	int			 vi_only; /* only shown in vi mode */
+	int			 general; /* shown in every binding set */
+};
+
+/*
+ * vi-style bindings.  This is deliberately a small, Easy-Editor-shaped
+ * subset, not a Vim emulation: it documents the normal/insert split and
+ * the operations that map onto existing editor commands.
+ */
+static const struct help_entry help_vi[] = {
+    {"i", NULL, "Enter insert mode"},
+    {"a", NULL, "Append after the cursor (insert mode)"},
+    {"I / A", NULL, "Insert at start / append at end of line"},
+    {"Esc", NULL, "Leave insert mode (or open the menu)"},
+    {"h j k l", NULL, "Move left, down, up, right"},
+    {"0 / $", NULL, "Start / end of line"},
+    {"w / b", NULL, "Forward / back one word"},
+    {"x", NULL, "Delete the character at the cursor"},
+    {"D", NULL, "Delete to the end of the line"},
+    {"dd", NULL, "Delete the current line"},
+    {"o / O", NULL, "Open a line below / above"},
+    {"u", NULL, "Restore the last cut (single level)"},
+    {":w", NULL, "Command: write the buffer"},
+    {":q", NULL, "Command: leave the editor"},
+    {":wq", NULL, "Command: write and leave"},
+    {":q!", NULL, "Command: discard changes and leave"},
 };
 
 static const struct help_entry help_navigation[] = {
@@ -115,20 +141,36 @@ static const struct help_entry help_advanced[] = {
 
 static const struct help_section help_sections[] = {
     {"Navigation", help_navigation,
-	(int)(sizeof(help_navigation) / sizeof(help_navigation[0]))},
+	(int)(sizeof(help_navigation) / sizeof(help_navigation[0])), 0, 0},
     {"Editing", help_editing,
-	(int)(sizeof(help_editing) / sizeof(help_editing[0]))},
-    {"Files", help_files, (int)(sizeof(help_files) / sizeof(help_files[0]))},
+	(int)(sizeof(help_editing) / sizeof(help_editing[0])), 0, 0},
+    {"Files", help_files, (int)(sizeof(help_files) / sizeof(help_files[0])),
+	0, 1},
     {"Search", help_search,
-	(int)(sizeof(help_search) / sizeof(help_search[0]))},
+	(int)(sizeof(help_search) / sizeof(help_search[0])), 0, 0},
     {"Cut and paste", help_cutpaste,
-	(int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0]))},
-    {"Exit", help_exit, (int)(sizeof(help_exit) / sizeof(help_exit[0]))},
+	(int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0])), 0, 0},
+    {"Exit", help_exit, (int)(sizeof(help_exit) / sizeof(help_exit[0])), 0, 0},
+    {"vi mode (normal / insert)", help_vi,
+	(int)(sizeof(help_vi) / sizeof(help_vi[0])), 1, 0},
     {"Commands (press ^C, then type the name)", help_commands,
-	(int)(sizeof(help_commands) / sizeof(help_commands[0]))},
+	(int)(sizeof(help_commands) / sizeof(help_commands[0])), 0, 1},
     {"Advanced commands and settings", help_advanced,
-	(int)(sizeof(help_advanced) / sizeof(help_advanced[0]))},
+	(int)(sizeof(help_advanced) / sizeof(help_advanced[0])), 0, 1},
 };
+
+/*
+ * Which sections are meaningful for a binding set.  In vi mode the
+ * historical control-key sections do not describe what the keys do, so
+ * they are omitted; the vi section is shown only in vi mode.
+ */
+static int
+help_section_visible(size_t s, int keys_mode)
+{
+	if (keys_mode == EE_KEYS_VI)
+		return (help_sections[s].vi_only || help_sections[s].general);
+	return (!help_sections[s].vi_only);
+}
 
 /* The trailing "Command line" block. */
 static const char *const help_usage[] = {
@@ -138,21 +180,24 @@ static const char *const help_usage[] = {
 };
 
 int
-ee_help_count(int)
+ee_help_count(int keys_mode)
 {
 	int    total = 0;
 	size_t s;
 
-	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++)
+	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++) {
+		if (!help_section_visible(s, keys_mode))
+			continue;
 		total +=
 		    1 + help_sections[s].count + 1; /* header, items, blank */
+	}
 	total += 1 + (int)(sizeof(help_usage) / sizeof(help_usage[0]));
 	return (total);
 }
 
 void
 ee_help_line(
-    int emacs_keys_mode, int index, char *out, size_t outsz, int *is_header)
+    int keys_mode, int index, char *out, size_t outsz, int *is_header)
 {
 	int    i = 0;
 	size_t s;
@@ -163,6 +208,9 @@ ee_help_line(
 	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++) {
 		const struct help_section *sec = &help_sections[s];
 		int			   j;
+
+		if (!help_section_visible(s, keys_mode))
+			continue;
 
 		if (i == index) {
 			snprintf(out, outsz, "%s", sec->title);
@@ -176,7 +224,7 @@ ee_help_line(
 
 			if (i == index) {
 				key = sec->items[j].key;
-				if (emacs_keys_mode &&
+				if ((keys_mode == EE_KEYS_EMACS) &&
 				    (sec->items[j].emacs != NULL))
 					key = sec->items[j].emacs;
 				/*

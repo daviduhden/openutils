@@ -6,7 +6,7 @@
 # strict flags.
 
 PROG = ee
-SRCS = ee.c utf8.c help.c
+SRCS = ee.c utf8.c help.c spell/spell.c
 
 CC = clang
 CFLAGS ?= -O2 -pipe
@@ -48,7 +48,8 @@ debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug
 
 clean:
-	rm -f $(PROG) $(PROG)_debug ee.o utf8.o help.o
+	rm -f $(PROG) $(PROG)_debug ee.o utf8.o help.o spell/spell.o \
+	    tests/test-spell
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
@@ -62,8 +63,12 @@ uninstall:
 	    $(DESTDIR)$(BINDIR)/edit $(DESTDIR)$(MANDIR)1/$(PROG).1
 
 test: $(PROG)
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-spell \
+	    tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS)
+	./tests/test-spell tests/spell-test.aff tests/spell-test.dic
 	perl tests/run.pl
 	perl tests/signals.pl
 	perl tests/modern.pl
+	perl tests/features.pl
 
 .PHONY: all clean install uninstall test debug

@@ -13,8 +13,16 @@
 
 #include <stddef.h>
 
+/*
+ * Key binding sets.  The help screen and the editor must agree on these
+ * values; they live here so that both translation units share them.
+ */
+#define EE_KEYS_EE 0
+#define EE_KEYS_EMACS 1
+#define EE_KEYS_VI 2
+
 /* Number of logical help lines for the active key binding set. */
-int ee_help_count(int emacs_keys_mode);
+int ee_help_count(int keys_mode);
 
 /*
  * Fill out with logical help line `index` (0-based), NUL-terminated and
@@ -22,6 +30,6 @@ int ee_help_count(int emacs_keys_mode);
  * index is out of range, out is set to the empty string.
  */
 void ee_help_line(
-    int emacs_keys_mode, int index, char *out, size_t outsz, int *is_header);
+    int keys_mode, int index, char *out, size_t outsz, int *is_header);
 
 #endif /* EE_HELP_H */

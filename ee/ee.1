@@ -133,15 +133,21 @@ For instance, to move the cursor up, the user can use the up arrow key, or
 .fi
 .RE
 .sp
-.SS "EMACS keys mode"
+.SS "Key bindings (Easy Editor, Emacs and vi)"
 .PP
-Since many shells provide an Emacs mode (for cursor movement and other editing
-operations), some bindings that may be more useful for people familiar with those
-bindings have been provided.
-These are accessible via the
+Three key binding sets can be selected from the
 .B settings
-menu, or via the initialization file (see below).
-The mappings are as follows:
+menu, or via the initialization file (see below):
+.BR "Easy Editor" " (the historical bindings), "
+.B Emacs
+and
+.BR vi .
+All three dispatch to the same editing operations; they differ only in
+which key invokes them.
+.PP
+The
+.B Emacs
+bindings suit users familiar with the shell's Emacs mode:
 .RS
 .nf
 .ta 1.4i
@@ -172,6 +178,42 @@ The mappings are as follows:
 .ta
 .fi
 .RE
+.PP
+The
+.B vi
+bindings are a deliberately small normal/insert pair, not a Vim
+emulation.  The editor starts in normal mode; press
+.B i
+(or
+.BR a ,
+.B I
+or
+.BR A )
+to insert text and
+.B ESC
+to return to normal mode.  In normal mode:
+.RS
+.nf
+.ta 1.4i
+h j k l	Move left, down, up, right.
+0 $	Start or end of line.
+w b	Forward or back one word.
+i a	Insert at the cursor / append after it.
+I A	Insert at the start / append at the end of the line.
+ESC	Leave insert mode; from normal mode, open the menu.
+x	Delete the character at the cursor.
+dd	Delete the current line.
+D	Delete to the end of the line.
+o O	Open a line below / above and insert.
+u	Restore the last cut (single level).
+:w :q :wq :q!	Write, quit, write and quit, discard.
+.ta
+.fi
+.RE
+.PP
+Full multi-level undo is not part of the editor's buffer model, so
+.B u
+restores only the most recent cut.
 .sp
 .\"
 .\"     function keys
@@ -335,6 +377,19 @@ beyond the right margin (the right margin may be set in the \fBsettings\fR
 menu, the default is for the margin to be the right edge of the terminal).
 This is the mode that allows the \fBformat paragraph\fR menu item to work.
 .PP
+Plain prose is reflowed to at most 72 columns, the traditional width for
+technical mail.  Paragraphs that look like code, tables, mail signatures
+or CVS/Git/Got patches are left untouched: the formatter recognises
+structural markers such as
+.BR "Index:" ,
+.BR "diff --git" ,
+.BR "RCS file:" ,
+.BR "@@" ,
+.BR "---" ,
+.BR "+++" ,
+preprocessor lines, shebangs, Markdown fences and aligned columns, and
+refuses to reformat a paragraph that contains them.
+.PP
 "Automatic formatting" provides word-processor-like behavior.
 The user may type in text, while \fIee\fR will make sure the entire paragraph fits
 within the width of the terminal every time the user inserts a space after
@@ -362,8 +417,8 @@ within the width of the screen.
 .IP "\fBinfo window\fR"
 The shortcut bar showing the keyboard operations that can be performed
 can be displayed or not.
-.IP "\fBemacs keys\fR"
-Control keys may be given bindings similar to emacs, or not.
+.IP "\fBkey bindings\fR"
+Select the Easy Editor, Emacs or vi key binding set.
 .RE
 .PP
 You may set these modes via the initialization file (see below), or with a
@@ -373,14 +428,47 @@ menu (see above).
 .\"
 .SS "Spell Checking"
 .PP
-There are two ways to have the spelling in the text checked from \fIee\fR.
-One is by the traditional \fIspell\fR(1) command, the other is with the
-optional \fIispell\fR(1) command.
+Spelling is checked by an internal affix checker written for
+.IR ee
+(see
+.B spell/
+in the source tree); it is an original ee component and shares no code
+with any third-party spell checker.  No external spelling program is run.
+The
+.B miscellaneous
+menu can check the word at the cursor and offer a small set of
+suggestions, and spell checking can be toggled on and off.
 .PP
-Using \fIspell\fR, the words that are not recognized will be placed at the top
-of the file.  For the \fIispell\fR option, the file is written to disk,
-then \fIispell\fR run on the file, and the file read back in once
-\fIispell\fR has completed making changes to the file.
+The engine reads a dictionary in the common
+.B .aff
+and
+.B .dic
+text format.  No dictionary data is bundled with
+.IR ee :
+no third-party word list is distributed under this project's licence.
+The editor looks for
+.B en_US
+files in the usual system directories
+.PP
+.RS 8
+/usr/local/share/myspell
+.br
+/usr/share/myspell
+.br
+/usr/local/share/hunspell
+.br
+/usr/share/hunspell
+.RE
+.PP
+or wherever the
+.B EE_DICTIONARY
+environment variable points (a
+.B .dic
+file, an
+.B .aff
+file, a directory or a base path).
+If no dictionary is found, spell checking reports that and the rest of
+the editor is unaffected.
 .\"
 .\"     printing
 .\"
@@ -487,9 +575,15 @@ Turns on reverse video in the title, status, shortcut bars and menus
 .IP \fBnohighlight\fR
 Turns off reverse video.
 .IP \fBemacs\fR
-Turns on emacs key bindings.
+Turns on Emacs key bindings.
 .IP \fBnoemacs\fR
-Turns off emacs key bindings.
+Selects the traditional Easy Editor key bindings.
+.IP \fBvi\fR
+Turns on the vi key bindings.
+.IP \fBspell\fR
+Turns on spell checking.
+.IP \fBnospell\fR
+Turns off spell checking.
 .RE
 .\"
 .\"     save editor configuration
@@ -592,5 +686,5 @@ slower systems.
 .I .init.ee
 .SH "SEE ALSO"
 .PP
-curses(3), ncurses(3), terminfo(4), environ(5), spell(1), ispell(1), lp(1),
+curses(3), ncurses(3), terminfo(4), environ(5), lp(1),
 aee(1)

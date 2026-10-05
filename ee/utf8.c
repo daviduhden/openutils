@@ -1,7 +1,13 @@
+/*
+ * bsdcompat.h must precede every system header so that the feature-test
+ * macros it defines (on non-OpenBSD hosts) are visible when <wchar.h>
+ * is first included; otherwise wcwidth(3) is not declared in strict
+ * ISO C23 mode.
+ */
+#include "bsdcompat.h"
 #include <limits.h>
 #include <wchar.h>
 
-#include "bsdcompat.h"
 #include "utf8.h"
 
 /*
