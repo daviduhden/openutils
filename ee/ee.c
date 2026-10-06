@@ -4530,7 +4530,15 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 	wmove(menu_win, row, MENU_ITEM_COL);
 	if (!nohighlight && highlight) {
 		wstandout(menu_win);
-		for (column = 1; column < (max_width - 1); column++)
+		/*
+		 * Fill from the item column up to (but not including)
+		 * the right border at max_width - 1.  The loop must
+		 * start at MENU_ITEM_COL, where the cursor already is:
+		 * counting from column 1 here wrote two cells too many
+		 * and ran past the border, desynchronising the terminal
+		 * and shifting the following row.
+		 */
+		for (column = MENU_ITEM_COL; column < (max_width - 1); column++)
 			waddch(menu_win, ' ');
 		wmove(menu_win, row, MENU_ITEM_COL);
 	}
