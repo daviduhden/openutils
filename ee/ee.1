@@ -342,8 +342,9 @@ To leave this menu, press the \fBescape\fR key.  (See \fBModes\fR below.)
 Pops up a menu in which the user may choose to enter a string to search
 for, or search for a string already entered.
 .IP "\fBmiscellaneous\fR"
-Pops up a menu that allows the user to format the current paragraph,
-execute a shell command, or check the spelling of the text in the editor.
+Pops up a menu that allows the user to format the current paragraph or the
+whole document, execute a shell command, or check the spelling of the text in
+the editor.
 .RE
 .\"
 .\"     paragraph formatting
@@ -366,6 +367,12 @@ A paragraph may be formatted two ways:  explicitly by choosing the
 format paragraphs.  The automatic mode may be set via a menu, or via the
 initialization file.
 .PP
+The \fBformat whole document\fR menu item reflows every paragraph in the
+buffer in one operation.
+Each paragraph is reformatted on its own: blank lines and the boundaries
+between paragraphs are preserved, and text from separate paragraphs is never
+joined.
+.PP
 There are three states for text operation in \fIee\fR: free-form, margins,
 and automatic formatting.
 .PP
@@ -375,7 +382,8 @@ restrictions on the length of lines, and no formatting takes place.
 "Margins" allows the user to type in text without having to worry about going
 beyond the right margin (the right margin may be set in the \fBsettings\fR
 menu, the default is for the margin to be the right edge of the terminal).
-This is the mode that allows the \fBformat paragraph\fR menu item to work.
+This is the mode that allows the \fBformat paragraph\fR and
+\fBformat whole document\fR menu items to work.
 .PP
 Plain prose is reflowed to at most 72 columns, the traditional width for
 technical mail.  Paragraphs that look like code, tables, mail signatures

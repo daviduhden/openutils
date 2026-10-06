@@ -60,7 +60,10 @@ configuration with **save editor configuration**.
 
 Paragraph formatting targets 72 columns for ordinary prose (the
 traditional width for technical mail) and leaves code, tables and
-CVS/Git/Got patches untouched.
+CVS/Git/Got patches untouched.  The miscellaneous menu can reflow the
+current paragraph or the whole document; the whole-document command
+reformats each paragraph independently and preserves blank lines and
+paragraph boundaries.
 
 Spelling is checked by ee's own small affix checker in
 [spell/](spell/README.md); no external program is run and no dictionary

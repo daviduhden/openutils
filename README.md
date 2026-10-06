@@ -221,7 +221,8 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   `EMACS`/`NOEMACS` init lines are
   joined by `VI`, `SPELL` and `NOSPELL`.  The paragraph formatter now
   targets 72 columns for prose and refuses to reflow diffs, patches and
-  code-like text.
+  code-like text; a whole-document command reflows every paragraph
+  independently while preserving blank lines and paragraph boundaries.
 - `doasedit`: the write-back replaces the file atomically (inode is
   not preserved, hard links are broken, file flags are not carried
   over; owner/group/mode are preserved) instead of writing into the

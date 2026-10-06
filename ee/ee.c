@@ -157,17 +157,18 @@ int expand_tabs = TRUE;	   /* flag for expanding tabs		*/
 int right_margin = 0;	   /* the right margin 			*/
 int observ_margins = TRUE; /* flag for whether margins are observed */
 int shell_fork;
-int pipe_out[2];		/* pipe file desc for output		*/
-int pipe_in[2];			/* pipe file descriptors for input	*/
-int out_pipe;			/* flag that info is piped out		*/
-int in_pipe;			/* flag that info is piped in		*/
-int formatted = FALSE;		/* flag indicating paragraph formatted	*/
-int auto_format = FALSE;	/* flag for auto_format mode		*/
-int restricted = FALSE;		/* flag to indicate restricted mode	*/
-int nohighlight = FALSE;	/* turns off highlighting		*/
-int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
-int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
-int curses_initialized = FALSE; /* flag indicating if curses has been started*/
+int pipe_out[2];		 /* pipe file desc for output		*/
+int pipe_in[2];			 /* pipe file descriptors for input	*/
+int out_pipe;			 /* flag that info is piped out		*/
+int in_pipe;			 /* flag that info is piped in		*/
+int formatted = FALSE;		 /* flag indicating paragraph formatted	*/
+int auto_format = FALSE;	 /* flag for auto_format mode		*/
+int formatting_document = FALSE; /* whole-buffer format in progress	*/
+int restricted = FALSE;		 /* flag to indicate restricted mode	*/
+int nohighlight = FALSE;	 /* turns off highlighting		*/
+int local_LINES = 0;		 /* copy of LINES, to detect when win resizes */
+int local_COLS = 0;		 /* copy of COLS, to detect when win resizes  */
+int curses_initialized = FALSE;	 /* flag indicating if curses has been started*/
 int box_unicode = TRUE; /* terminal and locale can render Unicode boxes */
 
 /*
@@ -447,6 +448,7 @@ static void		 adv_word(void);
 static void		 move_rel(int direction, int lines);
 static void		 eol(void);
 static void		 bol(void);
+static void		 line_start(void);
 static void		 adv_line(void);
 static void		 sh_command(char *string);
 static void		 set_up_term(void);
@@ -473,6 +475,7 @@ static void *xmalloc(size_t n);
 static void  recount_lines(void);
 static int   Blank_Line(struct text *test_line);
 static void  Format(void);
+static void  Format_All(void);
 static void  ee_init(void);
 static void  dump_ee_conf(void);
 static void  echo_string(char *string);
@@ -591,6 +594,7 @@ struct menu_entries spell_menu[] = {{"spell menu", NULL, NULL, NULL, NULL, -1},
 struct menu_entries misc_menu[] = {
     {"miscellaneous menu", NULL, NULL, NULL, NULL, -1},
     {"format paragraph", NULL, NULL, NULL, Format, -1},
+    {"format whole document", NULL, NULL, NULL, Format_All, -1},
     {"shell command", NULL, NULL, NULL, shell_op, -1},
     {"check spelling", menu_op, spell_menu, NULL, NULL, -1},
     {NULL, NULL, NULL, NULL, NULL, -1}};
@@ -655,6 +659,7 @@ static const char continue_msg[] = "press return to continue ";
 static const char menu_cancel_msg[] = "press Esc to cancel";
 static const char shell_prompt[] = "Shell command: ";
 static const char formatting_msg[] = "...formatting paragraph...";
+static const char formatting_doc_msg[] = "...formatting document...";
 static const char structured_msg[] =
     "not reformatted: code, diff or structured text";
 static const char margin_prompt[] = "Right margin: ";
@@ -3776,6 +3781,20 @@ bol(void)
 	}
 }
 
+/*
+ |	Move to the beginning of the current line, never to a previous
+ |	line.  bol() moves up when the cursor is already at the start of
+ |	the line, which the formatter must not do: it would let the
+ |	merge step reach into the paragraph before the one being
+ |	formatted.
+ */
+static void
+line_start(void)
+{
+	while (point != curr_line->line)
+		left(TRUE);
+}
+
 /* advance to beginning of next line	*/
 static void
 adv_line(void)
@@ -5341,7 +5360,8 @@ Format(void)
 
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	wprintw(com_win, "%s", formatting_msg);
+	wprintw(com_win, "%s",
+	    formatting_document ? formatting_doc_msg : formatting_msg);
 	wrefresh(com_win);
 
 	/*
@@ -5394,7 +5414,8 @@ Format(void)
 
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	wprintw(com_win, "%s", formatting_msg);
+	wprintw(com_win, "%s",
+	    formatting_document ? formatting_doc_msg : formatting_msg);
 	wrefresh(com_win);
 
 	/*
@@ -5433,7 +5454,7 @@ Format(void)
 	 user |	may have put in).
 	 */
 
-	bol();
+	line_start();
 	adv_word();
 	while (position < curr_line->line_length) {
 		if ((*point == ' ') && (*(point + 1) == ' '))
@@ -5446,7 +5467,7 @@ Format(void)
 	 |	Now make sure there are two spaces after a '.'.
 	 */
 
-	bol();
+	line_start();
 	while (position < curr_line->line_length) {
 		if ((*point == '.') && (*(point + 1) == ' ')) {
 			right(TRUE);
@@ -5459,11 +5480,12 @@ Format(void)
 	}
 
 	observ_margins = TRUE;
-	bol();
+	line_start();
 
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	wprintw(com_win, "%s", formatting_msg);
+	wprintw(com_win, "%s",
+	    formatting_document ? formatting_doc_msg : formatting_msg);
 	wrefresh(com_win);
 
 	/*
@@ -5486,7 +5508,7 @@ Format(void)
 	 position
 	 */
 
-	bol();
+	line_start();
 	while (!Blank_Line(curr_line->prev_line))
 		bol();
 
@@ -5524,6 +5546,75 @@ Format(void)
 	auto_format = tmp_af;
 
 	midscreen(scr_vert, point);
+	werase(com_win);
+	wrefresh(com_win);
+}
+
+/*
+ |	Reflow every paragraph in the buffer independently.  Paragraph
+ |	boundaries and blank lines are preserved: the merge step of
+ |	Format() always stops at a blank line, so prose from two separate
+ |	paragraphs is never joined.  The cursor is left at the start of
+ |	the paragraph it was in when the command was invoked.
+ */
+static void
+Format_All(void)
+{
+	struct text *anchor;
+	int	     anchor_vert;
+
+	if (!observ_margins)
+		return;
+
+	/*
+	 |	Remember the start of the paragraph holding the cursor
+	 |	(Format() merges the following lines of a paragraph, so a
+	 |	line in the middle of one may not survive), and the screen
+	 |	row to return to.
+	 */
+	anchor = curr_line;
+	if (!Blank_Line(anchor)) {
+		while (!Blank_Line(anchor->prev_line))
+			anchor = anchor->prev_line;
+	}
+	anchor_vert = scr_vert;
+
+	formatting_document = TRUE;
+	top();
+
+	for (;;) {
+		/* skip blank lines between paragraphs */
+		if (Blank_Line(curr_line)) {
+			if (curr_line->next_line == NULL)
+				break;
+			adv_line();
+			continue;
+		}
+
+		/* reflow the paragraph starting at curr_line */
+		Format();
+
+		/*
+		 |	advance to the last line of the paragraph just
+		 |	formatted; the blank line after it is the separator
+		 |	before the next paragraph
+		 */
+		while ((curr_line->next_line != NULL) &&
+		    !Blank_Line(curr_line->next_line))
+			adv_line();
+
+		if (curr_line->next_line == NULL)
+			break;
+		adv_line();
+	}
+
+	formatting_document = FALSE;
+
+	curr_line = anchor;
+	point = anchor->line;
+	position = 1;
+	from_top();
+	midscreen(ee_min(anchor_vert, last_line), point);
 	werase(com_win);
 	wrefresh(com_win);
 }
