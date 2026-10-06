@@ -52,7 +52,7 @@ main(int argc, char **argv)
 	const char	*dic = (argc > 2) ? argv[2] : "spell/en_US.dic";
 	struct ee_spell *sp = ee_spell_open(aff, dic);
 
-	if (sp == NULL) {
+	if (sp == nullptr) {
 		printf("FAIL cannot open %s / %s\n", aff, dic);
 		return (1);
 	}

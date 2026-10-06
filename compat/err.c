@@ -20,6 +20,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// clang-format off
 #include "bsdcompat.h"
 
 #include <err.h>
@@ -28,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+// clang-format on
 
 #if !OPENUTILS_BSD_LIBC && !defined(__GLIBC__)
 
@@ -35,7 +37,7 @@ static void
 vwarn_impl(const char *fmt, va_list ap)
 {
 	fprintf(stderr, "%s: ", getprogname());
-	if (fmt != NULL) {
+	if (fmt != nullptr) {
 		vfprintf(stderr, fmt, ap);
 		fprintf(stderr, ": ");
 	}
@@ -59,7 +61,7 @@ warnx(const char *fmt, ...)
 
 	fprintf(stderr, "%s: ", getprogname());
 	va_start(ap, fmt);
-	if (fmt != NULL)
+	if (fmt != nullptr)
 		vfprintf(stderr, fmt, ap);
 	va_end(ap);
 	fputc('\n', stderr);
@@ -83,7 +85,7 @@ errx(int eval, const char *fmt, ...)
 
 	fprintf(stderr, "%s: ", getprogname());
 	va_start(ap, fmt);
-	if (fmt != NULL)
+	if (fmt != nullptr)
 		vfprintf(stderr, fmt, ap);
 	va_end(ap);
 	fputc('\n', stderr);

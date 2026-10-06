@@ -1,3 +1,6 @@
+// clang-format off
+#include "bsdcompat.h"
+
 #include <sys/stat.h>
 
 #include <ctype.h>
@@ -11,6 +14,7 @@
 #include <locale.h>
 #include <pwd.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,8 +22,7 @@
 #include <unistd.h>
 #include <wchar.h>
 #include <wctype.h>
-
-#include "bsdcompat.h"
+// clang-format on
 
 /* display flags */
 static int	   aflag;     /* -a: include hidden entries */
@@ -109,7 +112,7 @@ static_assert(sizeof(a_hier) / sizeof(a_hier[0]) == 2 &&
 /* one directory entry */
 struct ent {
 	char	   *name;
-	char	   *target; /* symlink target or NULL */
+	char	   *target; /* symlink target or nullptr */
 	struct stat lst;    /* lstat(2) */
 	struct stat st;	    /* stat(2) of target for symlinks */
 	int	    broken; /* symlink whose target is missing */
@@ -148,7 +151,7 @@ patmatch(const char *name, const char *pat)
 		const char *pc;
 
 		pc = strchr(name, '/');
-		if (pc == NULL || pc[1] == '\0')
+		if (pc == nullptr || pc[1] == '\0')
 			break;
 		name = pc + 1;
 		if (fnmatch(pat, name, 0) == 0)
@@ -217,15 +220,20 @@ do_date(time_t t)
 	struct tm  *tm;
 
 	tm = localtime(&t);
-	if (tm == NULL)
+	if (tm == nullptr)
 		return ("");
-	if (timefmt != NULL) {
+	if (timefmt != nullptr) {
 		if (strftime(buf, sizeof(buf), timefmt, tm) == 0)
 			buf[0] = '\0';
 	} else {
-		time_t c = time(NULL);
+		time_t c = time(nullptr);
 
-		if (t > c || (t + 6 * 31 * 24 * 60 * 60) < c)
+		/*
+		 * Compare the difference rather than adding to t: the
+		 * addition could overflow a 32-bit time_t for a file
+		 * dated in the far future.
+		 */
+		if (t > c || (c - t) > (time_t)(6 * 31 * 24 * 60 * 60))
 			strftime(buf, sizeof(buf), "%b %e  %Y", tm);
 		else
 			strftime(buf, sizeof(buf), "%b %e %R", tm);
@@ -285,7 +293,7 @@ uidtoname(uid_t uid)
 	if (uid != cuid || cbuf[0] == '\0') {
 		pw = getpwuid(uid);
 		cuid = uid;
-		if (pw == NULL)
+		if (pw == nullptr)
 			snprintf(cbuf, sizeof(cbuf), "%u", (unsigned)uid);
 		else
 			strlcpy(cbuf, pw->pw_name, sizeof(cbuf));
@@ -303,12 +311,45 @@ gidtoname(gid_t gid)
 	if (gid != cgid || cbuf[0] == '\0') {
 		gr = getgrgid(gid);
 		cgid = gid;
-		if (gr == NULL)
+		if (gr == nullptr)
 			snprintf(cbuf, sizeof(cbuf), "%u", (unsigned)gid);
 		else
 			strlcpy(cbuf, gr->gr_name, sizeof(cbuf));
 	}
 	return (cbuf);
+}
+
+/*
+ * Append formatted text to a bounded buffer without ever advancing the
+ * cursor past the final byte.  snprintf(3) returns the length it would
+ * have written, which may exceed the remaining space; accumulating that
+ * unchecked would let a later call compute an out-of-range size.
+ *
+ * C23 has no standard printf-format attribute, so the GCC/Clang one is
+ * used to keep the format-string checking enabled for this helper.
+ */
+static void info_append(char *buf, size_t size, size_t *n, const char *fmt, ...)
+    __attribute__((format(printf, 4, 5)));
+
+static void
+info_append(char *buf, size_t size, size_t *n, const char *fmt, ...)
+{
+	va_list ap;
+	size_t	avail;
+	int	written;
+
+	if (*n >= size)
+		return;
+	avail = size - *n;
+	va_start(ap, fmt);
+	written = vsnprintf(buf + *n, avail, fmt, ap);
+	va_end(ap);
+	if (written < 0)
+		return;
+	if ((size_t)written >= avail)
+		*n = size - 1; /* truncated: the buffer is full */
+	else
+		*n += (size_t)written;
 }
 
 static const char *
@@ -320,27 +361,26 @@ fillinfo(const struct stat *st)
 
 	buf[0] = '\0';
 	if (inoflag)
-		n += (size_t)snprintf(
-		    buf + n, sizeof(buf) - n, " %7lld", (long long)st->st_ino);
+		info_append(
+		    buf, sizeof(buf), &n, " %7lld", (long long)st->st_ino);
 	if (pflag)
-		n += (size_t)snprintf(
-		    buf + n, sizeof(buf) - n, " %s", prot(st->st_mode));
+		info_append(buf, sizeof(buf), &n, " %s", prot(st->st_mode));
 	if (uflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %-8.32s",
-		    uidtoname(st->st_uid));
+		info_append(
+		    buf, sizeof(buf), &n, " %-8.32s", uidtoname(st->st_uid));
 	if (gflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %-8.32s",
-		    gidtoname(st->st_gid));
+		info_append(
+		    buf, sizeof(buf), &n, " %-8.32s", gidtoname(st->st_gid));
 	if (sflag) {
 		psize(nbuf, sizeof(nbuf), st->st_size);
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, "%s", nbuf);
+		info_append(buf, sizeof(buf), &n, "%s", nbuf);
 	}
 	if (Dflag)
-		n += (size_t)snprintf(buf + n, sizeof(buf) - n, " %s",
+		info_append(buf, sizeof(buf), &n, " %s",
 		    do_date(cflag ? st->st_ctime : st->st_mtime));
 	if (buf[0] == ' ') {
 		buf[0] = '[';
-		snprintf(buf + n, sizeof(buf) - n, "]");
+		info_append(buf, sizeof(buf), &n, "]");
 	}
 	return (buf);
 }
@@ -501,7 +541,7 @@ addseen(dev_t dev, ino_t ino)
 		seen_alloc = seen_alloc ? seen_alloc * 2 : 64;
 		seen_dirs =
 		    reallocarray(seen_dirs, seen_alloc, sizeof(*seen_dirs));
-		if (seen_dirs == NULL)
+		if (seen_dirs == nullptr)
 			err(1, "reallocarray");
 	}
 	seen_dirs[seen_cnt].dev = dev;
@@ -549,18 +589,18 @@ collect(const char *path, struct ent **out, size_t *nout)
 {
 	DIR	      *dirp;
 	struct dirent *de;
-	struct ent    *ents = NULL;
+	struct ent    *ents = nullptr;
 	size_t	       n = 0, alloc = 0, i;
 
-	*out = NULL;
+	*out = nullptr;
 	*nout = 0;
 
-	if ((dirp = opendir(path)) == NULL)
+	if ((dirp = opendir(path)) == nullptr)
 		return (-1);
 
-	while ((de = readdir(dirp)) != NULL) {
+	while ((de = readdir(dirp)) != nullptr) {
 		struct ent *e;
-		char	   *join = NULL;
+		char	   *join = nullptr;
 		size_t	    plen, dlen;
 
 		if (strcmp(de->d_name, ".") == 0 ||
@@ -572,7 +612,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 		plen = strlen(path);
 		dlen = strlen(de->d_name);
 		join = malloc(plen + dlen + 2);
-		if (join == NULL)
+		if (join == nullptr)
 			err(1, "malloc");
 		snprintf(join, plen + dlen + 2, "%s%s%s", path,
 		    plen != 0 && path[plen - 1] == '/' ? "" : "/", de->d_name);
@@ -580,13 +620,13 @@ collect(const char *path, struct ent **out, size_t *nout)
 		if (n == alloc) {
 			alloc = alloc ? alloc * 2 : 32;
 			ents = reallocarray(ents, alloc, sizeof(*ents));
-			if (ents == NULL)
+			if (ents == nullptr)
 				err(1, "reallocarray");
 		}
 		e = &ents[n];
 		memset(e, 0, sizeof(*e));
 		e->name = strdup(de->d_name);
-		if (e->name == NULL)
+		if (e->name == nullptr)
 			err(1, "strdup");
 
 		if (lstat(join, &e->lst) == -1) {
@@ -608,7 +648,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 				continue;
 			}
 			e->target = malloc((size_t)len + 1);
-			if (e->target == NULL)
+			if (e->target == nullptr)
 				err(1, "malloc");
 			memcpy(e->target, lbuf, (size_t)len);
 			e->target[(size_t)len] = '\0';
@@ -631,18 +671,18 @@ collect(const char *path, struct ent **out, size_t *nout)
 		size_t j;
 
 		for (i = j = 0; i < n; i++) {
-			struct ent *e = &ents[i];
-			int	    drop = 0;
+			auto e = &ents[i];
+			int  drop = 0;
 
 			if (dflag && !e->isdir)
 				drop = 1;
 			if (!drop && !e->isdir && npatterns > 0 &&
 			    !patinclude(e->name) &&
-			    !(e->target != NULL && patinclude(e->target)))
+			    !(e->target != nullptr && patinclude(e->target)))
 				drop = 1;
 			if (!drop && nipatterns > 0 &&
 			    (patignore(e->name) ||
-				(e->target != NULL && patignore(e->target))))
+				(e->target != nullptr && patignore(e->target))))
 				drop = 1;
 			if (drop) {
 				free(e->name);
@@ -683,7 +723,7 @@ joinpath(const char *path, const char *name)
 	size_t plen = strlen(path), nlen = strlen(name);
 
 	p = malloc(plen + nlen + 2);
-	if (p == NULL)
+	if (p == nullptr)
 		err(1, "malloc");
 	if (plen == 1 && path[0] == '/')
 		snprintf(p, plen + nlen + 2, "/%s", name);
@@ -700,12 +740,12 @@ resolvelink(const char *path, const char *target)
 
 	if (target[0] == '/') {
 		p = strdup(target);
-		if (p == NULL)
+		if (p == nullptr)
 			err(1, "strdup");
 		return (p);
 	}
 	p = malloc(plen + tlen + 2);
-	if (p == NULL)
+	if (p == nullptr)
 		err(1, "malloc");
 	if (plen == 1 && path[0] == '/')
 		snprintf(p, plen + tlen + 2, "/%s", target);
@@ -743,14 +783,14 @@ entryline(
 	}
 	printname(e->name);
 
-	if (Fflag && e->target == NULL) {
+	if (Fflag && e->target == nullptr) {
 		char c = ftype(e->st.st_mode);
 
 		if (c != 0)
 			putc(c, outfile);
 	}
 
-	if (e->target != NULL) {
+	if (e->target != nullptr) {
 		fputs(" -> ", outfile);
 		printname(e->target);
 		if (Fflag && !e->broken) {
@@ -792,12 +832,12 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 	}
 
 	for (i = 0; i < n; i++) {
-		struct ent *e = &ents[i];
+		auto	    e = &ents[i];
 		int	    last = (i == n - 1);
 		int	    d = depth + 1;
 		int	    follow = 0;
-		char	   *cp = NULL;
-		struct ent *ch = NULL;
+		char	   *cp = nullptr;
+		struct ent *ch = nullptr;
 		size_t	    nch = 0;
 		int	    opened = 1;
 
@@ -806,18 +846,18 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			continue;
 
 		if (e->isdir) {
-			follow = (e->target != NULL && lflag && !dflag &&
+			follow = (e->target != nullptr && lflag && !dflag &&
 			    !e->broken &&
 			    seen(e->st.st_dev, e->st.st_ino) == 0 &&
 			    (!xflag || e->st.st_dev == xdev));
 
 			/* symlink shown but not followed */
-			if (e->target != NULL && !follow) {
+			if (e->target != nullptr && !follow) {
 				if (pruneflag && !dflag && e->isdir &&
 				    !e->broken) {
 					char *cp2 =
 					    resolvelink(path, e->target);
-					struct ent *ch2 = NULL;
+					struct ent *ch2 = nullptr;
 					size_t	    nch2 = 0;
 
 					if (collect(cp2, &ch2, &nch2) == 0)
@@ -846,8 +886,9 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 
 			/* collect children to detect prune/filelimit
 			 * conditions and open errors */
-			cp = e->target != NULL ? resolvelink(path, e->target) :
-						 joinpath(path, e->name);
+			cp = e->target != nullptr ?
+			    resolvelink(path, e->target) :
+			    joinpath(path, e->name);
 			if (collect(cp, &ch, &nch) == -1)
 				opened = 0;
 
@@ -862,7 +903,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 				free(cp);
 				continue;
 			}
-			if (pruneflag && !dflag && nch == 0) {
+			if (pruneflag && !dflag && opened && nch == 0) {
 				/* nothing printed for pruned dirs */
 				freeents(ch, nch);
 				free(cp);
@@ -885,7 +926,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 		}
 
 		/* symlink to a non-directory */
-		if (e->target != NULL) {
+		if (e->target != nullptr) {
 			entryline(e, path, depth, bars, last);
 			fputs("\n", outfile);
 			nfiles++;
@@ -956,18 +997,23 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 {
 	struct ent *ents;
 	size_t	    n, i;
+	int	    emitted = 0;
+
+	if (depth >= MAX_DEPTH)
+		errx(1, "directory tree too deep");
 
 	if (collect(path, &ents, &n) == -1)
 		return;
 
 	for (i = 0; i < n; i++) {
-		struct ent *e = &ents[i];
-		int	    d = depth + 1;
-		int	    follow;
+		auto e = &ents[i];
+		int  d = depth + 1;
+		int  follow;
 
-		jindent(lvl);
-
-		if (e->target != NULL) {
+		if (e->target != nullptr) {
+			if (emitted)
+				jsep();
+			jindent(lvl);
 			fprintf(outfile, "{\"type\":\"link\",\"name\":\"");
 			json_enc(e->name);
 			fprintf(outfile, "\",\"target\":\"");
@@ -978,7 +1024,7 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 			follow = e->isdir && lflag && !dflag && !e->broken &&
 			    seen(e->st.st_dev, e->st.st_ino) == 0 &&
 			    (!xflag || e->st.st_dev == xdev) &&
-			    !(maxdepth > 0 && d > maxdepth);
+			    !(maxdepth > 0 && d >= maxdepth);
 			if (follow) {
 				char *cp = resolvelink(path, e->target);
 
@@ -1000,31 +1046,41 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 				nfiles++;
 			}
 			fprintf(outfile, "}");
-			if (i < n - 1)
-				jsep();
+			emitted = 1;
 			continue;
 		}
 		if (e->isdir) {
 			char *cp = joinpath(path, e->name);
 
 			if (pruneflag && !dflag) {
-				struct ent *ch = NULL;
+				struct ent *ch = nullptr;
 				size_t	    nch = 0;
+				int copen = (collect(cp, &ch, &nch) == 0);
 
-				if (collect(cp, &ch, &nch) == 0)
+				if (copen)
 					freeents(ch, nch);
-				if (nch == 0) {
+				/*
+				 * Only an empty, readable directory is
+				 * pruned; an unreadable one falls through
+				 * so that jsonwalk() reports the error.
+				 */
+				if (copen && nch == 0) {
 					free(cp);
 					continue;
 				}
 			}
+			if (emitted)
+				jsep();
+			jindent(lvl);
 			addseen(e->st.st_dev, e->st.st_ino);
 			jsonwalk(cp, e->name, d, xdev, lvl);
 			free(cp);
-			if (i < n - 1)
-				jsep();
+			emitted = 1;
 			continue;
 		}
+		if (emitted)
+			jsep();
+		jindent(lvl);
 		fprintf(outfile, "{\"type\":\"%s\",\"name\":\"",
 		    jtype(e->lst.st_mode));
 		json_enc(e->name);
@@ -1032,8 +1088,7 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 		json_info(&e->lst);
 		fprintf(outfile, "}");
 		nfiles++;
-		if (i < n - 1)
-			jsep();
+		emitted = 1;
 	}
 	freeents(ents, n);
 }
@@ -1049,6 +1104,9 @@ jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
 	size_t	    n;
 	struct stat st;
 	int	    opened;
+
+	if (depth >= MAX_DEPTH)
+		errx(1, "directory tree too deep");
 
 	fprintf(outfile, "{\"type\":\"directory\",\"name\":\"");
 	json_enc(disp);
@@ -1108,7 +1166,7 @@ static const struct lopt longopts[] = {{"all", 0, 'a'}, {"dirsfirst", 0, '1'},
     {"dirs-only", 0, 'd'}, {"filelimit", 1, '2'}, {"fullpath", 0, 'f'},
     {"help", 0, 'h'}, {"inodes", 0, '3'}, {"noindent", 0, 'i'},
     {"noreport", 0, '4'}, {"prune", 0, '5'}, {"si", 0, '6'}, {"sort", 1, '7'},
-    {"timefmt", 1, '8'}, {NULL, 0, 0}};
+    {"timefmt", 1, '8'}, {nullptr, 0, 0}};
 
 static void
 setopt(int c, const char *val)
@@ -1186,32 +1244,32 @@ setopt(int c, const char *val)
 		Uflag = 1;
 		break;
 	case 'L':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		maxdepth = (int)strtonum(val, 1, INT_MAX, &estr);
-		if (estr != NULL)
+		if (estr != nullptr)
 			errx(1, "invalid level: %s", val);
 		break;
 	case 'P':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		patterns =
 		    reallocarray(patterns, npatterns + 1, sizeof(char *));
-		if (patterns == NULL)
+		if (patterns == nullptr)
 			err(1, "reallocarray");
 		patterns[npatterns++] = (char *)val;
 		break;
 	case 'I':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		ipatterns =
 		    reallocarray(ipatterns, nipatterns + 1, sizeof(char *));
-		if (ipatterns == NULL)
+		if (ipatterns == nullptr)
 			err(1, "reallocarray");
 		ipatterns[nipatterns++] = (char *)val;
 		break;
 	case 'o':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		outpath = val;
 		break;
@@ -1219,10 +1277,10 @@ setopt(int c, const char *val)
 		dirsfirst = 1;
 		break;
 	case '2':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		filelimit = (int)strtonum(val, 0, INT_MAX, &estr);
-		if (estr != NULL)
+		if (estr != nullptr)
 			errx(1, "invalid file limit: %s", val);
 		break;
 	case '3':
@@ -1240,7 +1298,7 @@ setopt(int c, const char *val)
 		sflag = 1;
 		break;
 	case '7':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		if (strcmp(val, "name") == 0)
 			sortflag = 0;
@@ -1254,7 +1312,7 @@ setopt(int c, const char *val)
 			errx(1, "invalid sort type: %s", val);
 		break;
 	case '8':
-		if (val == NULL)
+		if (val == nullptr)
 			errx(1, "missing option argument");
 		timefmt = val;
 		break;
@@ -1263,12 +1321,31 @@ setopt(int c, const char *val)
 	}
 }
 
+/*
+ * Print one entry line (stat fields, name, optional classifier) without
+ * a trailing newline, so callers can append a diagnostic.
+ */
+static void
+printentry(const char *name, const struct stat *st)
+{
+	fputs(fillinfo(st), outfile);
+	if (fillinfo(st)[0] != '\0')
+		fputs("  ", outfile);
+	printname(name);
+	if (Fflag) {
+		char c = ftype(st->st_mode);
+
+		if (c != 0)
+			putc(c, outfile);
+	}
+}
+
 int
 main(int argc, char *argv[])
 {
 	int		 i, nroots = 0;
 	char	       **roots;
-	static char	*defroot[] = {".", NULL};
+	static char	*defroot[] = {".", nullptr};
 	static const int zbars[] = {0};
 
 	setprogname(argv[0]);
@@ -1286,13 +1363,13 @@ main(int argc, char *argv[])
 	 * drawing rather than adopting whatever locale the environment
 	 * might suggest.
 	 */
-	if (setlocale(LC_CTYPE, "en_US.UTF-8") == NULL)
+	if (setlocale(LC_CTYPE, "en_US.UTF-8") == nullptr)
 		warnx("en_US.UTF-8 locale unavailable; "
 		      "using byte-oriented output");
 	outfile = stdout;
 
 	multibyte = MB_CUR_MAX > 1;
-	if (nl_langinfo(CODESET) != NULL &&
+	if (nl_langinfo(CODESET) != nullptr &&
 	    (strcmp(nl_langinfo(CODESET), "UTF-8") == 0 ||
 		strcmp(nl_langinfo(CODESET), "utf8") == 0))
 		use_unicode = 1;
@@ -1305,18 +1382,18 @@ main(int argc, char *argv[])
 			break;
 		}
 		if (strncmp(arg, "--", 2) == 0) {
-			char  *eq, *val = NULL;
+			char  *eq, *val = nullptr;
 			int    k, found = 0;
 			size_t len;
 
 			eq = strchr(arg, '=');
-			if (eq != NULL) {
+			if (eq != nullptr) {
 				len = (size_t)(eq - arg);
 				val = eq + 1;
 			} else {
 				len = strlen(arg);
 			}
-			for (k = 0; longopts[k].name != NULL; k++) {
+			for (k = 0; longopts[k].name != nullptr; k++) {
 				if (strncmp(longopts[k].name, arg + 2,
 					len - 2) != 0 ||
 				    strlen(longopts[k].name) != len - 2)
@@ -1337,7 +1414,7 @@ main(int argc, char *argv[])
 					    "\t[--help] [directory ...]\n");
 					exit(0);
 				}
-				if (longopts[k].hasarg && val == NULL) {
+				if (longopts[k].hasarg && val == nullptr) {
 					if (++i >= argc)
 						errx(1,
 						    "missing argument "
@@ -1379,7 +1456,7 @@ main(int argc, char *argv[])
 					break;
 				}
 				default:
-					setopt(c, NULL);
+					setopt(c, nullptr);
 					break;
 				}
 			}
@@ -1392,7 +1469,7 @@ main(int argc, char *argv[])
 		roots = defroot;
 	else
 		roots = argv + i;
-	for (nroots = 0; roots[nroots] != NULL; nroots++)
+	for (nroots = 0; roots[nroots] != nullptr; nroots++)
 		;
 
 	/*
@@ -1406,15 +1483,15 @@ main(int argc, char *argv[])
 		char promises[64];
 
 		snprintf(promises, sizeof(promises), "stdio rpath%s%s",
-		    outpath != NULL ? " wpath cpath" : "",
+		    outpath != nullptr ? " wpath cpath" : "",
 		    uflag || gflag ? " getpw" : "");
-		if (pledge(promises, NULL) == -1)
+		if (pledge(promises, nullptr) == -1)
 			err(1, "pledge");
 	}
 
-	if (outpath != NULL) {
+	if (outpath != nullptr) {
 		outfile = fopen(outpath, "w");
-		if (outfile == NULL)
+		if (outfile == nullptr)
 			err(1, "%s", outpath);
 	}
 
@@ -1452,7 +1529,6 @@ main(int argc, char *argv[])
 					json_enc(roots[j]);
 					fprintf(outfile, "\"}");
 					nfiles++;
-					had_error = 1;
 					continue;
 				}
 			} else if (!S_ISDIR(st.st_mode)) {
@@ -1461,7 +1537,6 @@ main(int argc, char *argv[])
 				json_enc(roots[j]);
 				fprintf(outfile, "\"}");
 				nfiles++;
-				had_error = 1;
 				continue;
 			}
 			if (!iflag)
@@ -1505,31 +1580,22 @@ main(int argc, char *argv[])
 		if (S_ISLNK(st.st_mode)) {
 			/* a symlink root: follow it like -l */
 			if (stat(roots[i], &st) == -1 || !S_ISDIR(st.st_mode)) {
-				printname(roots[i]);
-				fprintf(outfile, "  [error opening dir]\n");
+				/* not a directory: display it alone */
+				printentry(roots[i], &st);
+				fputs("\n", outfile);
 				nfiles++;
-				had_error = 1;
 				continue;
 			}
 		} else if (!S_ISDIR(st.st_mode)) {
-			printname(roots[i]);
-			fprintf(outfile, "  [error opening dir]\n");
+			/* not a directory: display it alone */
+			printentry(roots[i], &st);
+			fputs("\n", outfile);
 			nfiles++;
-			had_error = 1;
 			continue;
 		}
 
 		/* the root line */
-		fputs(fillinfo(&st), outfile);
-		if (fillinfo(&st)[0] != '\0')
-			fputs("  ", outfile);
-		printname(roots[i]);
-		if (Fflag) {
-			char c = ftype(st.st_mode);
-
-			if (c != 0)
-				putc(c, outfile);
-		}
+		printentry(roots[i], &st);
 
 		if (collect(roots[i], &ents, &n) == -1) {
 			fprintf(outfile, "  [error opening dir]\n");

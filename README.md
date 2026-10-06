@@ -31,12 +31,17 @@ tests:
 
 ## Language standard
 
-All C code is C23 (`-std=c23`, strict ISO mode, no compiler
-extensions).  C23 features are used where they express a property the
-code already relies on: `static_assert` for compile-time invariants,
-`[[noreturn]]` for functions that never return, and `<stdckdint.h>`
-for checked integer arithmetic, so no compiler-specific attribute
-shim is needed.  Every component builds warning-free with `-Wall
+All C code is C23 (`-std=c23`, strict ISO mode).  C23 features are
+used where they express a property the code relies on: `static_assert`
+for compile-time invariants, `[[noreturn]]`/`[[nodiscard]]` for
+function contracts, `nullptr` for null pointers, `auto` for a few
+type-preserving inferred locals, an explicit `int` underlying type for
+the one enum whose representation matters, and `<stdckdint.h>` for
+checked integer arithmetic.  No compiler-specific attribute shim is
+needed for those; the only deliberate GNU extensions are confined to
+`compat/stdckdint.h` (its `#include_next` fallback) and the
+printf-format attribute on tree's bounded formatter, which GCC and
+Clang both accept.  Every component builds warning-free with `-Wall
 -Wextra -Wpedantic` under both GCC and Clang.  `ee` and its UTF-8 and
 help units were additionally audited with `-Wconversion
 -Wsign-conversion`; those warnings were fixed rather than suppressed.
@@ -52,7 +57,9 @@ host-only `_XOPEN_SOURCE 700` lives inside `compat/bsdcompat.h` (its
 non-OpenBSD branch), which every translation unit includes first, so
 glibc in strict ISO mode sees the POSIX/XSI interfaces during
 Linux-host testing.  `make check` guards against the macro leaking
-back into production sources.
+back into production sources, and fails if any production source does
+not include `compat/bsdcompat.h` first (the feature-test macros must be
+seen before the first system header).
 
 ## The utilities
 

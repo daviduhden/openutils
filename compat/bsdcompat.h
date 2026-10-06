@@ -118,7 +118,7 @@ setprogname(const char *name)
 	size_t len;
 
 	base = strrchr(name, '/');
-	base = (base != NULL) ? base + 1 : name;
+	base = (base != nullptr) ? base + 1 : name;
 	len = strlen(base);
 	if (len >= 64)
 		len = 63;

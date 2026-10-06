@@ -66,7 +66,10 @@ debug:
 # strict-warning build of every component (developer target).
 #
 # doasedit, tree and truncate build warning-free under the full set
-# below with both compilers.  ee builds warning-free under
+# below with both compilers, with one intentional exception: GCC's
+# -Wformat-nonliteral (implied by -Wformat=2) diagnoses do_date()'s
+# runtime strftime(3) format string, which comes from the --timefmt
+# option and is user-supplied by design.  ee builds warning-free under
 # -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef
 # -Wstrict-prototypes -Wmissing-prototypes with both compilers, and it
 # was additionally verified clean under -Wformat-nonliteral and
@@ -80,6 +83,15 @@ CHECK_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 EE_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 	-Wstrict-prototypes -Wmissing-prototypes
 check:
+	@for f in doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/spell/*.c \
+		compat/*.c; do \
+	first=$$(grep -m1 '^#include' "$$f"); \
+		if [ "$$first" != '#include "bsdcompat.h"' ]; then \
+			echo "error: $$f must include bsdcompat.h first" \
+			"(got: $$first)" >&2; \
+			exit 1; \
+		fi; \
+	done
 	@if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c ee/*.c; then \
 		echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; \
 		exit 1; \

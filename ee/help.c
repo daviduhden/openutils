@@ -1,12 +1,14 @@
+// clang-format off
 #include "bsdcompat.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #include "help.h"
+// clang-format on
 
 /*
- * An entry lists the key in normal mode, the key in emacs mode (NULL if
+ * An entry lists the key in normal mode, the key in emacs mode (nullptr if
  * identical) and the description.  All text is U.S. English.
  */
 struct help_entry {
@@ -29,22 +31,22 @@ struct help_section {
  * the operations that map onto existing editor commands.
  */
 static const struct help_entry help_vi[] = {
-    {"i", NULL, "Enter insert mode"},
-    {"a", NULL, "Append after the cursor (insert mode)"},
-    {"I / A", NULL, "Insert at start / append at end of line"},
-    {"Esc", NULL, "Leave insert mode (or open the menu)"},
-    {"h j k l", NULL, "Move left, down, up, right"},
-    {"0 / $", NULL, "Start / end of line"},
-    {"w / b", NULL, "Forward / back one word"},
-    {"x", NULL, "Delete the character at the cursor"},
-    {"D", NULL, "Delete to the end of the line"},
-    {"dd", NULL, "Delete the current line"},
-    {"o / O", NULL, "Open a line below / above"},
-    {"u", NULL, "Restore the last cut (single level)"},
-    {":w", NULL, "Command: write the buffer"},
-    {":q", NULL, "Command: leave the editor"},
-    {":wq", NULL, "Command: write and leave"},
-    {":q!", NULL, "Command: discard changes and leave"},
+    {"i", nullptr, "Enter insert mode"},
+    {"a", nullptr, "Append after the cursor (insert mode)"},
+    {"I / A", nullptr, "Insert at start / append at end of line"},
+    {"Esc", nullptr, "Leave insert mode (or open the menu)"},
+    {"h j k l", nullptr, "Move left, down, up, right"},
+    {"0 / $", nullptr, "Start / end of line"},
+    {"w / b", nullptr, "Forward / back one word"},
+    {"x", nullptr, "Delete the character at the cursor"},
+    {"D", nullptr, "Delete to the end of the line"},
+    {"dd", nullptr, "Delete the current line"},
+    {"o / O", nullptr, "Open a line below / above"},
+    {"u", nullptr, "Restore the last cut (single level)"},
+    {":w", nullptr, "Command: write the buffer"},
+    {":q", nullptr, "Command: leave the editor"},
+    {":wq", nullptr, "Command: write and leave"},
+    {":q!", nullptr, "Command: discard changes and leave"},
 };
 
 static const struct help_entry help_navigation[] = {
@@ -107,25 +109,25 @@ static const struct help_entry help_exit[] = {
 };
 
 static const struct help_entry help_commands[] = {
-    {"write", NULL, "Command: write the buffer to a file"},
-    {"read", NULL, "Command: read a file into the buffer"},
-    {"exit", NULL, "Command: save and leave"},
-    {"quit", NULL, "Command: leave (asks to save if modified)"},
-    {"file", NULL, "Command: print the file name"},
-    {"line", NULL, "Command: print the current line number"},
-    {"character", NULL, "Command: print the code of the current character"},
-    {"0-9", NULL, "Command: go to the given line"},
-    {"case", NULL, "Command: case sensitive search"},
-    {"nocase", NULL, "Command: ignore case in search"},
-    {"expand", NULL, "Command: expand tabs to spaces"},
-    {"noexpand", NULL, "Command: keep tabs as tabs"},
-    {"help", NULL, "Command: show this screen"},
-    {"!cmd", NULL, "Command: run \"cmd\" in the shell"},
-    {"<cmd", NULL, "Command: pipe the buffer into \"cmd\""},
-    {">cmd", NULL, "Command: pipe the buffer to \"cmd\""},
-    {"author", NULL, "Command: print the author"},
-    {"redraw", NULL, "Command: repaint the screen"},
-    {"resequence", NULL, "Command: renumber the lines"},
+    {"write", nullptr, "Command: write the buffer to a file"},
+    {"read", nullptr, "Command: read a file into the buffer"},
+    {"exit", nullptr, "Command: save and leave"},
+    {"quit", nullptr, "Command: leave (asks to save if modified)"},
+    {"file", nullptr, "Command: print the file name"},
+    {"line", nullptr, "Command: print the current line number"},
+    {"character", nullptr, "Command: print the code of the current character"},
+    {"0-9", nullptr, "Command: go to the given line"},
+    {"case", nullptr, "Command: case sensitive search"},
+    {"nocase", nullptr, "Command: ignore case in search"},
+    {"expand", nullptr, "Command: expand tabs to spaces"},
+    {"noexpand", nullptr, "Command: keep tabs as tabs"},
+    {"help", nullptr, "Command: show this screen"},
+    {"!cmd", nullptr, "Command: run \"cmd\" in the shell"},
+    {"<cmd", nullptr, "Command: pipe the buffer into \"cmd\""},
+    {">cmd", nullptr, "Command: pipe the buffer to \"cmd\""},
+    {"author", nullptr, "Command: print the author"},
+    {"redraw", nullptr, "Command: repaint the screen"},
+    {"resequence", nullptr, "Command: renumber the lines"},
 };
 
 static const struct help_entry help_advanced[] = {
@@ -206,8 +208,8 @@ ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
 	out[0] = '\0';
 
 	for (s = 0; s < sizeof(help_sections) / sizeof(help_sections[0]); s++) {
-		const struct help_section *sec = &help_sections[s];
-		int			   j;
+		auto sec = &help_sections[s];
+		int  j;
 
 		if (!help_section_visible(s, keys_mode))
 			continue;
@@ -225,7 +227,7 @@ ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
 			if (i == index) {
 				key = sec->items[j].key;
 				if ((keys_mode == EE_KEYS_EMACS) &&
-				    (sec->items[j].emacs != NULL))
+				    (sec->items[j].emacs != nullptr))
 					key = sec->items[j].emacs;
 				/*
 				 * Bound the key field so that a long

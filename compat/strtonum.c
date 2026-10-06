@@ -20,12 +20,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// clang-format off
 #include "bsdcompat.h"
 
 #if !OPENUTILS_BSD_LIBC
 
 #include <errno.h>
 #include <limits.h>
+// clang-format on
 
 long long
 strtonum(const char *numstr, long long minval, long long maxval,
@@ -38,7 +40,7 @@ strtonum(const char *numstr, long long minval, long long maxval,
 		const char *errstr;
 		int err;
 	} ev[4] = {
-		{ NULL,		0 },
+		{ nullptr,	0 },
 		{ "invalid",	EINVAL },
 		{ "too small",	ERANGE },
 		{ "too large",	ERANGE },
@@ -57,7 +59,7 @@ strtonum(const char *numstr, long long minval, long long maxval,
 		else if ((ll == LLONG_MAX && errno == ERANGE) || ll > maxval)
 			error = 3;
 	}
-	if (errstrp != NULL)
+	if (errstrp != nullptr)
 		*errstrp = ev[error].errstr;
 	errno = ev[error].err;
 	if (error)

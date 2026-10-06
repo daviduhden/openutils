@@ -4,12 +4,14 @@
  * is first included; otherwise wcwidth(3) is not declared in strict
  * ISO C23 mode.
  */
+// clang-format off
 #include "bsdcompat.h"
 
 #include <limits.h>
 #include <wchar.h>
 
 #include "utf8.h"
+// clang-format on
 
 /*
  * The encoder/decoder treat unsigned char as an octet: the lead and

@@ -1,3 +1,4 @@
+// clang-format off
 #include "bsdcompat.h"
 
 #include <ctype.h>
@@ -6,6 +7,7 @@
 #include <string.h>
 
 #include "spell.h"
+// clang-format on
 
 /*
  * An original, small affix-based spell checker written for ee in C23.
@@ -88,7 +90,7 @@ spell_strdup(const char *s)
 
 	len = strlen(s);
 	p = malloc(len + 1);
-	if (p != NULL)
+	if (p != nullptr)
 		memcpy(p, s, len + 1);
 	return (p);
 }
@@ -96,7 +98,7 @@ spell_strdup(const char *s)
 static void
 spell_rstrip(char *s)
 {
-	size_t len = strlen(s);
+	auto len = strlen(s);
 
 	while ((len > 0) && ((s[len - 1] == '\n') || (s[len - 1] == '\r')))
 		s[--len] = '\0';
@@ -130,7 +132,7 @@ add_flag(struct spell_entry *e, unsigned short flag)
 
 	nf = reallocarray(
 	    e->flags, (size_t)(e->nflags + 1), sizeof(unsigned short));
-	if (nf == NULL)
+	if (nf == nullptr)
 		return (-1);
 	e->flags = nf;
 	e->flags[e->nflags++] = flag;
@@ -155,7 +157,7 @@ find_word(const struct ee_spell *sp, const char *word, size_t len)
 	unsigned long h;
 	int	      idx;
 
-	if ((sp->head == NULL) || (sp->nbuckets <= 0) ||
+	if ((sp->head == nullptr) || (sp->nbuckets <= 0) ||
 	    (len >= SPELL_MAX_WORD))
 		return (-1);
 	h = spell_hash(word, len) % (unsigned long)sp->nbuckets;
@@ -178,11 +180,11 @@ build_index(struct ee_spell *sp)
 	n = sp->nents * 2 + 1;
 	sp->head = calloc((size_t)n, sizeof(int));
 	sp->next = calloc((size_t)(sp->nents > 0 ? sp->nents : 1), sizeof(int));
-	if ((sp->head == NULL) || (sp->next == NULL)) {
+	if ((sp->head == nullptr) || (sp->next == nullptr)) {
 		free(sp->head);
 		free(sp->next);
-		sp->head = NULL;
-		sp->next = NULL;
+		sp->head = nullptr;
+		sp->next = nullptr;
 		return (-1);
 	}
 	sp->nbuckets = n;
@@ -282,7 +284,7 @@ parse_condition(const char *s, struct spell_rule *r)
 	int		     n = 0;
 
 	r->ntok = 0;
-	if ((s == NULL) || (s[0] == '\0') || (strcmp(s, ".") == 0))
+	if ((s == nullptr) || (s[0] == '\0') || (strcmp(s, ".") == 0))
 		return (0);
 	while (*p != '\0') {
 		struct spell_tok *t;
@@ -329,7 +331,7 @@ parse_condition(const char *s, struct spell_rule *r)
 static void
 copy_part(char *dst, int dstsz, const char *src, int *lenp)
 {
-	if ((src == NULL) || (strcmp(src, "0") == 0)) {
+	if ((src == nullptr) || (strcmp(src, "0") == 0)) {
 		dst[0] = '\0';
 		*lenp = 0;
 		return;
@@ -360,7 +362,7 @@ append_rule(struct spell_rule **list, int *n, const struct spell_rule *r)
 	struct spell_rule *nr;
 
 	nr = reallocarray(*list, (size_t)(*n + 1), sizeof(struct spell_rule));
-	if (nr == NULL)
+	if (nr == nullptr)
 		return (-1);
 	nr[*n] = *r;
 	(*n)++;
@@ -438,13 +440,13 @@ static int
 load_dic(struct ee_spell *sp, const char *path)
 {
 	FILE   *f;
-	char   *line = NULL;
+	char   *line = nullptr;
 	size_t	cap = 0;
 	ssize_t n;
 	int	first = 1;
 
 	f = fopen(path, "r");
-	if (f == NULL)
+	if (f == nullptr)
 		return (-1);
 	while ((n = getline(&line, &cap, f)) != -1) {
 		char		   *slash;
@@ -457,28 +459,29 @@ load_dic(struct ee_spell *sp, const char *path)
 		}
 		if (line[0] == '\0')
 			continue;
-		if ((strchr(line, ' ') != NULL) || (strchr(line, '\t') != NULL))
+		if ((strchr(line, ' ') != nullptr) ||
+		    (strchr(line, '\t') != nullptr))
 			continue; /* compound entries are out of scope */
 		slash = strchr(line, '/');
-		if (slash != NULL)
+		if (slash != nullptr)
 			*slash = '\0';
 		if ((line[0] == '\0') || (strlen(line) >= SPELL_MAX_WORD))
 			continue;
 
 		e = reallocarray(sp->ents, (size_t)(sp->nents + 1),
 		    sizeof(struct spell_entry));
-		if (e == NULL)
+		if (e == nullptr)
 			break;
 		sp->ents = e;
 		e = &sp->ents[sp->nents];
 		e->word = spell_strdup(line);
-		e->flags = NULL;
+		e->flags = nullptr;
 		e->nflags = 0;
-		if (e->word == NULL)
+		if (e->word == nullptr)
 			break;
 		sp->nents++;
 
-		if (slash != NULL) {
+		if (slash != nullptr) {
 			const char *p = slash + 1;
 
 			while (*p != '\0') {
@@ -503,12 +506,12 @@ static int
 load_aff(struct ee_spell *sp, const char *path)
 {
 	FILE   *f;
-	char   *line = NULL;
+	char   *line = nullptr;
 	size_t	cap = 0;
 	ssize_t n;
 
 	f = fopen(path, "r");
-	if (f == NULL)
+	if (f == nullptr)
 		return (-1);
 	while ((n = getline(&line, &cap, f)) != -1) {
 		struct spell_rule r;
@@ -540,8 +543,9 @@ load_aff(struct ee_spell *sp, const char *path)
 			continue;
 		}
 		if (strncmp(line, "REP ", 4) == 0) {
-			char *from;
-			char *to;
+			struct spell_repl *nr;
+			char		  *from;
+			char		  *to;
 
 			from = line + 4;
 			while ((*from == ' ') || (*from == '\t'))
@@ -556,15 +560,23 @@ load_aff(struct ee_spell *sp, const char *path)
 				to++;
 			if (*to == '\0')
 				continue;
-			sp->rep = reallocarray(sp->rep, (size_t)(sp->nrep + 1),
+			/*
+			 * Grow with a temporary so that a failed
+			 * allocation cannot lose the existing array.
+			 */
+			nr = reallocarray(sp->rep, (size_t)(sp->nrep + 1),
 			    sizeof(struct spell_repl));
-			if (sp->rep == NULL)
+			if (nr == nullptr)
 				break;
+			sp->rep = nr;
 			sp->rep[sp->nrep].from = spell_strdup(from);
 			sp->rep[sp->nrep].to = spell_strdup(to);
-			if ((sp->rep[sp->nrep].from == NULL) ||
-			    (sp->rep[sp->nrep].to == NULL))
+			if ((sp->rep[sp->nrep].from == nullptr) ||
+			    (sp->rep[sp->nrep].to == nullptr)) {
+				free(sp->rep[sp->nrep].from);
+				free(sp->rep[sp->nrep].to);
 				break;
+			}
 			sp->nrep++;
 			continue;
 		}
@@ -603,12 +615,12 @@ load_aff(struct ee_spell *sp, const char *path)
 /* ---------------------------------------------------------------- */
 
 static int
-sug_has(char out[][64], int ns, const char *cand)
+sug_has(char out[][64], int ns, const char *cand, size_t len)
 {
 	int i;
 
 	for (i = 0; i < ns; i++) {
-		if (strcmp(out[i], cand) == 0)
+		if ((strlen(out[i]) == len) && (memcmp(out[i], cand, len) == 0))
 			return (1);
 	}
 	return (0);
@@ -620,7 +632,7 @@ sug_add(struct ee_spell *sp, char out[][64], int ns, int max, const char *cand,
 {
 	if ((ns >= max) || (len == 0) || (len >= 64))
 		return (ns);
-	if (sug_has(out, ns, cand))
+	if (sug_has(out, ns, cand, len))
 		return (ns);
 	if (!check_word(sp, cand, len))
 		return (ns);
@@ -722,13 +734,13 @@ sug_replacements(struct ee_spell *sp, char out[][64], int ns, int max,
 	for (i = 0; (i < sp->nrep) && (ns < max); i++) {
 		const char *from = sp->rep[i].from;
 		const char *to = sp->rep[i].to;
-		size_t	    fl = strlen(from);
-		size_t	    tl = strlen(to);
+		auto	    fl = strlen(from);
+		auto	    tl = strlen(to);
 		const char *p = word;
 
 		if (fl == 0)
 			continue;
-		while ((p = strstr(p, from)) != NULL) {
+		while ((p = strstr(p, from)) != nullptr) {
 			size_t off = (size_t)(p - word);
 
 			if ((off + tl + strlen(p + fl)) >= SPELL_MAX_WORD)
@@ -753,22 +765,22 @@ ee_spell_open(const char *aff_path, const char *dic_path)
 {
 	struct ee_spell *sp;
 
-	if (dic_path == NULL)
-		return (NULL);
+	if (dic_path == nullptr)
+		return (nullptr);
 	sp = calloc(1, sizeof(*sp));
-	if (sp == NULL)
-		return (NULL);
-	if ((aff_path != NULL) && (load_aff(sp, aff_path) != 0)) {
+	if (sp == nullptr)
+		return (nullptr);
+	if ((aff_path != nullptr) && (load_aff(sp, aff_path) != 0)) {
 		ee_spell_close(sp);
-		return (NULL);
+		return (nullptr);
 	}
 	if (load_dic(sp, dic_path) != 0 || sp->nents == 0) {
 		ee_spell_close(sp);
-		return (NULL);
+		return (nullptr);
 	}
 	if (build_index(sp) != 0) {
 		ee_spell_close(sp);
-		return (NULL);
+		return (nullptr);
 	}
 	return (sp);
 }
@@ -778,7 +790,7 @@ ee_spell_close(struct ee_spell *sp)
 {
 	int i;
 
-	if (sp == NULL)
+	if (sp == nullptr)
 		return;
 	for (i = 0; i < sp->nents; i++) {
 		free(sp->ents[i].word);
@@ -800,7 +812,7 @@ ee_spell_close(struct ee_spell *sp)
 int
 ee_spell_check(struct ee_spell *sp, const char *word, size_t len)
 {
-	if (sp == NULL)
+	if (sp == nullptr)
 		return (0);
 	return (check_word(sp, word, len));
 }
@@ -811,7 +823,8 @@ ee_spell_suggest(
 {
 	int ns = 0;
 
-	if ((sp == NULL) || (len == 0) || (len >= SPELL_MAX_WORD) || (max <= 0))
+	if ((sp == nullptr) || (len == 0) || (len >= SPELL_MAX_WORD) ||
+	    (max <= 0))
 		return (0);
 	if (check_word(sp, word, len))
 		return (0);

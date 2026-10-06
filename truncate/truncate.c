@@ -1,3 +1,6 @@
+// clang-format off
+#include "bsdcompat.h"
+
 #include <sys/stat.h>
 
 #include <ctype.h>
@@ -11,8 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include "bsdcompat.h"
+// clang-format on
 
 /*
  * Representable bounds of the signed off_t, derived from its width.
@@ -27,7 +29,7 @@ static_assert(sizeof(uintmax_t) >= sizeof(off_t),
 #define OFF_MAX ((off_t)(((uintmax_t)1 << (sizeof(off_t) * CHAR_BIT - 1)) - 1))
 #define OFF_MIN (-OFF_MAX - 1)
 
-enum relmode {
+enum relmode : int {
 	RM_ABS = 0, /* absolute size */
 	RM_REL,	    /* '+': extend by, '-': reduce by */
 	RM_MIN,	    /* '>': at least */
@@ -35,6 +37,10 @@ enum relmode {
 	RM_RDN,	    /* '/': round down to multiple of */
 	RM_RUP	    /* '%': round up to multiple of */
 };
+
+/* The explicit underlying type fixes the representation (and size). */
+static_assert(sizeof(enum relmode) == sizeof(int),
+    "enum relmode must keep its int representation");
 
 static int	    no_create;
 static int	    block_mode;
@@ -337,13 +343,13 @@ main(int argc, char *argv[])
 		if (strcmp(arg, "--help") == 0)
 			help();
 		if (strncmp(arg, "--", 2) == 0) {
-			char  *eq, *val = NULL;
+			char  *eq, *val = nullptr;
 			char   name[32];
 			size_t len;
 			int    opt = -1;
 
 			eq = strchr(arg, '=');
-			if (eq != NULL) {
+			if (eq != nullptr) {
 				len = (size_t)(eq - arg - 2);
 				val = eq + 1;
 			} else {
@@ -363,10 +369,10 @@ main(int argc, char *argv[])
 				opt = 's';
 			else
 				usage();
-			if ((opt == 'c' || opt == 'o') && eq != NULL)
+			if ((opt == 'c' || opt == 'o') && eq != nullptr)
 				usage();
 			if (opt == 'r' || opt == 's') {
-				if (val == NULL) {
+				if (val == nullptr) {
 					if (++i >= argc)
 						errx(1,
 						    "missing argument "
@@ -512,11 +518,11 @@ main(int argc, char *argv[])
 
 		snprintf(promises, sizeof(promises), "stdio wpath%s%s",
 		    no_create ? "" : " cpath", ref_file ? " rpath" : "");
-		if (pledge(promises, NULL) == -1)
+		if (pledge(promises, nullptr) == -1)
 			err(1, "pledge");
 	}
 
-	if (ref_file != NULL) {
+	if (ref_file != nullptr) {
 		if (stat(ref_file, &sb) != 0)
 			err(1, "cannot stat '%s'", ref_file);
 		if (sb.st_size >= 0) {

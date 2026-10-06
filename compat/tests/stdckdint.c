@@ -63,7 +63,7 @@ main(void)
 	unsigned short		h;
 	unsigned long long	q;
 	long long		s;
-	_Bool			ov;
+	bool			ov;
 
 	/* ---- size_t: the unsigned type used for allocation sizes ---- */
 	z = 0;

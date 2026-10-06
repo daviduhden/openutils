@@ -22,8 +22,8 @@
 struct ee_spell;
 
 /*
- * Open a dictionary.  `aff_path` may be NULL (only exact words are then
- * recognised).  `dic_path` is required.  Returns NULL on failure.
+ * Open a dictionary.  `aff_path` may be nullptr (only exact words are then
+ * recognised).  `dic_path` is required.  Returns nullptr on failure.
  */
 struct ee_spell *ee_spell_open(const char *aff_path, const char *dic_path);
 

@@ -35,8 +35,16 @@ expect_suggest(struct ee_spell *sp, const char *w, const char *want)
 
 	n = ee_spell_suggest(sp, w, strlen(w), out, 8);
 	for (i = 0; i < n; i++) {
+		int k;
+
 		if (strcmp(out[i], want) == 0)
 			found = 1;
+		for (k = i + 1; k < n; k++) {
+			if (strcmp(out[i], out[k]) == 0) {
+				printf("duplicate suggestion: %s\n", out[i]);
+				failures++;
+			}
+		}
 	}
 	printf("suggest(%-8s) -> %-2d, contains %-10s %s\n", w, n, want,
 	    found ? "ok" : "FAIL");
@@ -54,7 +62,7 @@ main(int argc, char **argv)
 	const char	*dic = (argc > 2) ? argv[2] : "tests/spell-test.dic";
 	struct ee_spell *sp = ee_spell_open(aff, dic);
 
-	if (sp == NULL) {
+	if (sp == nullptr) {
 		printf("not ok - ee_spell_open(%s, %s)\n", aff, dic);
 		return (1);
 	}

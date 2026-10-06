@@ -1,3 +1,6 @@
+// clang-format off
+#include "bsdcompat.h"
+
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -11,8 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-#include "bsdcompat.h"
+// clang-format on
 
 /*
  * Test-only hooks, compiled in only with -DDOASEDIT_TEST.  They allow
@@ -27,15 +29,15 @@ our_uid(void)
 {
 	const char *s = getenv("DOASEDIT_TEST_UID");
 
-	if (s != NULL && s[0] != '\0')
-		return ((uid_t)strtoul(s, NULL, 10));
+	if (s != nullptr && s[0] != '\0')
+		return ((uid_t)strtoul(s, nullptr, 10));
 	return (getuid());
 }
 
 static int
 force_unreadable(void)
 {
-	return (getenv("DOASEDIT_TEST_UNREADABLE") != NULL);
+	return (getenv("DOASEDIT_TEST_UNREADABLE") != nullptr);
 }
 
 /*
@@ -52,13 +54,13 @@ our_access(const char *path, int mode)
 	struct stat st;
 	mode_t	    bits;
 
-	if (s == NULL || s[0] == '\0')
+	if (s == nullptr || s[0] == '\0')
 		return (access(path, mode));
 	if (mode == F_OK)
 		return (stat(path, &st));
 	if (stat(path, &st) == -1)
 		return (-1);
-	if (st.st_uid == (uid_t)strtoul(s, NULL, 10))
+	if (st.st_uid == (uid_t)strtoul(s, nullptr, 10))
 		bits = (st.st_mode >> 6) & 07;
 	else
 		bits = st.st_mode & 07;
@@ -135,17 +137,17 @@ sighandler(int sig)
 static void
 cleanup_current(void)
 {
-	if (cur_tmpfile != NULL)
+	if (cur_tmpfile != nullptr)
 		(void)unlink(cur_tmpfile);
-	if (cur_tmpcopy != NULL)
+	if (cur_tmpcopy != nullptr)
 		(void)unlink(cur_tmpcopy);
-	if (cur_tmpdir != NULL)
+	if (cur_tmpdir != nullptr)
 		(void)rmdir(cur_tmpdir);
 }
 
 /*
  * Resolve the parent directory of a path with realpath(3) and return
- * "<resolved>/<basename>".  Returns NULL (with a message printed) on
+ * "<resolved>/<basename>".  Returns nullptr (with a message printed) on
  * failure.
  */
 static char *
@@ -157,13 +159,13 @@ resolve_target(const char *path)
 	size_t	    dlen, blen;
 
 	if (path[0] == '\0')
-		return (NULL);
+		return (nullptr);
 
 	end = path + strlen(path);
 	while (end > path && end[-1] == '/')
 		end--;
 	if (end == path)
-		return (NULL); /* "/" or "///" */
+		return (nullptr); /* "/" or "///" */
 
 	base = end;
 	while (base > path && base[-1] != '/')
@@ -176,7 +178,7 @@ resolve_target(const char *path)
 	} else {
 		dlen = (size_t)(base - path);
 		if (dlen >= sizeof(dirbuf))
-			return (NULL);
+			return (nullptr);
 		memcpy(dirbuf, path, (size_t)dlen);
 		dirbuf[(size_t)dlen] = '\0';
 		dir = dirbuf;
@@ -189,19 +191,19 @@ resolve_target(const char *path)
 	else {
 		char rbuf[PATH_MAX];
 
-		if (realpath(dir, rbuf) == NULL) {
+		if (realpath(dir, rbuf) == nullptr) {
 			warn("%s", dirbuf);
-			return (NULL);
+			return (nullptr);
 		}
 		rdir = strdup(rbuf);
 	}
-	if (rdir == NULL) {
+	if (rdir == nullptr) {
 		warn("%s", dlen == 0 ? "." : dirbuf);
-		return (NULL);
+		return (nullptr);
 	}
 	dlen = strlen(rdir);
 	ret = malloc(dlen + blen + 2);
-	if (ret == NULL)
+	if (ret == nullptr)
 		err(1, "malloc");
 	snprintf(ret, dlen + blen + 2, "%s%s%s", rdir,
 	    (dlen == 1 && rdir[0] == '/') ? "" : "/", base);
@@ -215,7 +217,7 @@ is_doas_conf(const char *path)
 	if (strcmp(path, "/etc/doas.conf") == 0)
 		return (1);
 	if (strncmp(path, "/etc/doas.d/", 12) == 0) {
-		size_t len = strlen(path);
+		auto len = strlen(path);
 
 		if (len > 12 && strcmp(path + len - 5, ".conf") == 0)
 			return (1);
@@ -236,14 +238,14 @@ run_editor(char *const *editor, const char *file)
 	char **argv;
 	size_t n = 0;
 
-	while (editor[n] != NULL)
+	while (editor[n] != nullptr)
 		n++;
-	argv = reallocarray(NULL, n + 2, sizeof(char *));
-	if (argv == NULL)
+	argv = reallocarray(nullptr, n + 2, sizeof(char *));
+	if (argv == nullptr)
 		err(1, "reallocarray");
 	memcpy(argv, editor, n * sizeof(char *));
 	argv[n] = (char *)file;
-	argv[n + 1] = NULL;
+	argv[n + 1] = nullptr;
 
 	pid = fork();
 	switch (pid) {
@@ -259,8 +261,12 @@ run_editor(char *const *editor, const char *file)
 	}
 	editor_pid = pid;
 	free(argv);
-	while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
-		;
+	while (waitpid(pid, &status, 0) == -1) {
+		if (errno != EINTR) {
+			editor_pid = -1;
+			return (-1);
+		}
+	}
 	editor_pid = -1;
 	if (WIFEXITED(status))
 		return (WEXITSTATUS(status));
@@ -306,8 +312,10 @@ doas_exec(const char *const *argv, int outfd, int infd)
 	default:
 		break;
 	}
-	while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
-		;
+	while (waitpid(pid, &status, 0) == -1) {
+		if (errno != EINTR)
+			return (-1);
+	}
 	if (WIFEXITED(status))
 		return (WEXITSTATUS(status));
 	return (-1);
@@ -387,7 +395,7 @@ files_equal(const char *a, const char *b)
 static char **
 split_editor(const char *cmd)
 {
-	char **argv = NULL;
+	char **argv = nullptr;
 	size_t n = 0;
 
 	while (*cmd != '\0') {
@@ -402,20 +410,20 @@ split_editor(const char *cmd)
 		while (cmd[len] != '\0' && !isspace((unsigned char)cmd[len]))
 			len++;
 		word = strndup(cmd, len);
-		if (word == NULL)
+		if (word == nullptr)
 			err(1, "strndup");
 		argv = reallocarray(argv, n + 2, sizeof(char *));
-		if (argv == NULL)
+		if (argv == nullptr)
 			err(1, "reallocarray");
 		argv[n++] = word;
-		argv[n] = NULL;
+		argv[n] = nullptr;
 		cmd += len;
 	}
-	if (argv == NULL) {
-		argv = reallocarray(NULL, 1, sizeof(char *));
-		if (argv == NULL)
+	if (argv == nullptr) {
+		argv = reallocarray(nullptr, 1, sizeof(char *));
+		if (argv == nullptr)
 			err(1, "reallocarray");
-		argv[0] = NULL;
+		argv[0] = nullptr;
 	}
 	return (argv);
 }
@@ -510,10 +518,10 @@ command_exists(const char *cmd)
 	const char *path, *p;
 	char	    buf[PATH_MAX];
 
-	if (strchr(cmd, '/') != NULL)
+	if (strchr(cmd, '/') != nullptr)
 		return (our_access(cmd, X_OK) == 0);
 	path = getenv("PATH");
-	if (path == NULL)
+	if (path == nullptr)
 		path = "/usr/bin:/bin";
 	for (p = path; *p != '\0';) {
 		size_t len;
@@ -544,7 +552,7 @@ command_exists(const char *cmd)
 static int
 check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 {
-	const char *doas_argv[] = {"doas", "-C", tmpfile, NULL};
+	const char *doas_argv[] = {"doas", "-C", tmpfile, nullptr};
 	char	    line[16];
 	int	    status;
 
@@ -561,7 +569,7 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 		printf("(E)dit again, (O)verwrite anyway, (A)bort: "
 		       "[E/o/a]? ");
 		fflush(stdout);
-		if (fgets(line, sizeof(line), stdin) == NULL)
+		if (fgets(line, sizeof(line), stdin) == nullptr)
 			return (1);
 		switch (line[0]) {
 		case 'o':
@@ -589,14 +597,14 @@ main(int argc, char *argv[])
 {
 	const char *editor_env;
 	const char *env_editor;
-	char	   *tmpdir = NULL;
+	char	   *tmpdir = nullptr;
 	char	    tdir_tmpl[] = "/tmp/doasedit.XXXXXXXXXX";
 	const char *tmpenv;
 	int	    i, exit_code = 1;
 
 	setprogname(argv[0]);
 
-	if (pledge("stdio rpath wpath cpath proc exec", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath proc exec", nullptr) == -1)
 		err(1, "pledge");
 
 	for (i = 1; i < argc; i++) {
@@ -639,7 +647,7 @@ main(int argc, char *argv[])
 	 */
 	{
 		const char *probe[] = {"doas", "dd", "status=none", "count=0",
-		    "of=/dev/null", NULL};
+		    "of=/dev/null", nullptr};
 
 		if (doas_exec(probe, -1, -1) != 0)
 			errx(1, "unable to run 'doas dd'");
@@ -647,25 +655,25 @@ main(int argc, char *argv[])
 
 	/* editor selection: DOAS_EDITOR, VISUAL, EDITOR, then vi(1) */
 	editor_env = getenv("DOAS_EDITOR");
-	if (editor_env == NULL || editor_env[0] == '\0') {
+	if (editor_env == nullptr || editor_env[0] == '\0') {
 		env_editor = getenv("VISUAL");
-		if (env_editor == NULL || env_editor[0] == '\0')
+		if (env_editor == nullptr || env_editor[0] == '\0')
 			editor_env = getenv("EDITOR");
 		else
 			editor_env = env_editor;
 	}
-	if (editor_env == NULL || editor_env[0] == '\0')
+	if (editor_env == nullptr || editor_env[0] == '\0')
 		editor_env = "vi";
 	editor_cmd = split_editor(editor_env);
-	if (editor_cmd[0] == NULL)
+	if (editor_cmd[0] == nullptr)
 		errx(1, "no editor specified");
 	if (!command_exists(editor_cmd[0]))
 		errx(1, "invalid editor command: '%s'", editor_cmd[0]);
 
 	/* private temporary directory */
 	tmpenv = getenv("TMPDIR");
-	if (tmpenv != NULL && tmpenv[0] != '\0') {
-		size_t len = strlen(tmpenv);
+	if (tmpenv != nullptr && tmpenv[0] != '\0') {
+		auto len = strlen(tmpenv);
 
 		/*
 		 * Leave room for the separating '/' that may be added
@@ -684,11 +692,11 @@ main(int argc, char *argv[])
 		}
 	}
 	tmpdir = mkdtemp(tdir_tmpl);
-	if (tmpdir == NULL)
+	if (tmpdir == nullptr)
 		err(1, "mkdtemp");
 	/* mkdtemp(3) returns its argument (a stack buffer here) */
 	tmpdir = strdup(tdir_tmpl);
-	if (tmpdir == NULL)
+	if (tmpdir == nullptr)
 		err(1, "strdup");
 
 	cur_tmpdir = tmpdir;
@@ -699,16 +707,16 @@ main(int argc, char *argv[])
 
 	for (; i < argc; i++) {
 		const char     *file = argv[i];
-		char	       *target = NULL;
-		char	       *tmpfile = NULL;
-		char	       *tmpcopy = NULL;
+		char	       *target = nullptr;
+		char	       *tmpfile = nullptr;
+		char	       *tmpcopy = nullptr;
 		struct stat	lst;
 		struct snapshot snap;
 		int		exists = 0, readable = 0, writable = 0;
 		int		fd, tmpfd, rc;
 		const char     *base;
 
-		cur_tmpfile = cur_tmpcopy = NULL;
+		cur_tmpfile = cur_tmpcopy = nullptr;
 
 		if (file[0] == '\0') {
 			warnx(": cannot edit directories");
@@ -720,13 +728,13 @@ main(int argc, char *argv[])
 		}
 
 		target = resolve_target(file);
-		if (target == NULL) {
+		if (target == nullptr) {
 			warnx("%s: no such directory", file);
 			continue;
 		}
 
 		base = strrchr(target, '/');
-		base = base != NULL ? base + 1 : target;
+		base = base != nullptr ? base + 1 : target;
 		if (base[0] == '\0') {
 			warnx("%s: cannot edit directories", file);
 			free(target);
@@ -746,12 +754,12 @@ main(int argc, char *argv[])
 				struct stat dstat;
 
 				dir = strdup(target);
-				if (dir == NULL)
+				if (dir == nullptr)
 					err(1, "strdup");
 				slash = strrchr(dir, '/');
 				if (slash == dir)
 					slash[1] = '\0';
-				else if (slash != NULL)
+				else if (slash != nullptr)
 					*slash = '\0';
 				if (stat(dir, &dstat) == -1) {
 					if (errno == ENOENT ||
@@ -831,18 +839,18 @@ main(int argc, char *argv[])
 
 		/* create the private temporary files */
 		{
-			size_t tlen = strlen(tmpdir);
-			size_t blen = strlen(base);
-			char  *cname;
+			auto  tlen = strlen(tmpdir);
+			auto  blen = strlen(base);
+			char *cname;
 
 			cname = malloc(blen + 12);
-			if (cname == NULL)
+			if (cname == nullptr)
 				err(1, "malloc");
 			snprintf(cname, blen + 12, "copy-of-%s", base);
 
 			tmpfile = malloc(tlen + blen + 2);
 			tmpcopy = malloc(tlen + strlen(cname) + 2);
-			if (tmpfile == NULL || tmpcopy == NULL)
+			if (tmpfile == nullptr || tmpcopy == nullptr)
 				err(1, "malloc");
 			snprintf(
 			    tmpfile, tlen + blen + 2, "%s/%s", tmpdir, base);
@@ -912,7 +920,7 @@ main(int argc, char *argv[])
 				 * read it, and retry a few times.
 				 */
 				const char *cat_argv[] = {
-				    "doas", "cat", target, NULL};
+				    "doas", "cat", target, nullptr};
 				int tries;
 
 				for (tries = 0; tries < 3; tries++) {
@@ -984,7 +992,7 @@ main(int argc, char *argv[])
 		/* write back */
 		if (!exists) {
 			const char *inst_argv[] = {"doas", "install", "-m",
-			    "0644", tmpfile, target, NULL};
+			    "0644", tmpfile, target, nullptr};
 			int	    tries;
 
 			/* like the original: retry after failed password
@@ -1051,8 +1059,8 @@ main(int argc, char *argv[])
 		 */
 		{
 			const char *inst_argv[] = {"doas", "install", "-o",
-			    NULL, "-g", NULL, "-m", NULL, tmpfile, target,
-			    NULL};
+			    nullptr, "-g", nullptr, "-m", nullptr, tmpfile,
+			    target, nullptr};
 			char	    ubuf[32], gbuf[32], mbuf[8];
 			int	    tries;
 
@@ -1077,23 +1085,23 @@ main(int argc, char *argv[])
 			goto next;
 		}
 	next:
-		if (tmpfile != NULL)
+		if (tmpfile != nullptr)
 			(void)unlink(tmpfile);
-		if (tmpcopy != NULL)
+		if (tmpcopy != nullptr)
 			(void)unlink(tmpcopy);
 		/*
 		 * Clear the signal-handler pointers before the blocks are
 		 * freed, so a signal arriving in between cannot make the
 		 * handler unlink a dangling path.
 		 */
-		cur_tmpfile = cur_tmpcopy = NULL;
+		cur_tmpfile = cur_tmpcopy = nullptr;
 		free(target);
 		free(tmpfile);
 		free(tmpcopy);
 	}
 
 	cleanup_current();
-	cur_tmpdir = NULL;
+	cur_tmpdir = nullptr;
 	free(tmpdir);
 	return (exit_code);
 }

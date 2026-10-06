@@ -21,9 +21,11 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+// clang-format off
 #include "bsdcompat.h"
 
 #include <errno.h>
+// clang-format on
 
 #if !OPENUTILS_BSD_LIBC && \
     (!defined(__GLIBC__) || \
@@ -83,7 +85,9 @@ strlcat(char *dst, const char *src, size_t dsize)
     (!defined(__GLIBC__) || \
     !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
 
+// clang-format off
 #include <stdckdint.h>
+// clang-format on
 
 void *
 reallocarray(void *optr, size_t nmemb, size_t size)
@@ -92,7 +96,7 @@ reallocarray(void *optr, size_t nmemb, size_t size)
 
 	if (ckd_mul(&product, nmemb, size)) {
 		errno = ENOMEM;
-		return (NULL);
+		return (nullptr);
 	}
 	return (realloc(optr, product));
 }
