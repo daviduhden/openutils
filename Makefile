@@ -53,10 +53,7 @@ test: all
 	sh doasedit/tests/run.sh
 	sh tree/tests/run.sh
 	sh truncate/tests/run.sh
-	perl ee/tests/run.pl
-	perl ee/tests/signals.pl
-	perl ee/tests/modern.pl
-	perl ee/tests/features.pl
+	$(MAKE_ENV) $(MAKE) -C ee test
 
 # build one utility with -g -O0 and run it under lldb(1)
 debug:

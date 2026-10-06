@@ -35,6 +35,10 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/man/man
 
+# One of the standard data directories ee searches (see ee.1).  It is
+# named after the .aff/.dic convention that the files follow.
+DICTDIR ?= $(PREFIX)/share/myspell
+
 all: $(PROG)
 
 $(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
@@ -49,23 +53,30 @@ debug: $(PROG)_debug
 
 clean:
 	rm -f $(PROG) $(PROG)_debug ee.o utf8.o help.o spell/spell.o \
-	    tests/test-spell
+	    tests/test-spell tests/test-dictionary
 
 install: $(PROG)
-	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
+	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1 $(DESTDIR)$(DICTDIR)
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
 	install -m 644 $(PROG).1 $(DESTDIR)$(MANDIR)1/$(PROG).1
+	install -m 644 spell/en_US.aff spell/en_US.dic \
+	    $(DESTDIR)$(DICTDIR)/
 	ln -sf $(PROG) $(DESTDIR)$(BINDIR)/ree
 	ln -sf $(PROG) $(DESTDIR)$(BINDIR)/edit
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG) $(DESTDIR)$(BINDIR)/ree \
-	    $(DESTDIR)$(BINDIR)/edit $(DESTDIR)$(MANDIR)1/$(PROG).1
+	    $(DESTDIR)$(BINDIR)/edit $(DESTDIR)$(MANDIR)1/$(PROG).1 \
+	    $(DESTDIR)$(DICTDIR)/en_US.aff $(DESTDIR)$(DICTDIR)/en_US.dic
 
 test: $(PROG)
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-spell \
 	    tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS)
 	./tests/test-spell tests/spell-test.aff tests/spell-test.dic
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) \
+	    -o tests/test-dictionary \
+	    tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS)
+	./tests/test-dictionary spell/en_US.aff spell/en_US.dic
 	perl tests/run.pl
 	perl tests/signals.pl
 	perl tests/modern.pl

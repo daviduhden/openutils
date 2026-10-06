@@ -35,15 +35,69 @@ Not supported (deliberately):
 The engine never executes a program, opens a socket or starts a thread. The
 dictionary is read once, on the first query, and kept in memory.
 
-## Dictionary files
+## Bundled dictionary
 
-ee does not ship a word list, because none that would be useful is available
-under this project's licence. Use the `EE_DICTIONARY` environment variable,
-or place `en_US.aff` and `en_US.dic` in one of the standard data directories
-listed in [`ee(1)`](../ee.1).
+ee ships a U.S. English dictionary in this directory:
+
+- [`en_US.aff`](en_US.aff) - affix rules written from scratch for ee;
+- [`en_US.dic`](en_US.dic) - about 43,000 common words with optional
+  `/flags`.
+
+Both files are placed in the public domain under CC0-1.0; see
+[`LICENSES/CC0-1.0`](../../LICENSES/CC0-1.0).  The dictionary is compiled
+exclusively from public-domain word lists (12dicts and ENABLE2K);
+[`DICTIONARY-SOURCES.md`](DICTIONARY-SOURCES.md) records the exact sources,
+versions, checksums, filters and generation procedure, and
+[`gen-dictionary.pl`](gen-dictionary.pl) regenerates `en_US.dic`
+deterministically.  The generator is a developer tool only: it is never run
+by the build and uses no network.
+
+### Affix flags
+
+The rules use a single suffix or a single prefix per word (no cross
+product, no compounds):
+
+| Flag | Meaning            | Example                    |
+| ---- | ------------------ | -------------------------- |
+| `S`  | plural / 3rd person | `cat/S` -> cats, `box/S` -> boxes, `carry/S` -> carries |
+| `D`  | past tense `-ed`    | `walk/D` -> walked, `love/D` -> loved, `carry/D` -> carried |
+| `G`  | participle `-ing`   | `walk/G` -> walking, `love/G` -> loving |
+| `R`  | comparative `-er`   | `quick/R` -> quicker, `happy/R` -> happier |
+| `T`  | superlative `-est`  | `quick/T` -> quickest, `happy/T` -> happiest |
+| `L`  | adverb `-ly`        | `quick/L` -> quickly, `happy/L` -> happily |
+| `U`  | prefix `un-`        | `happy/U` -> unhappy |
+| `P`  | prefix `re-`        | `write/P` -> rewrite |
+| `X`  | prefix `dis-`       | `like/X` -> dislike |
+
+A flag is only attached when the resulting form exists in the public-domain
+reference list, and irregular or double-consonant forms that the rules
+cannot express are stored explicitly in `en_US.dic`.
+
+`TRY` lists the letters in approximate English frequency order for the
+one-edit suggestion algorithm; `REP` contains the common `ie`/`ei`
+transposition.  Both are written for ee and are not copied from another
+spell checker.
+
+### Where ee finds the dictionary
+
+`make install` installs the two files into `$(PREFIX)/share/myspell`
+(`/usr/local/share/myspell` by default), which is one of the standard data
+directories ee searches (see [`ee(1)`](../ee.1)).  The `EE_DICTIONARY`
+environment variable overrides this and may name a `.dic` file, an `.aff`
+file, a directory or a base path; use it when ee is installed under a
+different `PREFIX` or run from the source tree.
+
+When no dictionary is found, spell checking reports that and the rest of
+the editor is unaffected.
+
+## Tests
 
 The unit test [`tests/test-spell.c`](../tests/test-spell.c) exercises the
 engine with the tiny dictionary in
 [`tests/spell-test.aff`](../tests/spell-test.aff) and
-[`tests/spell-test.dic`](../tests/spell-test.dic), which was written for the
-test and carries the project licence.
+[`tests/spell-test.dic`](../tests/spell-test.dic); the integration test
+[`tests/test-dictionary.c`](../tests/test-dictionary.c) loads the bundled
+`en_US.aff` and `en_US.dic` and checks base words, plurals, past tense,
+`-ing`, comparatives, superlatives, adverbs, prefixes, conditions,
+irregular forms and suggestions.
+

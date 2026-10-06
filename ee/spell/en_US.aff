@@ -1,0 +1,71 @@
+# en_US.aff - affix rules for ee's spell checker (ee/spell).
+#
+# Written from scratch for ee; not derived from any other spell
+# checker's affix file.  The rules use only the features documented in
+# spell/README.md: exact lookup and at most one prefix or one suffix per
+# word (no cross product, no compounds).
+#
+# Condition syntax: a literal character, '.', a set '[...]' or '[^...]',
+# with an optional trailing '*'.  For a suffix the condition is matched
+# against the reconstructed stem, anchored at its end; for a prefix, at
+# its start.
+#
+# Licence: dedicated to the public domain (CC0-1.0); see
+# LICENSES/CC0-1.0 and spell/DICTIONARY-SOURCES.md.
+
+SET UTF-8
+FLAG char
+
+# Letters ordered by English frequency, used to build suggestions.
+TRY etaoinshrdlcumwfgypbvkjxqz
+
+# --- Suffixes -------------------------------------------------------
+# Flag S: plural / third person singular -s, -es, -ies.
+SFX S y ies [^aeiou]y
+SFX S 0 es [sxz]
+SFX S 0 es ch
+SFX S 0 es sh
+SFX S 0 s [aeiou]y
+SFX S 0 s [^sxzhy]
+
+# Flag D: past tense -ed
+# (love -> loved, carry -> carried, walk -> walked).
+SFX D e ed e
+SFX D y ied [^aeiou]y
+SFX D 0 ed [^ey]
+
+# Flag G: present participle -ing
+# (love -> loving, walk -> walking).
+SFX G e ing e
+SFX G 0 ing [^e]
+
+# Flag R: comparative -er
+# (nice -> nicer, happy -> happier, quick -> quicker).
+SFX R e er e
+SFX R y ier [^aeiou]y
+SFX R 0 er [^ey]
+
+# Flag T: superlative -est
+# (nice -> nicest, happy -> happiest, quick -> quickest).
+SFX T e est e
+SFX T y iest [^aeiou]y
+SFX T 0 est [^ey]
+
+# Flag L: adverb -ly
+# (happy -> happily, quick -> quickly).
+SFX L y ily [^aeiou]y
+SFX L 0 ly [^y]
+
+# --- Prefixes -------------------------------------------------------
+# Flag U: un- (happy -> unhappy).
+PFX U 0 un .
+# Flag P: re- (write -> rewrite).
+PFX P 0 re .
+# Flag X: dis- (like -> dislike).
+PFX X 0 dis .
+
+# --- Typical misspellings -------------------------------------------
+# Only the common ie/ei transposition, which single-letter edits cannot
+# repair (the two letters are not adjacent).
+REP ie ei
+REP ei ie

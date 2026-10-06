@@ -5,6 +5,7 @@ tree/tree
 ee/ee
 truncate/truncate
 ee/tests/test-spell
+ee/tests/test-dictionary
 
 # objects and cores
 *.o

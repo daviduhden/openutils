@@ -100,7 +100,8 @@ select the traditional, Emacs or vi key bindings; menus are drawn with a
 Unicode box frame (ASCII fallback), prose is reflowed to 72 columns while
 patches and code are left untouched, and spelling is checked by a small
 affix checker written for ee (`ee/spell/`) with no external spell
-program and no bundled dictionary.  Also installed as `ree` (restricted
+program; a U.S. English dictionary compiled from public-domain word
+lists is bundled under CC0-1.0.  Also installed as `ree` (restricted
 mode) and `edit`, as upstream does.
 
 ### truncate
@@ -215,7 +216,8 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   byte-oriented mode).  The historical `eightbit`/`noeightbit` settings
   are accepted but have no effect (text is always UTF-8).  `spell` and
   `ispell` integration has been removed and replaced by ee's own small
-  affix checker (`ee/spell/`, no third-party code or dictionary);
+  affix checker (`ee/spell/`), which ships a public-domain U.S. English
+  dictionary under CC0-1.0 and needs no external program;
   `EMACS`/`NOEMACS` init lines are
   joined by `VI`, `SPELL` and `NOSPELL`.  The paragraph formatter now
   targets 72 columns for prose and refuses to reflow diffs, patches and
