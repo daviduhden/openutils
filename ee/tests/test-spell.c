@@ -50,8 +50,8 @@ expect_suggest(struct ee_spell *sp, const char *w, const char *want)
 int
 main(int argc, char **argv)
 {
-	const char	 *aff = (argc > 1) ? argv[1] : "tests/spell-test.aff";
-	const char	 *dic = (argc > 2) ? argv[2] : "tests/spell-test.dic";
+	const char	*aff = (argc > 1) ? argv[1] : "tests/spell-test.aff";
+	const char	*dic = (argc > 2) ? argv[2] : "tests/spell-test.dic";
 	struct ee_spell *sp = ee_spell_open(aff, dic);
 
 	if (sp == NULL) {

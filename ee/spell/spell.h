@@ -40,7 +40,7 @@ int ee_spell_check(struct ee_spell *sp, const char *word, size_t len);
  * array of `max` rows of 64 bytes.  Returns the number of suggestions
  * written, or 0 when the word is known or nothing was found.
  */
-int ee_spell_suggest(struct ee_spell *sp, const char *word, size_t len,
-    char out[][64], int max);
+int ee_spell_suggest(
+    struct ee_spell *sp, const char *word, size_t len, char out[][64], int max);
 
 #endif /* EE_SPELL_H */

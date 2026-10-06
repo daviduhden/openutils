@@ -74,13 +74,13 @@ sub test_vi_append_and_wq {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x24");        # $ - end of line
+    $s->write("\x24");       # $ - end of line
     $s->pump(0.3);
-    $s->write("a world");     # a - append, then insert text
+    $s->write("a world");    # a - append, then insert text
     $s->pump(0.4);
-    $s->write("\x1b");        # Esc - back to normal mode
+    $s->write("\x1b");       # Esc - back to normal mode
     $s->pump(0.3);
-    $s->write(":wq\r");       # write and quit
+    $s->write(":wq\r");      # write and quit
     $s->pump(1.2);
     my $exited = $s->wait_exit;
     $s->close;
@@ -94,7 +94,7 @@ sub test_vi_delete_line {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("dd");          # delete the current line
+    $s->write("dd");    # delete the current line
     $s->pump(0.4);
     $s->write(":wq\r");
     $s->pump(1.2);
@@ -110,10 +110,11 @@ sub test_config_roundtrip {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x1b");        # normal mode Esc opens the main menu
+    $s->write("\x1b");    # normal mode Esc opens the main menu
     $s->pump(0.6);
-    $s->write("e");           # settings (item 5)
+    $s->write("e");       # settings (item 5)
     $s->pump(0.6);
+
     # Leave the settings menu; the editor must still work and quit.
     $s->write("\x1b");
     $s->pump(0.4);
@@ -128,25 +129,24 @@ sub test_format_protects_diff {
     my ($work) = @_;
     my $path = "$work/patch.txt";
     my $patch =
-        "Index: foo.c\n" .
-        "===================================================================\n" .
-        "--- foo.c\n" .
-        "+++ foo.c\n" .
-        "@@ -1,2 +1,3 @@\n" .
-        " int main(void)\n" .
-        "+{ return 0; }\n" .
-        " \n";
+        "Index: foo.c\n"
+      . "===================================================================\n"
+      . "--- foo.c\n"
+      . "+++ foo.c\n"
+      . "@@ -1,2 +1,3 @@\n"
+      . " int main(void)\n"
+      . "+{ return 0; }\n" . " \n";
     write_raw( $path, $patch );
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x1b");        # open the main menu
+    $s->write("\x1b");    # open the main menu
     $s->pump(0.6);
-    $s->write("g");           # miscellaneous (item 7)
+    $s->write("g");       # miscellaneous (item 7)
     $s->pump(0.6);
-    $s->write("a");           # format paragraph (item 1)
-    $s->pump(0.8);            # the formatter must leave the diff alone
-    $s->write(":q\r");        # leave without changes
+    $s->write("a");       # format paragraph (item 1)
+    $s->pump(0.8);        # the formatter must leave the diff alone
+    $s->write(":q\r");    # leave without changes
     $s->pump(0.8);
     my $exited = $s->wait_exit;
     $s->close;
@@ -162,14 +162,16 @@ sub main {
     ok('ee binary exists');
 
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $work   = tempdir( 'ee-features.XXXXXX', DIR => $tmpdir,
-        CLEANUP => 1 );
+    my $work   = tempdir(
+        'ee-features.XXXXXX',
+        DIR     => $tmpdir,
+        CLEANUP => 1
+    );
 
-    check( 'vi: $ a append and :wq save', test_vi_append_and_wq($work) );
-    check( 'vi: dd deletes a line',       test_vi_delete_line($work) );
-    check( 'vi: menu/config round trip',  test_config_roundtrip($work) );
-    check( 'diff content is not corrupted',
-        test_format_protects_diff($work) );
+    check( 'vi: $ a append and :wq save',   test_vi_append_and_wq($work) );
+    check( 'vi: dd deletes a line',         test_vi_delete_line($work) );
+    check( 'vi: menu/config round trip',    test_config_roundtrip($work) );
+    check( 'diff content is not corrupted', test_format_protects_diff($work) );
 
     print "\npass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {

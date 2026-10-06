@@ -45,13 +45,13 @@ struct spell_tok {
 };
 
 struct spell_rule {
-	unsigned short	flag;
-	char		strip[SPELL_MAX_RULE];
-	char		add[SPELL_MAX_RULE];
-	int		striplen;
-	int		addlen;
+	unsigned short	 flag;
+	char		 strip[SPELL_MAX_RULE];
+	char		 add[SPELL_MAX_RULE];
+	int		 striplen;
+	int		 addlen;
 	struct spell_tok tok[SPELL_MAX_TOK];
-	int		ntok;
+	int		 ntok;
 };
 
 struct spell_repl {
@@ -60,20 +60,20 @@ struct spell_repl {
 };
 
 struct ee_spell {
-	int		 flag_long;
-	char		 tryset[128];
-	int		 ntry;
-	struct spell_rule *prefix;
-	int		 nprefix;
-	struct spell_rule *suffix;
-	int		 nsuffix;
-	struct spell_repl *rep;
-	int		 nrep;
+	int		    flag_long;
+	char		    tryset[128];
+	int		    ntry;
+	struct spell_rule  *prefix;
+	int		    nprefix;
+	struct spell_rule  *suffix;
+	int		    nsuffix;
+	struct spell_repl  *rep;
+	int		    nrep;
 	struct spell_entry *ents;
-	int		 nents;
-	int		*head;	    /* hash buckets: entry index + 1, 0 empty */
-	int		*next;	    /* next entry index + 1, 0 end */
-	int		 nbuckets;
+	int		    nents;
+	int		   *head; /* hash buckets: entry index + 1, 0 empty */
+	int		   *next; /* next entry index + 1, 0 end */
+	int		    nbuckets;
 };
 
 /* ---------------------------------------------------------------- */
@@ -128,8 +128,8 @@ add_flag(struct spell_entry *e, unsigned short flag)
 {
 	unsigned short *nf;
 
-	nf = reallocarray(e->flags, (size_t)(e->nflags + 1),
-	    sizeof(unsigned short));
+	nf = reallocarray(
+	    e->flags, (size_t)(e->nflags + 1), sizeof(unsigned short));
 	if (nf == NULL)
 		return (-1);
 	e->flags = nf;
@@ -177,8 +177,7 @@ build_index(struct ee_spell *sp)
 
 	n = sp->nents * 2 + 1;
 	sp->head = calloc((size_t)n, sizeof(int));
-	sp->next = calloc((size_t)(sp->nents > 0 ? sp->nents : 1),
-	    sizeof(int));
+	sp->next = calloc((size_t)(sp->nents > 0 ? sp->nents : 1), sizeof(int));
 	if ((sp->head == NULL) || (sp->next == NULL)) {
 		free(sp->head);
 		free(sp->next);
@@ -239,8 +238,8 @@ match_prefix(const struct spell_tok *tok, int ti, int ntok,
 
 /* Match tokens right to left, anchored at the end of s. */
 static int
-match_suffix(const struct spell_tok *tok, int ti,
-    const unsigned char *s, int pos)
+match_suffix(
+    const struct spell_tok *tok, int ti, const unsigned char *s, int pos)
 {
 	const struct spell_tok *t;
 	int			k;
@@ -270,10 +269,10 @@ rule_matches(const struct spell_rule *r, const char *stem, int len, int suffix)
 	if (len < 0)
 		return (0);
 	if (suffix)
-		return (match_suffix(r->tok, r->ntok - 1,
-		    (const unsigned char *)stem, len));
-	return (match_prefix(r->tok, 0, r->ntok, (const unsigned char *)stem,
-	    len, 0));
+		return (match_suffix(
+		    r->tok, r->ntok - 1, (const unsigned char *)stem, len));
+	return (match_prefix(
+	    r->tok, 0, r->ntok, (const unsigned char *)stem, len, 0));
 }
 
 static int
@@ -381,15 +380,14 @@ check_affixes(struct ee_spell *sp, const char *word, int len)
 
 		if ((r->addlen == 0) || (len < r->addlen))
 			continue;
-		if (memcmp(word + len - r->addlen, r->add,
-			(size_t)r->addlen) != 0)
+		if (memcmp(word + len - r->addlen, r->add, (size_t)r->addlen) !=
+		    0)
 			continue;
 		stemlen = len - r->addlen + r->striplen;
 		if ((stemlen <= 0) || (stemlen >= SPELL_MAX_WORD))
 			continue;
 		memcpy(stem, word, (size_t)(len - r->addlen));
-		memcpy(stem + (len - r->addlen), r->strip,
-		    (size_t)r->striplen);
+		memcpy(stem + (len - r->addlen), r->strip, (size_t)r->striplen);
 		stem[stemlen] = '\0';
 		if (!rule_matches(r, stem, stemlen, 1))
 			continue;
@@ -439,17 +437,17 @@ check_word(struct ee_spell *sp, const char *word, size_t len)
 static int
 load_dic(struct ee_spell *sp, const char *path)
 {
-	FILE  *f;
-	char  *line = NULL;
-	size_t cap = 0;
+	FILE   *f;
+	char   *line = NULL;
+	size_t	cap = 0;
 	ssize_t n;
-	int    first = 1;
+	int	first = 1;
 
 	f = fopen(path, "r");
 	if (f == NULL)
 		return (-1);
 	while ((n = getline(&line, &cap, f)) != -1) {
-		char		*slash;
+		char		   *slash;
 		struct spell_entry *e;
 
 		spell_rstrip(line);
@@ -459,8 +457,7 @@ load_dic(struct ee_spell *sp, const char *path)
 		}
 		if (line[0] == '\0')
 			continue;
-		if ((strchr(line, ' ') != NULL) ||
-		    (strchr(line, '\t') != NULL))
+		if ((strchr(line, ' ') != NULL) || (strchr(line, '\t') != NULL))
 			continue; /* compound entries are out of scope */
 		slash = strchr(line, '/');
 		if (slash != NULL)
@@ -505,9 +502,9 @@ load_dic(struct ee_spell *sp, const char *path)
 static int
 load_aff(struct ee_spell *sp, const char *path)
 {
-	FILE  *f;
-	char  *line = NULL;
-	size_t cap = 0;
+	FILE   *f;
+	char   *line = NULL;
+	size_t	cap = 0;
 	ssize_t n;
 
 	f = fopen(path, "r");
@@ -559,8 +556,8 @@ load_aff(struct ee_spell *sp, const char *path)
 				to++;
 			if (*to == '\0')
 				continue;
-			sp->rep = reallocarray(sp->rep,
-			    (size_t)(sp->nrep + 1), sizeof(struct spell_repl));
+			sp->rep = reallocarray(sp->rep, (size_t)(sp->nrep + 1),
+			    sizeof(struct spell_repl));
 			if (sp->rep == NULL)
 				break;
 			sp->rep[sp->nrep].from = spell_strdup(from);
@@ -583,7 +580,7 @@ load_aff(struct ee_spell *sp, const char *path)
 		if (got != 5)
 			continue;
 		memset(&r, 0, sizeof(r));
-		r.flag = parse_flag(flagf, sp->flag_long, &(size_t){ 0 });
+		r.flag = parse_flag(flagf, sp->flag_long, &(size_t){0});
 		copy_part(r.strip, SPELL_MAX_RULE, stripf, &r.striplen);
 		copy_part(r.add, SPELL_MAX_RULE, addf, &r.addlen);
 		if (parse_condition(condf, &r) != 0) {
@@ -655,7 +652,7 @@ static int
 sug_transpositions(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
 {
-	char cand[SPELL_MAX_WORD];
+	char   cand[SPELL_MAX_WORD];
 	size_t i;
 
 	if (len >= SPELL_MAX_WORD)
@@ -717,8 +714,8 @@ static int
 sug_replacements(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
 {
-	char   cand[SPELL_MAX_WORD];
-	int    i;
+	char cand[SPELL_MAX_WORD];
+	int  i;
 
 	if (len >= SPELL_MAX_WORD)
 		return (ns);
@@ -739,8 +736,8 @@ sug_replacements(struct ee_spell *sp, char out[][64], int ns, int max,
 			memcpy(cand, word, (size_t)len);
 			memcpy(cand + off, to, tl);
 			memcpy(cand + off + tl, p + fl, strlen(p + fl) + 1);
-			ns = sug_add(sp, out, ns, max, cand,
-			    off + tl + strlen(p + fl));
+			ns = sug_add(
+			    sp, out, ns, max, cand, off + tl + strlen(p + fl));
 			p++;
 		}
 	}
@@ -809,8 +806,8 @@ ee_spell_check(struct ee_spell *sp, const char *word, size_t len)
 }
 
 int
-ee_spell_suggest(struct ee_spell *sp, const char *word, size_t len,
-    char out[][64], int max)
+ee_spell_suggest(
+    struct ee_spell *sp, const char *word, size_t len, char out[][64], int max)
 {
 	int ns = 0;
 

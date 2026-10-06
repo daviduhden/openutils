@@ -175,9 +175,9 @@ int box_unicode = TRUE; /* terminal and locale can render Unicode boxes */
  * checker (see the spell/ directory); no external programs are run.
  * The dictionary is loaded lazily on first use and cached.
  */
-int spell_enabled = TRUE;	       /* toggle from the spell menu */
+int			spell_enabled = TRUE; /* toggle from the spell menu */
 static struct ee_spell *spell_engine = NULL;
-static int	       spell_tried = FALSE;
+static int		spell_tried = FALSE;
 
 /*
  * Active key binding set.  The historical editor bindings (EE_KEYS_EE),
@@ -186,9 +186,9 @@ static int	       spell_tried = FALSE;
  * operations (left(), del_word(), ...) so the editing logic exists
  * only once.
  */
-int keys_mode = EE_KEYS_EE;
-int vi_insert = FALSE;	 /* vi: insertion sub-mode (KEYS_VI only) */
-static int vi_pending = 0; /* vi: pending operator, e.g. 'd' in "dd" */
+int	   keys_mode = EE_KEYS_EE;
+int	   vi_insert = FALSE; /* vi: insertion sub-mode (KEYS_VI only) */
+static int vi_pending = 0;    /* vi: pending operator, e.g. 'd' in "dd" */
 
 /*
  * What the last cut operation removed, so that "u" can restore it with
@@ -488,8 +488,8 @@ static int   line_is_diff(const unsigned char *line, int len);
 static int   line_is_code(const unsigned char *line, int len);
 static int   starts_with_repeat(
     const unsigned char *line, int len, int c, int min);
-static void  modes_op(void);
-static int   key_binding_op(int mode);
+static void		 modes_op(void);
+static int		 key_binding_op(int mode);
 [[nodiscard]] static int append_mem(
     char **buf, size_t *len, size_t *cap, const char *s, size_t n);
 static char *resolve_name(char *name);
@@ -512,14 +512,14 @@ static void  strings_init(void);
 struct menu_entries key_bindings_menu[];
 
 struct menu_entries modes_menu[] = {
-    {"modes menu", NULL, NULL, NULL, NULL, 0}, /* title */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 1. tabs */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 2. case */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 3. margins */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 4. autoformat */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 5. info window */
+    {"modes menu", NULL, NULL, NULL, NULL, 0},	      /* title */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 1. tabs */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 2. case */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 3. margins */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 4. autoformat */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 5. info window */
     {"", menu_op, key_bindings_menu, NULL, NULL, -1}, /* 6. key bindings */
-    {"", NULL, NULL, NULL, NULL, -1},	       /* 7. right margin */
+    {"", NULL, NULL, NULL, NULL, -1},		      /* 7. right margin */
     {"save editor configuration", NULL, NULL, NULL, dump_ee_conf, -1},
     {NULL, NULL, NULL, NULL, NULL, -1} /* terminator */
 };
@@ -531,8 +531,7 @@ struct menu_entries modes_menu[] = {
  */
 struct menu_entries key_bindings_menu[] = {
     {"key bindings", NULL, NULL, NULL, NULL, -1},
-    {"Easy Editor (traditional)", NULL, NULL, key_binding_op, NULL,
-	EE_KEYS_EE},
+    {"Easy Editor (traditional)", NULL, NULL, key_binding_op, NULL, EE_KEYS_EE},
     {"Emacs", NULL, NULL, key_binding_op, NULL, EE_KEYS_EMACS},
     {"vi (normal and insert modes)", NULL, NULL, key_binding_op, NULL,
 	EE_KEYS_VI},
@@ -584,8 +583,8 @@ struct menu_entries search_menu[] = {{"search menu", NULL, NULL, NULL, NULL, 0},
 
 struct menu_entries spell_menu[] = {{"spell menu", NULL, NULL, NULL, NULL, -1},
     {"check the word at the cursor", NULL, NULL, NULL, spell_check_word, -1},
-    {"suggest for the word at the cursor", NULL, NULL, NULL,
-	spell_suggest_word, -1},
+    {"suggest for the word at the cursor", NULL, NULL, NULL, spell_suggest_word,
+	-1},
     {"toggle spell checking", NULL, NULL, NULL, spell_toggle, -1},
     {NULL, NULL, NULL, NULL, NULL, -1}};
 
@@ -4576,8 +4575,8 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 	 |	Draw the title and rules inside a bordered frame when the
 	 |	window is large enough for the framed layout.
 	 */
-	framed = (max_height > vert_size) && (max_width >= 4) &&
-	    (max_height >= 3);
+	framed =
+	    (max_height > vert_size) && (max_width >= 4) && (max_height >= 3);
 
 	if (framed) {
 		int avail = max_width - MENU_ITEM_COL - 2;
@@ -4596,8 +4595,8 @@ paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
 		box_rule(menu_win, 2, max_width, BOX_LT, BOX_RT);
 
 		if (menu_list[0].argument != MENU_WARN) {
-			box_rule(
-			    menu_win, (max_height - 4), max_width, BOX_LT, BOX_RT);
+			box_rule(menu_win, (max_height - 4), max_width, BOX_LT,
+			    BOX_RT);
 			wmove(menu_win, (max_height - 3), MENU_ITEM_COL);
 			waddnstr(menu_win, menu_cancel_msg, avail);
 		}
@@ -4680,8 +4679,8 @@ help(void)
 		werase(help_win);
 		clearok(help_win, TRUE);
 		for (i = 0; (i < pagesize) && ((top + i) < total); i++) {
-			ee_help_line(keys_mode, top + i, line,
-			    sizeof(line), &header);
+			ee_help_line(
+			    keys_mode, top + i, line, sizeof(line), &header);
 			wmove(help_win, i, 0);
 			if (header && !nohighlight)
 				wstandout(help_win);
@@ -4860,11 +4859,11 @@ default_shortcuts(void)
 	static const char *const normal[] = {"^[ Menu", "^S Save", "^Q Quit",
 	    "^E Search", "^X Find", "^W Cut word", "^V Paste word",
 	    "^Y Cut line", "^Z Paste line", "^U Up", "^D Down", "^C Command"};
-	static const char *const vi[] = {"i Insert", ": Command", "h j k l Move",
-	    "w b Word", "0 $ Line ends", "x Delete", "dd Del line",
-	    "u Undo", "Esc Menu"};
-	const char *const *items = normal;
-	int		   count = (int)(sizeof(normal) / sizeof(normal[0]));
+	static const char *const vi[] = {"i Insert", ": Command",
+	    "h j k l Move", "w b Word", "0 $ Line ends", "x Delete",
+	    "dd Del line", "u Undo", "Esc Menu"};
+	const char *const	*items = normal;
+	int count = (int)(sizeof(normal) / sizeof(normal[0]));
 
 	if ((keys_mode == EE_KEYS_VI) && !vi_insert) {
 		items = vi;
@@ -5252,11 +5251,11 @@ line_is_code(const unsigned char *line, int len)
 static int
 prose_is_structured(void)
 {
-	struct text   *start;
-	struct text   *line;
-	int	       len;
-	int	       diff = FALSE;
-	int	       code = FALSE;
+	struct text *start;
+	struct text *line;
+	int	     len;
+	int	     diff = FALSE;
+	int	     code = FALSE;
 
 	if (curr_line == NULL)
 		return (FALSE);
@@ -5472,8 +5471,7 @@ Format(void)
 	 */
 
 	while (position < curr_line->line_length) {
-		while ((scr_pos < wrap) &&
-		    (position < curr_line->line_length))
+		while ((scr_pos < wrap) && (position < curr_line->line_length))
 			right(TRUE);
 		if (position < curr_line->line_length) {
 			prev_word();
@@ -5738,8 +5736,9 @@ dump_ee_conf(void)
 	    0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n",
-		(keys_mode == EE_KEYS_EMACS) ? EMACS_string :
-		(keys_mode == EE_KEYS_VI) ? VI_string : NOEMACS_string) < 0)
+		(keys_mode == EE_KEYS_EMACS)  ? EMACS_string :
+		    (keys_mode == EE_KEYS_VI) ? VI_string :
+						NOEMACS_string) < 0)
 		write_ok = FALSE;
 	if (fprintf(init_file, "%s\n",
 		spell_enabled ? SPELL_string : NOSPELL_string) < 0)
@@ -5913,8 +5912,8 @@ spell_locate(char *aff, size_t affsz, char *dic, size_t dicsz)
 			snprintf(dic, dicsz, "%s", env);
 			if (access(dic, R_OK) != 0)
 				return (FALSE);
-			snprintf(aff, affsz, "%.*s.aff",
-			    (int)(strlen(env) - 4), env);
+			snprintf(aff, affsz, "%.*s.aff", (int)(strlen(env) - 4),
+			    env);
 			if (access(aff, R_OK) != 0)
 				aff[0] = '\0';
 			return (TRUE);
@@ -5923,8 +5922,8 @@ spell_locate(char *aff, size_t affsz, char *dic, size_t dicsz)
 			snprintf(aff, affsz, "%s", env);
 			if (access(aff, R_OK) != 0)
 				aff[0] = '\0';
-			snprintf(dic, dicsz, "%.*s.dic",
-			    (int)(strlen(env) - 4), env);
+			snprintf(dic, dicsz, "%.*s.dic", (int)(strlen(env) - 4),
+			    env);
 			return (access(dic, R_OK) == 0);
 		}
 		snprintf(dic, dicsz, "%s/en_US.dic", env);
@@ -5974,11 +5973,10 @@ spell_ensure(void)
 		spell_message("no en_US dictionary found; set EE_DICTIONARY");
 		return (FALSE);
 	}
-	spell_engine =
-	    ee_spell_open((aff[0] != '\0') ? aff : NULL, dic);
+	spell_engine = ee_spell_open((aff[0] != '\0') ? aff : NULL, dic);
 	if (spell_engine == NULL) {
-		snprintf(msg, sizeof(msg), "unable to read dictionary \"%s\"",
-		    dic);
+		snprintf(
+		    msg, sizeof(msg), "unable to read dictionary \"%s\"", dic);
 		spell_message(msg);
 		return (FALSE);
 	}
@@ -6012,9 +6010,9 @@ spell_replace(int start, int len, const char *repl)
 static void
 spell_check_word(void)
 {
-	int   start, len;
-	char  word[256];
-	char  msg[320];
+	int  start, len;
+	char word[256];
+	char msg[320];
 
 	if (!spell_enabled) {
 		spell_message("spell checking is off (spell menu: toggle)");
@@ -6031,8 +6029,8 @@ spell_check_word(void)
 	if (ee_spell_check(spell_engine, word, (size_t)len))
 		snprintf(msg, sizeof(msg), "\"%s\" is correctly spelled", word);
 	else
-		snprintf(msg, sizeof(msg), "\"%s\" is not in the dictionary",
-		    word);
+		snprintf(
+		    msg, sizeof(msg), "\"%s\" is not in the dictionary", word);
 	spell_message(msg);
 }
 
@@ -6060,8 +6058,8 @@ spell_suggest_word(void)
 	word[len] = '\0';
 	n = ee_spell_suggest(spell_engine, word, (size_t)len, sug, 8);
 	if (n == 0) {
-		snprintf(prompt, sizeof(prompt), "no suggestions for \"%s\"",
-		    word);
+		snprintf(
+		    prompt, sizeof(prompt), "no suggestions for \"%s\"", word);
 		spell_message(prompt);
 		return;
 	}
@@ -6436,8 +6434,9 @@ modes_op(void)
 		    mode_strings[5], (info_window ? ON : OFF));
 		snprintf(modes_menu[6].item_string, MODES_ITEM_SIZE, "%s %s",
 		    mode_strings[6],
-		    (keys_mode == EE_KEYS_EMACS) ? "EMACS" :
-		    (keys_mode == EE_KEYS_VI) ? "VI" : "EE");
+		    (keys_mode == EE_KEYS_EMACS)  ? "EMACS" :
+			(keys_mode == EE_KEYS_VI) ? "VI" :
+						    "EE");
 		snprintf(modes_menu[7].item_string, MODES_ITEM_SIZE, "%s %d",
 		    mode_strings[7], right_margin);
 

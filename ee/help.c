@@ -1,4 +1,5 @@
 #include "bsdcompat.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -144,10 +145,10 @@ static const struct help_section help_sections[] = {
 	(int)(sizeof(help_navigation) / sizeof(help_navigation[0])), 0, 0},
     {"Editing", help_editing,
 	(int)(sizeof(help_editing) / sizeof(help_editing[0])), 0, 0},
-    {"Files", help_files, (int)(sizeof(help_files) / sizeof(help_files[0])),
-	0, 1},
-    {"Search", help_search,
-	(int)(sizeof(help_search) / sizeof(help_search[0])), 0, 0},
+    {"Files", help_files, (int)(sizeof(help_files) / sizeof(help_files[0])), 0,
+	1},
+    {"Search", help_search, (int)(sizeof(help_search) / sizeof(help_search[0])),
+	0, 0},
     {"Cut and paste", help_cutpaste,
 	(int)(sizeof(help_cutpaste) / sizeof(help_cutpaste[0])), 0, 0},
     {"Exit", help_exit, (int)(sizeof(help_exit) / sizeof(help_exit[0])), 0, 0},
@@ -196,8 +197,7 @@ ee_help_count(int keys_mode)
 }
 
 void
-ee_help_line(
-    int keys_mode, int index, char *out, size_t outsz, int *is_header)
+ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
 {
 	int    i = 0;
 	size_t s;
