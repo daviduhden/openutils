@@ -1,7 +1,7 @@
 # en_US dictionary: sources and provenance
 
 The files `en_US.aff` and `en_US.dic` in this directory are dedicated to the
-public domain under CC0-1.0; see [`LICENSES/CC0-1.0`](../../LICENSES/CC0-1.0).
+public domain under CC0-1.0; see [`LICENSES/spell`](../../LICENSES/spell).
 `en_US.aff` was written from scratch for ee. `en_US.dic` is compiled
 exclusively from word lists that their authors explicitly placed in the
 public domain. No part of it comes from SCOWL, Hunspell, LibreOffice,
