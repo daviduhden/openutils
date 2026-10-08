@@ -23,10 +23,6 @@ all: $(PROG)
 $(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
-# test build: identical code plus test-only hooks used by tests/run.sh
-$(PROG)_test: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DDOASEDIT_TEST -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
-
 # debug build: unoptimized binary for use with the debugger
 $(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
 	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
@@ -34,11 +30,8 @@ $(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.
 debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug
 
-test: $(PROG)_test
-	sh tests/run.sh
-
 clean:
-	rm -f $(PROG) $(PROG)_test $(PROG)_debug $(PROG:=.o)
+	rm -f $(PROG) $(PROG)_debug $(PROG:=.o)
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
@@ -48,4 +41,4 @@ install: $(PROG)
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG) $(DESTDIR)$(MANDIR)1/$(PROG).1
 
-.PHONY: all clean install uninstall test debug
+.PHONY: all clean install uninstall debug

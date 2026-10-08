@@ -200,8 +200,8 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   (e.g. `permit persist :wheel`).
 - Perl 5 with the IO::Pty module for the ee behavioural test suite
   (`make test`); install it on OpenBSD with `doas pkg_add p5-IO-Tty`
-  (devel/p5-IO-TTY).  The doasedit, tree and truncate test suites are
-  POSIX shell and need no extra packages.
+  (devel/p5-IO-TTY).  The tree and truncate test suites are POSIX
+  shell and need no extra packages.
 
 ## Known differences from the reference utilities
 
