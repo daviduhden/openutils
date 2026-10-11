@@ -49,6 +49,8 @@ truncate:
 
 test: all
 	CC="$(CC)" CFLAGS="$(CFLAGS)" sh compat/tests/run.sh
+	CC="$(CC)" CFLAGS="$(CFLAGS)" FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK \
+	    sh compat/tests/stdckdint-compile-fail.sh
 	sh tree/tests/run.sh
 	sh truncate/tests/run.sh
 	$(MAKE_ENV) $(MAKE) -C ee test

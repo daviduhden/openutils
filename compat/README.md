@@ -35,14 +35,16 @@ host whose libc already ships a real `<stdckdint.h>`.
 
 | File | Purpose |
 | --- | --- |
-| [tests/run.sh](tests/run.sh) | Builds and runs the fallback test. |
-| [tests/stdckdint.c](tests/stdckdint.c) | Exercises `ckd_add`/`ckd_mul` against the C23 contract: representability is judged against the result type, operands are not converted first, and each argument is evaluated exactly once. |
+| [tests/run.sh](tests/run.sh) | Builds and runs the fallback conformance test. |
+| [tests/stdckdint.c](tests/stdckdint.c) | Checks `ckd_add`/`ckd_sub`/`ckd_mul` against an independent `__int128` oracle over a boundary grid (flag and stored value), plus the C23 evaluation rules. |
+| [tests/stdckdint-compile-fail.sh](tests/stdckdint-compile-fail.sh) | Negative-compilation tests for the invalid operand and destination types C23 forbids. |
 
 The test binary is link-only against libc; it needs no terminal and no
-extra packages.  Run it from the repository root:
+extra packages.  Run them from the repository root:
 
 ```
 sh compat/tests/run.sh
+FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK sh compat/tests/stdckdint-compile-fail.sh
 ```
 
-`make test` runs it first, before the utility suites.
+`make test` runs both first, before the utility suites.
