@@ -9,6 +9,12 @@
 
 CC = clang
 CFLAGS ?= -O2 -pipe
+# C23 is declared explicitly at the top level so that tooling which scans
+# build metadata (e.g. scripts/tests-format/clang-format-all.sh) recognises
+# the standard for every file below, including compat/tests/ whose ancestors
+# carry no other declaration.  The per-utility Makefiles also set it for
+# direct builds.
+CFLAGS += -std=c23
 CPPFLAGS ?=
 LDFLAGS ?=
 DEBUGGER ?= lldb
