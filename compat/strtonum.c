@@ -34,16 +34,16 @@ strtonum(const char *numstr, long long minval, long long maxval,
     const char **errstrp)
 {
 	long long ll = 0;
-	int error = 0;
-	char *ep;
+	int	  error = 0;
+	char	 *ep;
 	struct errval {
 		const char *errstr;
-		int err;
+		int	    err;
 	} ev[4] = {
-		{ nullptr,	0 },
-		{ "invalid",	EINVAL },
-		{ "too small",	ERANGE },
-		{ "too large",	ERANGE },
+	    {nullptr, 0},
+	    {"invalid", EINVAL},
+	    {"too small", ERANGE},
+	    {"too large", ERANGE},
 	};
 
 	ev[0].err = errno;

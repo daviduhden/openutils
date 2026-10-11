@@ -27,15 +27,15 @@
 #include <errno.h>
 // clang-format on
 
-#if !OPENUTILS_BSD_LIBC && \
-    (!defined(__GLIBC__) || \
-    !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)))
+#if !OPENUTILS_BSD_LIBC &&                                                     \
+    (!defined(__GLIBC__) ||                                                    \
+	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)))
 
 size_t
 strlcpy(char *dst, const char *src, size_t dsize)
 {
 	const char *osrc = src;
-	size_t nleft = dsize;
+	size_t	    nleft = dsize;
 
 	if (nleft != 0) {
 		while (--nleft != 0) {
@@ -57,8 +57,8 @@ strlcat(char *dst, const char *src, size_t dsize)
 {
 	const char *odst = dst;
 	const char *osrc = src;
-	size_t n = dsize;
-	size_t dlen;
+	size_t	    n = dsize;
+	size_t	    dlen;
 
 	while (n-- != 0 && *dst != '\0')
 		dst++;
@@ -81,9 +81,9 @@ strlcat(char *dst, const char *src, size_t dsize)
 
 #endif
 
-#if !OPENUTILS_BSD_LIBC && \
-    (!defined(__GLIBC__) || \
-    !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
+#if !OPENUTILS_BSD_LIBC &&                                                     \
+    (!defined(__GLIBC__) ||                                                    \
+	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
 
 // clang-format off
 #include <stdckdint.h>
@@ -92,7 +92,7 @@ strlcat(char *dst, const char *src, size_t dsize)
 void *
 reallocarray(void *optr, size_t nmemb, size_t size)
 {
-	size_t	 product;
+	size_t product;
 
 	if (ckd_mul(&product, nmemb, size)) {
 		errno = ENOMEM;

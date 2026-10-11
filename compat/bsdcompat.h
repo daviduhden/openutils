@@ -59,22 +59,23 @@
  * BSD-visible interfaces the project relies on.
  */
 #ifndef __OpenBSD__
-#define _XOPEN_SOURCE	700
-#define _DEFAULT_SOURCE	1
+#define _XOPEN_SOURCE 700
+#define _DEFAULT_SOURCE 1
 #endif
+
+#include <sys/types.h>
 
 #include <limits.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
 
 /* the BSDs provide everything below natively */
-#if defined(__OpenBSD__) || defined(__FreeBSD__) || \
-    defined(__NetBSD__) || defined(__DragonFly__)
-#define OPENUTILS_BSD_LIBC	1
+#if defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__) ||     \
+    defined(__DragonFly__)
+#define OPENUTILS_BSD_LIBC 1
 #else
-#define OPENUTILS_BSD_LIBC	0
+#define OPENUTILS_BSD_LIBC 0
 #endif
 
 /*
@@ -105,7 +106,7 @@ unveil(const char *, const char *)
 static inline char *
 openutils_progname(void)
 {
-	static char buf[64];	/* zero-initialized */
+	static char buf[64]; /* zero-initialized */
 
 	return (buf);
 }
@@ -113,9 +114,9 @@ openutils_progname(void)
 static inline void
 setprogname(const char *name)
 {
-	char *buf = openutils_progname();
+	char	   *buf = openutils_progname();
 	const char *base;
-	size_t len;
+	size_t	    len;
 
 	base = strrchr(name, '/');
 	base = (base != nullptr) ? base + 1 : name;
@@ -139,17 +140,17 @@ long long strtonum(const char *, long long, long long, const char **);
 #endif
 
 /* strlcpy(3)/strlcat(3): native in glibc 2.38 and later */
-#if !OPENUTILS_BSD_LIBC && \
-    (!defined(__GLIBC__) || \
-    !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)))
+#if !OPENUTILS_BSD_LIBC &&                                                     \
+    (!defined(__GLIBC__) ||                                                    \
+	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)))
 size_t strlcpy(char *, const char *, size_t);
 size_t strlcat(char *, const char *, size_t);
 #endif
 
 /* reallocarray(3): native in glibc 2.26 and later */
-#if !OPENUTILS_BSD_LIBC && \
-    (!defined(__GLIBC__) || \
-    !((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
+#if !OPENUTILS_BSD_LIBC &&                                                     \
+    (!defined(__GLIBC__) ||                                                    \
+	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
 void *reallocarray(void *, size_t, size_t);
 #endif
 
