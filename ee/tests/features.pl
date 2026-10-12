@@ -10,6 +10,7 @@
 use strict;
 use warnings;
 
+use Carp           ();
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
@@ -19,7 +20,8 @@ my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
 my $EE   = $ENV{EE} // "$ROOT/ee/ee";
 
-require "$HERE/pty_run.pl";
+unshift @INC, $HERE;
+require pty_run;
 
 my $PASS = 0;
 my $FAIL = 0;
@@ -29,6 +31,7 @@ sub ok {
     my ($desc) = @_;
     $PASS++;
     print "ok $PASS - $desc\n";
+    return;
 }
 
 sub notok {
@@ -36,28 +39,31 @@ sub notok {
     $FAIL++;
     push @FAILED, $desc;
     print "not ok - $desc\n";
+    return;
 }
 
 sub check {
     my ( $desc, $value ) = @_;
     $value ? ok($desc) : notok($desc);
+    return;
 }
 
 sub write_raw {
     my ( $path, $bytes ) = @_;
-    open my $fh, '>:raw', $path or die "open $path: $!";
+    open my $fh, '>:raw', $path or Carp::croak "open $path: $!";
     print {$fh} $bytes;
     close $fh;
+    return;
 }
 
 sub read_raw {
     my ($path) = @_;
-    return '' unless -e $path;
-    open my $fh, '<:raw', $path or die "open $path: $!";
-    local $/;
+    return q{} unless -e $path;
+    open my $fh, '<:raw', $path or Carp::croak "open $path: $!";
+    local $/ = undef;
     my $data = <$fh>;
     close $fh;
-    return defined $data ? $data : '';
+    return defined $data ? $data : q{};
 }
 
 # Run ee configured for vi bindings (through a private $HOME/.init.ee).
@@ -75,16 +81,16 @@ sub test_vi_append_and_wq {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x24");       # $ - end of line
+    $s->write_data("\x24");       # $ - end of line
     $s->pump(0.3);
-    $s->write("a world");    # a - append, then insert text
+    $s->write_data("a world");    # a - append, then insert text
     $s->pump(0.4);
-    $s->write("\x1b");       # Esc - back to normal mode
+    $s->write_data("\x1b");       # Esc - back to normal mode
     $s->pump(0.3);
-    $s->write(":wq\r");      # write and quit
+    $s->write_data(":wq\r");      # write and quit
     $s->pump(1.2);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq "hello world\n" ) ? 1 : 0;
 }
 
@@ -95,12 +101,12 @@ sub test_vi_delete_line {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("dd");    # delete the current line
+    $s->write_data("dd");    # delete the current line
     $s->pump(0.4);
-    $s->write(":wq\r");
+    $s->write_data(":wq\r");
     $s->pump(1.2);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq "two\nthree\n" ) ? 1 : 0;
 }
 
@@ -111,18 +117,18 @@ sub test_config_roundtrip {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x1b");    # normal mode Esc opens the main menu
+    $s->write_data("\x1b");    # normal mode Esc opens the main menu
     $s->pump(0.6);
-    $s->write("e");       # settings (item 5)
+    $s->write_data("e");       # settings (item 5)
     $s->pump(0.6);
 
     # Leave the settings menu; the editor must still work and quit.
-    $s->write("\x1b");
+    $s->write_data("\x1b");
     $s->pump(0.4);
-    $s->write(":q\r");
+    $s->write_data(":q\r");
     $s->pump(0.8);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return $exited;
 }
 
@@ -141,16 +147,16 @@ sub test_format_protects_diff {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x1b");    # open the main menu
+    $s->write_data("\x1b");    # open the main menu
     $s->pump(0.6);
-    $s->write("g");       # miscellaneous (item 7)
+    $s->write_data("g");       # miscellaneous (item 7)
     $s->pump(0.6);
-    $s->write("a");       # format paragraph (item 1)
-    $s->pump(0.8);        # the formatter must leave the diff alone
-    $s->write(":q\r");    # leave without changes
+    $s->write_data("a");       # format paragraph (item 1)
+    $s->pump(0.8);             # the formatter must leave the diff alone
+    $s->write_data(":q\r");    # leave without changes
     $s->pump(0.8);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq $patch ) ? 1 : 0;
 }
 
@@ -164,7 +170,7 @@ sub test_format_whole_document {
         "This first paragraph is deliberately written to be long enough "
       . "that the formatter has to wrap it onto several lines while it "
       . "reflows the whole document at once.\n";
-    my $second = "A short second paragraph.\n";
+    my $second_para = "A short second paragraph.\n";
     my $third =
         "A third paragraph that is also long enough to require wrapping "
       . "once every paragraph is reflowed independently by the editor.\n";
@@ -176,40 +182,40 @@ sub test_format_whole_document {
       . "@@ -1,2 +1,3 @@\n"
       . " int main(void)\n"
       . "+{ return 0; }\n" . " \n";
-    my $orig = $first . "\n" . $second . "\n" . $third . "\n\n" . $code;
+    my $orig = $first . "\n" . $second_para . "\n" . $third . "\n\n" . $code;
     write_raw( $path, $orig );
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("\x1b");     # open the main menu
+    $s->write_data("\x1b");     # open the main menu
     $s->pump(0.6);
-    $s->write("g");        # miscellaneous (item 7)
+    $s->write_data("g");        # miscellaneous (item 7)
     $s->pump(0.6);
-    $s->write("b");        # format whole document (item 2)
+    $s->write_data("b");        # format whole document (item 2)
     $s->pump(2.5);
-    $s->write(":wq\r");    # save the formatted buffer
+    $s->write_data(":wq\r");    # save the formatted buffer
     $s->pump(1.2);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
 
     return 0 unless $exited;
     my $result = read_raw($path);
 
     # every line fits the 72-column prose width
-    for my $line ( split /\n/, $result ) {
+    for my $line ( split /\n/x, $result ) {
         return 0 if length($line) > 72;
     }
 
     # the code block is classified as structured and left verbatim
-    return 0 unless index( $result, $code ) >= 0;
+    return 0 if index( $result, $code ) < 0;
 
     # paragraph boundaries and blank lines survive
-    my $want_blank = grep { /^[ \t]*$/ } split /\n/, $orig,   -1;
-    my $got_blank  = grep { /^[ \t]*$/ } split /\n/, $result, -1;
+    my $want_blank = grep { /^[ \t]*$/x } split /\n/x, $orig,   -1;
+    my $got_blank  = grep { /^[ \t]*$/x } split /\n/x, $result, -1;
     return 0 unless $want_blank == $got_blank;
 
     # the short paragraph stays on its own line; nothing was merged
-    return 0 unless $result =~ /\n\QA short second paragraph.\E\n/;
+    return 0 if index( $result, "\n" . $second_para ) < 0;
 
     return 1;
 }
@@ -224,26 +230,26 @@ sub test_format_paragraph_stays_in_paragraph {
         "The first paragraph must not be reformatted when the cursor is "
       . "in the second one, but it is long enough that a wrong merge would "
       . "show up clearly in the saved file.\n";
-    my $second =
+    my $second_para =
         "The second paragraph is the one the formatter is asked to "
       . "reflow and it is also long enough to require wrapping here.\n";
-    my $orig = $first . "\n" . $second;
+    my $orig = $first . "\n" . $second_para;
     write_raw( $path, $orig );
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write("jj");      # over the blank line to the second paragraph
+    $s->write_data("jj");      # over the blank line to the second paragraph
     $s->pump(0.3);
-    $s->write("\x1b");    # open the main menu
+    $s->write_data("\x1b");    # open the main menu
     $s->pump(0.6);
-    $s->write("g");       # miscellaneous (item 7)
+    $s->write_data("g");       # miscellaneous (item 7)
     $s->pump(0.6);
-    $s->write("a");       # format paragraph (item 1)
+    $s->write_data("a");       # format paragraph (item 1)
     $s->pump(1.2);
-    $s->write(":wq\r");
+    $s->write_data(":wq\r");
     $s->pump(1.2);
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
 
     return 0 unless $exited;
     my $result = read_raw($path);
@@ -253,7 +259,7 @@ sub test_format_paragraph_stays_in_paragraph {
     return 0 unless substr( $result, length $first, 1 ) eq "\n";
 
     # the second paragraph was reflowed rather than merged into the first
-    return 0 if index( $result, $second ) >= 0;
+    return 0 if index( $result, $second_para ) >= 0;
     return 1;
 }
 
@@ -285,7 +291,7 @@ sub main {
 
     print "\npass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {
-        my $names = join '', map { " $_" } @FAILED;
+        my $names = join q{}, map { " $_" } @FAILED;
         print "failed tests:$names\n";
         return 1;
     }

@@ -15,6 +15,7 @@
 use strict;
 use warnings;
 
+use Carp           ();
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Path     qw(make_path);
@@ -25,7 +26,8 @@ my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
 my $EE   = $ENV{EE} // "$ROOT/ee/ee";
 
-require "$HERE/pty_run.pl";
+unshift @INC, $HERE;
+require pty_run;
 
 # TIOCSWINSZ is 0x5414 on Linux and _IOW('t', 103, struct winsize)
 # on the BSDs (including OpenBSD).
@@ -69,7 +71,7 @@ sub build_terminfo {
     $numbers[0] = 80;
     $numbers[2] = 24;
     my @soff   = (0xFFFF) x $NS;
-    my $table  = '';
+    my $table  = q{};
     my $addstr = sub {
         my ( $idx, $s ) = @_;
         $soff[$idx] = length $table;
@@ -78,11 +80,11 @@ sub build_terminfo {
     };
     $addstr->( 5,   $clear );
     $addstr->( 10,  "\033[%i%d;%dH" );
-    $addstr->( 104, '' );
+    $addstr->( 104, q{} );
     my $hdr = pack( 'v6',
         282, length($names), 0, scalar(@numbers), $NS, length($table) );
-    my $pad = ( length($names) % 2 ) ? "\0" : '';
-    open my $fh, '>', $path or die "open $path: $!";
+    my $pad = ( length($names) % 2 ) ? "\0" : q{};
+    open my $fh, '>', $path or Carp::croak "open $path: $!";
     binmode $fh;
     print {$fh} $hdr, $names, $pad;
     print {$fh} pack( 'v*', @numbers );
@@ -97,14 +99,14 @@ sub sigint_test {
     my $session =
       Session->new( [ $EE, '-i', "$work/sigint.txt" ], { TERM => 'xterm' } );
     $session->pump(2.5);
-    $session->write('unsaved');
+    $session->write_data('unsaved');
     $session->pump(1);
     kill 'INT', $session->pid;
     $session->pump(2.5);
     my $exited   = $session->wait_exit;
     my $restored = index( $session->buf, "\x1b[?1l\x1b>" ) >= 0 ? 1 : 0;
     my $saved    = -e "$work/sigint.txt"                        ? 1 : 0;
-    $session->close;
+    $session->close_session;
     return ( $exited, $restored, $saved );
 }
 
@@ -113,7 +115,7 @@ sub sigwinch_test {
     my $session =
       Session->new( [ $EE, '-i', "$work/resize.txt" ], { TERM => 'xterm' } );
     $session->pump(2.5);
-    $session->write('kept text');
+    $session->write_data('kept text');
     $session->pump(1);
     for my $size ( [ 40, 100 ], [ 10, 30 ], [ 30, 60 ] ) {
         my ( $rows, $cols ) = @$size;
@@ -125,22 +127,22 @@ sub sigwinch_test {
         kill 'WINCH', $session->pid;
         $session->pump(1.5);
     }
-    $session->write("\x1b");
+    $session->write_data("\x1b");
     $session->pump(1);
-    $session->write('a');
+    $session->write_data('a');
     $session->pump(1);
-    $session->write('a');
+    $session->write_data('a');
     $session->pump(2);
-    my $data = '';
+    my $data = q{};
 
     if ( -e "$work/resize.txt" ) {
-        open my $fh, '<', "$work/resize.txt" or die "open: $!";
+        open my $fh, '<', "$work/resize.txt" or Carp::croak "open: $!";
         binmode $fh;
-        local $/;
-        $data = <$fh> // '';
+        local $/ = undef;
+        $data = <$fh> // q{};
         close $fh;
     }
-    $session->close;
+    $session->close_session;
     return index( $data, 'kept text' ) >= 0 ? 1 : 0;
 }
 
@@ -154,7 +156,7 @@ sub tinfo_test {
     my $session = Session->new( [ $EE, '-i', "$work/tinf.txt" ],
         { TERM => 'openutils-test', TERMINFO => $tdir } );
     $session->pump(2.5);
-    $session->write('x');
+    $session->write_data('x');
     $session->pump(1.5);
     my $wpid   = waitpid( $session->pid, WNOHANG );
     my $status = $?;
@@ -163,7 +165,7 @@ sub tinfo_test {
       ( $wpid != 0 && $status != 0 && $sig != 0 && $sig != 0x7f )
       ? 1
       : 0;
-    $session->close;
+    $session->close_session;
     return $crashed;
 }
 
@@ -183,7 +185,7 @@ sub noterm_test {
       ( $exited && $status != 0 && $sig != 0 && $sig != 0x7f )
       ? 1
       : 0;
-    $session->close;
+    $session->close_session;
     return ( $exited, $crashed );
 }
 
@@ -209,7 +211,7 @@ sub main {
 
     print "pass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {
-        my $names = join '', map { " $_" } @FAILED;
+        my $names = join q{}, map { " $_" } @FAILED;
         print "failed tests:$names\n";
         return 1;
     }

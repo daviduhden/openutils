@@ -15,6 +15,8 @@
 use strict;
 use warnings;
 
+use Carp ();
+
 my $CO = 0;      # number of columns
 my $LI = 2;      # number of lines
 my $CL = 5;      # clear screen
@@ -33,7 +35,7 @@ sub build {
     $numbers[$CO] = 80;
     $numbers[$LI] = 24;
     my @soff  = (0xFFFF) x $NS;
-    my $table = '';
+    my $table = q{};
     my $add   = sub {
         my ( $idx, $s ) = @_;
         $soff[$idx] = length $table;
@@ -46,7 +48,7 @@ sub build {
     my $names = "openutils-test|x|test terminal for ee tests\0";
     my $hdr   = pack( 'v6',
         282, length($names), 0, scalar(@numbers), $NS, length($table) );
-    open my $fh, '>', $path or die "open $path: $!";
+    open my $fh, '>', $path or Carp::croak "open $path: $!";
     binmode $fh;
     print {$fh} $hdr . $names;
     print {$fh} pack( 'v*', @numbers );

@@ -93,7 +93,7 @@ extra.
 | --- | --- |
 | [tests/test-spell.c](tests/test-spell.c) | Unit test for the [spell engine](spell/README.md). |
 | [tests/spell-test.aff](tests/spell-test.aff), [tests/spell-test.dic](tests/spell-test.dic) | Tiny dictionary written for that test (project licence). |
-| [tests/pty_run.pl](tests/pty_run.pl) | Shared PTY helper: runs a program, feeds key sequences and returns its output. |
+| [tests/pty_run.pm](tests/pty_run.pm) | Shared PTY helper: runs a program, feeds key sequences and returns its output. |
 | [tests/run.pl](tests/run.pl) | Core behaviour: editing, menus, saving, UTF-8 input, locale policy. |
 | [tests/signals.pl](tests/signals.pl) | Signal handling and terminal robustness (SIGINT, SIGWINCH, hostile `TERM`). |
 | [tests/modern.pl](tests/modern.pl) | Resize in every modal state, UTF-8/NUL policy, wide and combining characters, tiny terminals, help paging, shell round trips. |

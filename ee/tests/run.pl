@@ -10,6 +10,7 @@
 use strict;
 use warnings;
 
+use Carp           ();
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
@@ -19,7 +20,8 @@ my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
 my $EE   = $ENV{EE} // "$ROOT/ee/ee";
 
-require "$HERE/pty_run.pl";
+unshift @INC, $HERE;
+require pty_run;
 
 my $PASS = 0;
 my $FAIL = 0;
@@ -57,12 +59,12 @@ sub assert_eq {
 # shell command substitution would.
 sub read_text {
     my ($path) = @_;
-    open my $fh, '<', $path or return '';
-    local $/;
+    open my $fh, '<', $path or return q{};
+    local $/ = undef;
     my $data = <$fh>;
     close $fh;
-    $data = '' unless defined $data;
-    $data =~ s/\n+\z//;
+    $data = q{} unless defined $data;
+    $data =~ s/\n+\z//x;
     return $data;
 }
 
@@ -71,21 +73,110 @@ sub read_text {
 # stdin=PIPE, stdout inherited and stderr discarded.
 sub run_no_tty {
     my (@cmd) = @_;
-    pipe( my $rd, my $wr ) or die "pipe: $!";
+    pipe( my $rd, my $wr ) or Carp::croak "pipe: $!";
     my $pid = fork;
-    die "fork: $!" unless defined $pid;
+    Carp::croak "fork: $!" unless defined $pid;
     if ( $pid == 0 ) {
         open STDIN,  '<&', $rd         or POSIX::_exit(127);
         open STDERR, '>',  '/dev/null' or POSIX::_exit(127);
-        no warnings 'exec';
-        exec { $cmd[0] } @cmd;
-        POSIX::_exit(127);
+        exec { $cmd[0] } @cmd or POSIX::_exit(127);
     }
     close $rd;
     print {$wr} 'x';
     close $wr;
     waitpid( $pid, 0 );
     return $? >> 8;
+}
+
+# Capture `locale -a`, discarding diagnostics like the old qx did.
+sub read_locale_list {
+    my $list = q{};
+    open my $loc, q{-|}, 'locale -a 2>/dev/null' or return $list;
+    local $/ = undef;
+    my $data = <$loc>;
+    close $loc;
+    return defined $data ? $data : $list;
+}
+
+# Locale policy: no locale configured means ee picks a UTF-8 one and the
+# interface is English; an explicitly configured non-UTF-8 locale is
+# rejected cleanly; an explicit UTF-8 locale works.
+sub test_locale_policy {
+    my ( $ee, $work ) = @_;
+
+    my $no_locale = run(
+        [ $ee, q{-?} ],
+        [],
+        {
+            LC_ALL      => q{},
+            LC_CTYPE    => q{},
+            LANG        => q{},
+            LC_MESSAGES => q{},
+            TERM        => 'xterm'
+        }
+    );
+    if (   index( $no_locale, 'usage:' ) >= 0
+        && index( $no_locale, 'turn off info window' ) >= 0 )
+    {
+        ok('usage is English with no locale configured');
+    }
+    else {
+        notok('usage is English with no locale configured');
+    }
+
+    my $c_locale = run( [ $ee, q{-?} ],
+        [],
+        { LC_ALL => 'C', LANG => 'C', LC_MESSAGES => 'C', TERM => 'xterm' } );
+    if (   index( $c_locale, 'usage:' ) < 0
+        && index( $c_locale, 'UTF-8 locale' ) >= 0 )
+    {
+        ok('non-UTF-8 locale C is rejected cleanly');
+    }
+    else {
+        notok('non-UTF-8 locale C is rejected cleanly');
+    }
+
+    # Choose an explicit UTF-8 locale that this host actually provides.
+    my $locale_list = read_locale_list();
+    my $utf8_locale;
+    for my $cand ( 'C.UTF-8', 'C.utf8', 'en_US.UTF-8', 'en_US.utf8' ) {
+        if ( $locale_list =~ /^\Q$cand\E$/mix ) {
+            $utf8_locale = $cand;
+            last;
+        }
+    }
+
+    return unless defined $utf8_locale;
+
+    my $utf8_out = run(
+        [ $ee, q{-?} ],
+        [],
+        {
+            LC_ALL      => $utf8_locale,
+            LANG        => $utf8_locale,
+            LC_MESSAGES => $utf8_locale,
+            TERM        => 'xterm'
+        }
+    );
+    if ( index( $utf8_out, 'usage:' ) >= 0 ) {
+        ok("usage is English under $utf8_locale");
+    }
+    else {
+        notok("usage is English under $utf8_locale");
+    }
+
+    my $path = "$work/locfile.txt";
+    run(
+        [ $ee,    '-i',   $path ],
+        [ "café", "\x1b", 'a', 'a' ],
+        {
+            LC_ALL => $utf8_locale,
+            LANG   => $utf8_locale,
+            TERM   => 'xterm'
+        }
+    );
+    assert_eq( "UTF-8 edit under $utf8_locale", 'café', read_text($path) );
+    return;
 }
 
 sub main {
@@ -101,11 +192,11 @@ sub main {
     my $work   = tempdir( 'ee-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
     # refuses to run without a terminal
-    my $rc = run_no_tty( $EE, '-?' );
+    my $rc = run_no_tty( $EE, q{-?} );
     assert_eq( 'requires a terminal', 1, $rc );
 
     # usage output through a pty
-    my $usage = run( [ $EE, '-?' ], [], { TERM => 'xterm' } );
+    my $usage = run( [ $EE, q{-?} ], [], { TERM => 'xterm' } );
     if ( index( $usage, 'usage:' ) >= 0 && index( $usage, '-i' ) >= 0 ) {
         ok('usage shows options');
     }
@@ -148,7 +239,7 @@ sub main {
     }
 
     # mode preserved for existing files
-    open my $fh, '>', $path or die "open $path: $!";
+    open my $fh, '>', $path or Carp::croak "open $path: $!";
     print {$fh} "original\n";
     close $fh;
     chmod 0640, $path;
@@ -156,7 +247,7 @@ sub main {
         { TERM => 'xterm' } );
     assert_eq( 'content updated', 'xxoriginal', read_text($path) );
     assert_eq( 'mode preserved',
-        '640', sprintf( '%o', ( stat $path )[2] & 0777 ) );
+        '640', sprintf( '%o', ( stat $path )[2] & oct(777) ) );
 
     # new file created with normal umask
     $path = "$work/newfile.txt";
@@ -169,19 +260,19 @@ sub main {
 
     # long lines (longer than the internal 512-byte read chunks)
     # survive a load/save round trip
-    open my $long, '>', $path or die "open $path: $!";
+    open my $long, '>', $path or Carp::croak "open $path: $!";
     my $content = ( 'x' x 3000 ) . "\n" . "short\n";
     print {$long} $content;
     close $long;
     run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
-    open my $in, '<', $path or die "open $path: $!";
-    my $first = <$in> // '';
+    open my $in, '<', $path or Carp::croak "open $path: $!";
+    my $first = <$in> // q{};
     close $in;
-    $first =~ s/\n\z//;
+    $first =~ s/\n\z//x;
     assert_eq( 'long line preserved', 'x' x 3000, $first );
 
     # file without a final newline
-    open my $noeol, '>', $path or die "open $path: $!";
+    open my $noeol, '>', $path or Carp::croak "open $path: $!";
     print {$noeol} 'no trailing newline';
     close $noeol;
     run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
@@ -192,7 +283,7 @@ sub main {
     );
 
     # "no save" path leaves the file untouched
-    open my $keep, '>', $path or die "open $path: $!";
+    open my $keep, '>', $path or Carp::croak "open $path: $!";
     print {$keep} "keep\n";
     close $keep;
     run(
@@ -221,86 +312,12 @@ sub main {
         notok('save-as prompt is shown');
     }
 
-    # locale policy: no locale configured means ee picks a UTF-8 one and
-    # the interface is English; an explicitly configured non-UTF-8
-    # locale is rejected cleanly; an explicit UTF-8 locale works.
-    my $no_locale = run(
-        [ $EE, '-?' ],
-        [],
-        {
-            LC_ALL      => '',
-            LC_CTYPE    => '',
-            LANG        => '',
-            LC_MESSAGES => '',
-            TERM        => 'xterm'
-        }
-    );
-    if (   index( $no_locale, 'usage:' ) >= 0
-        && index( $no_locale, 'turn off info window' ) >= 0 )
-    {
-        ok('usage is English with no locale configured');
-    }
-    else {
-        notok('usage is English with no locale configured');
-    }
-
-    my $c_locale = run( [ $EE, '-?' ],
-        [],
-        { LC_ALL => 'C', LANG => 'C', LC_MESSAGES => 'C', TERM => 'xterm' } );
-    if (   index( $c_locale, 'usage:' ) < 0
-        && index( $c_locale, 'UTF-8 locale' ) >= 0 )
-    {
-        ok('non-UTF-8 locale C is rejected cleanly');
-    }
-    else {
-        notok('non-UTF-8 locale C is rejected cleanly');
-    }
-
-    # Choose an explicit UTF-8 locale that this host actually provides.
-    my $locale_list = qx(locale -a 2>/dev/null);
-    my $utf8_locale;
-    for my $cand ( 'C.UTF-8', 'C.utf8', 'en_US.UTF-8', 'en_US.utf8' ) {
-        if ( $locale_list =~ /^\Q$cand\E$/mi ) {
-            $utf8_locale = $cand;
-            last;
-        }
-    }
-
-    if ( defined $utf8_locale ) {
-        my $utf8_out = run(
-            [ $EE, '-?' ],
-            [],
-            {
-                LC_ALL      => $utf8_locale,
-                LANG        => $utf8_locale,
-                LC_MESSAGES => $utf8_locale,
-                TERM        => 'xterm'
-            }
-        );
-        if ( index( $utf8_out, 'usage:' ) >= 0 ) {
-            ok("usage is English under $utf8_locale");
-        }
-        else {
-            notok("usage is English under $utf8_locale");
-        }
-
-        $path = "$work/locfile.txt";
-        run(
-            [ $EE,    '-i',   $path ],
-            [ "café", "\x1b", 'a', 'a' ],
-            {
-                LC_ALL => $utf8_locale,
-                LANG   => $utf8_locale,
-                TERM   => 'xterm'
-            }
-        );
-        assert_eq( "UTF-8 edit under $utf8_locale", 'café', read_text($path) );
-    }
+    test_locale_policy( $EE, $work );
 
     print "\n";
     print "pass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {
-        my $names = join '', map { " $_" } @FAILED;
+        my $names = join q{}, map { " $_" } @FAILED;
         print "failed tests:$names\n";
         return 1;
     }

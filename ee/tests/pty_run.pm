@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# pty_run.pl - run a program on a pseudo-terminal, feed it key
+# pty_run.pm - run a program on a pseudo-terminal, feed it key
 # sequences, and return (or print) its output.
 #
 # Requires Perl 5 with the IO::Pty module; on OpenBSD install it with
@@ -8,7 +8,7 @@
 # ee behavioural tests only; the other OpenUtils test suites are
 # POSIX shell.
 #
-# usage: pty_run.pl <program> <args...> -- <input-sequence>...
+# usage: pty_run.pm <program> <args...> -- <input-sequence>...
 #
 # Each input sequence may contain \xHH escapes (or plain text) and is
 # sent to the program with a small delay between sequences, ending
@@ -17,21 +17,22 @@
 use strict;
 use warnings;
 
+use Carp   ();
 use Encode ();
 use IO::Pty;
 use IO::Select;
 use POSIX       ();
 use Time::HiRes qw(time);
 
-$SIG{PIPE} = 'IGNORE';
+POSIX::sigaction( POSIX::SIGPIPE(), POSIX::SigAction->new('IGNORE') );
 
 package Session;
 
 sub new {
     my ( $class, $argv, $env ) = @_;
-    my $pty = IO::Pty->new or die "cannot allocate a pty: $!";
+    my $pty = IO::Pty->new or Carp::croak "cannot allocate a pty: $!";
     my $pid = fork;
-    die "cannot fork: $!" unless defined $pid;
+    Carp::croak "cannot fork: $!" unless defined $pid;
     if ( $pid == 0 ) {
         my $slave = $pty->slave;
         $pty->make_slave_controlling_terminal;
@@ -39,26 +40,22 @@ sub new {
         open STDIN,  '<&', $slave or POSIX::_exit(127);
         open STDOUT, '>&', $slave or POSIX::_exit(127);
         open STDERR, '>&', $slave or POSIX::_exit(127);
-        if ($env) {
-            $ENV{$_} = $env->{$_} for keys %$env;
-        }
-        $ENV{TERM} = 'xterm' unless defined $ENV{TERM};
-        no warnings 'exec';
-        exec { $argv->[0] } @$argv;
-        POSIX::_exit(127);
+        local %ENV = ( %ENV, $env ? %$env : () );
+        local $ENV{TERM} = 'xterm' unless defined $ENV{TERM};
+        exec { $argv->[0] } @$argv or POSIX::_exit(127);
     }
     $pty->close_slave;
     return bless {
         pid => $pid,
         pty => $pty,
-        buf => '',
+        buf => q{},
         sel => IO::Select->new($pty),
     }, $class;
 }
 
-sub pid { return $_[0]->{pid} }
-sub pty { return $_[0]->{pty} }
-sub buf { return $_[0]->{buf} }
+sub pid { my ($self) = @_; return $self->{pid} }
+sub pty { my ($self) = @_; return $self->{pty} }
+sub buf { my ($self) = @_; return $self->{buf} }
 
 sub pump {
     my ( $self, $sec ) = @_;
@@ -66,25 +63,25 @@ sub pump {
     while ( time < $deadline ) {
         next unless $self->{sel}->can_read(0.1);
         my $n = sysread( $self->{pty}, my $data, 4096 );
-        return 0 unless defined $n && $n > 0;
+        return 0 if !defined $n || $n <= 0;
         $self->{buf} .= $data;
     }
     return 1;
 }
 
-sub write {
+sub write_data {
     my ( $self, $data ) = @_;
     my $off = 0;
     my $len = length $data;
     while ( $off < $len ) {
         my $n = syswrite( $self->{pty}, $data, $len - $off, $off );
-        return 0 unless defined $n && $n > 0;
+        return 0 if !defined $n || $n <= 0;
         $off += $n;
     }
     return 1;
 }
 
-sub close {
+sub close_session {
     my ($self) = @_;
     close( $self->{pty} ) if $self->{pty};
     waitpid( $self->{pid}, POSIX::WNOHANG() );
@@ -116,16 +113,14 @@ sub wait_exit {
     return 0;
 }
 
-package main;
-
-sub decode_input {
+sub main::decode_input {
     my ($s) = @_;
-    my %esc = ( n => 10, r => 13, t => 9, e => 27, '\\' => 92 );
-    my $out = '';
+    my %esc = ( n => 10, r => 13, t => 9, e => 27, q{\\} => 92 );
+    my $out = q{};
     my $i   = 0;
     my $len = length $s;
     while ( $i < $len ) {
-        if ( substr( $s, $i, 1 ) eq '\\' && $i + 1 < $len ) {
+        if ( substr( $s, $i, 1 ) eq q{\\} && $i + 1 < $len ) {
             my $nxt = substr( $s, $i + 1, 1 );
             if ( $nxt eq 'x' && $i + 3 < $len ) {
                 $out .= chr( hex( substr( $s, $i + 2, 2 ) ) );
@@ -144,39 +139,43 @@ sub decode_input {
     return $out;
 }
 
-sub run {
-    my ( $argv, $inputs, $env, $startup, $delay, $drain ) = @_;
+sub main::run {
+    my ( $argv, $inputs, $env, @timing ) = @_;
+    my ( $startup, $delay, $drain ) = @timing;
     $inputs  = []  unless defined $inputs;
     $startup = 2.0 unless defined $startup;
     $delay   = 1.0 unless defined $delay;
     $drain   = 2.0 unless defined $drain;
     my $session = Session->new( $argv, $env );
     $session->pump($startup);
+
     for my $seq (@$inputs) {
-        last unless $session->write( decode_input($seq) );
+        last unless $session->write_data( main::decode_input($seq) );
         $session->pump($delay);
     }
     $session->pump($drain);
     my $out = $session->buf;
-    $session->close;
+    $session->close_session;
     return $out;
 }
 
-sub cli {
+sub main::cli {
     my @args = @ARGV;
     my $sep  = scalar @args;
     for my $i ( 0 .. $#args ) {
-        if ( $args[$i] eq '--' ) {
+        if ( $args[$i] eq q{--} ) {
             $sep = $i;
             last;
         }
     }
     my @argv   = @args[ 0 .. $sep - 1 ];
     my @inputs = @args[ $sep + 1 .. $#args ];
-    my $out    = run( \@argv, \@inputs );
+    my $out    = main::run( \@argv, \@inputs );
     binmode STDOUT, ':encoding(UTF-8)';
     print Encode::decode( 'UTF-8', $out );
     return;
 }
 
-cli() unless caller;
+main::cli() unless caller;
+
+1;

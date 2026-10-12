@@ -11,6 +11,7 @@
 use strict;
 use warnings;
 
+use Carp           ();
 use Cwd            qw(abs_path);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
@@ -20,7 +21,8 @@ my $HERE = dirname( abs_path(__FILE__) );
 my $ROOT = dirname( dirname($HERE) );
 my $EE   = $ENV{EE} // "$ROOT/ee/ee";
 
-require "$HERE/pty_run.pl";
+unshift @INC, $HERE;
+require pty_run;
 
 my $TIOCSWINSZ = $^O eq 'linux' ? 0x5414 : 0x80087467;
 
@@ -60,13 +62,13 @@ sub diag {
 # Render a byte string with non-printable bytes escaped, for diagnostics.
 sub escaped {
     my ($data) = @_;
-    $data =~ s/([^\x20-\x7e])/sprintf('\\x%02x', ord($1))/ge;
+    $data =~ s/([^\x20-\x7e])/sprintf('\\x%02x', ord($1))/gex;
     return $data;
 }
 
 sub write_raw {
     my ( $path, $bytes ) = @_;
-    open my $fh, '>:raw', $path or die "open $path: $!";
+    open my $fh, '>:raw', $path or Carp::croak "open $path: $!";
     print {$fh} $bytes;
     close $fh;
     return;
@@ -74,12 +76,12 @@ sub write_raw {
 
 sub read_raw {
     my ($path) = @_;
-    return '' unless -e $path;
-    open my $fh, '<:raw', $path or die "open $path: $!";
-    local $/;
+    return q{} unless -e $path;
+    open my $fh, '<:raw', $path or Carp::croak "open $path: $!";
+    local $/ = undef;
     my $data = <$fh>;
     close $fh;
-    return defined $data ? $data : '';
+    return defined $data ? $data : q{};
 }
 
 sub resize {
@@ -110,18 +112,18 @@ sub test_resize_in_menu {
     my $path   = "$work/menu-resize.txt";
     my $s      = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
-    $s->write("kept");
+    $s->write_data("kept");
     $s->pump(0.5);
-    $s->write("\x1b");    # open main menu
+    $s->write_data("\x1b");    # open main menu
     $s->pump(0.8);
     resize( $s, 8, 30 );
-    $s->write("\x1b");    # cancel the menu
+    $s->write_data("\x1b");    # cancel the menu
     $s->pump(0.8);
-    $s->write("\x13");    # save
+    $s->write_data("\x13");    # save
     $s->pump(1.0);
-    $s->write("\x11");    # quit
+    $s->write_data("\x11");    # quit
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq "kept\n" ) ? 1 : 0;
 }
 
@@ -131,16 +133,16 @@ sub test_resize_in_prompt {
     write_raw( $path, "alpha\n" );
     my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
-    $s->write("\x05");    # ^E search prompt
+    $s->write_data("\x05");    # ^E search prompt
     $s->pump(0.6);
-    $s->write("alp");
+    $s->write_data("alp");
     $s->pump(0.4);
     resize( $s, 40, 100 );
-    $s->write("\x1b");    # cancel the search prompt
+    $s->write_data("\x1b");    # cancel the search prompt
     $s->pump(0.6);
-    $s->write("\x11");    # quit (unmodified)
+    $s->write_data("\x11");    # quit (unmodified)
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return $exited;
 }
 
@@ -152,16 +154,16 @@ sub test_resize_in_confirm {
     write_raw( $b, "OLD\n" );
     my $s = Session->new( [ $EE, '-i', $a ], { TERM => 'xterm' } );
     $s->pump(1.5);
-    $s->write("\x03");          # ^C command prompt
+    $s->write_data("\x03");          # ^C command prompt
     $s->pump(0.5);
-    $s->write("write $b\n");    # asks to overwrite
+    $s->write_data("write $b\n");    # asks to overwrite
     $s->pump(0.8);
     resize( $s, 30, 60 );
-    $s->write("n");             # do not overwrite
+    $s->write_data("n");             # do not overwrite
     $s->pump(0.6);
-    $s->write("\x11");          # quit (unmodified; we did not modify)
+    $s->write_data("\x11");          # quit (unmodified; we did not modify)
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($b) eq "OLD\n" ) ? 1 : 0;
 }
 
@@ -170,19 +172,19 @@ sub test_resize_in_help {
     my $path   = "$work/help-resize.txt";
     my $s      = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
-    $s->write("\x1b");          # menu
+    $s->write_data("\x1b");          # menu
     $s->pump(0.6);
-    $s->write("b");             # help
+    $s->write_data("b");             # help
     $s->pump(0.8);
     resize( $s, 12, 40 );
-    $s->write(" ");             # next page
+    $s->write_data(q{ });            # next page
     $s->pump(0.5);
     resize( $s, 40, 100 );
-    $s->write("\x1b");          # close help
+    $s->write_data("\x1b");          # close help
     $s->pump(0.5);
-    $s->write("\x11");          # quit
+    $s->write_data("\x11");          # quit
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return $exited;
 }
 
@@ -288,16 +290,16 @@ sub test_tiny_then_grow {
     my $s      = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
     resize( $s, 3, 10 );
-    $s->write("hi");
+    $s->write_data("hi");
     $s->pump(0.5);
     resize( $s, 40, 100 );
-    $s->write("there");
+    $s->write_data("there");
     $s->pump(0.5);
-    $s->write("\x13");
+    $s->write_data("\x13");
     $s->pump(1.0);
-    $s->write("\x11");
+    $s->write_data("\x11");
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq "hithere\n" ) ? 1 : 0;
 }
 
@@ -311,17 +313,17 @@ sub test_control_characters {
     # editor must show them visibly (^[, ^G, ^M, ^?) and preserve the
     # bytes without ever emitting them as terminal control sequences.
     for my $code ( 27, 7, 13, 127 ) {
-        $s->write("\x01");
+        $s->write_data("\x01");
         $s->pump(0.4);
-        $s->write("$code\n");
+        $s->write_data("$code\n");
         $s->pump(0.4);
     }
-    $s->write("\x13");
+    $s->write_data("\x13");
     $s->pump(1.0);
-    $s->write("\x11");
+    $s->write_data("\x11");
     my $exited = $s->wait_exit;
     my $out    = $s->buf;
-    $s->close;
+    $s->close_session;
 
     my $bytes   = read_raw($path);
     my $expect  = pack( 'C*', 27, 7, 13, 127 ) . "\n";
@@ -346,7 +348,7 @@ sub test_resize_stress {
       )
     {
         resize( $s, @$size );
-        $s->write("x");
+        $s->write_data("x");
         $s->pump(0.3);
         if ( waitpid( $s->pid, WNOHANG ) != 0 ) {
             $died_at = "$size->[0]x$size->[1]";
@@ -356,14 +358,14 @@ sub test_resize_stress {
     }
     my $exited = 1;
     if ( !defined $died_at ) {
-        $s->write("\x13");
+        $s->write_data("\x13");
         $s->pump(1.0);
-        $s->write("\x11");
+        $s->write_data("\x11");
         $exited = $s->wait_exit;
         $status = $?;
     }
     my $out = $s->buf;
-    $s->close;
+    $s->close_session;
     my $data = read_raw($path);
     if ( !$exited || $data ne "xxxxxx\n" ) {
         my $sig = $status & 0x7f;
@@ -371,9 +373,9 @@ sub test_resize_stress {
               . ( defined $died_at ? $died_at : 'no' )
               . " status=$status sig=$sig content='"
               . escaped($data)
-              . "'" );
+              . q{'} );
         my $tail = length($out) > 300 ? substr( $out, -300 ) : $out;
-        diag( "resize stress: tail='" . escaped($tail) . "'" );
+        diag( "resize stress: tail='" . escaped($tail) . q{'} );
         return 0;
     }
     return 1;
@@ -385,21 +387,21 @@ sub test_shell_roundtrip {
     write_raw( $path, "before\n" );
     my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
     $s->pump(1.5);
-    $s->write("\x0f");       # ^O: end of line
+    $s->write_data("\x0f");       # ^O: end of line
     $s->pump(0.4);
-    $s->write(" after");
+    $s->write_data(" after");
     $s->pump(0.5);
-    $s->write("\x03");       # ^C
+    $s->write_data("\x03");       # ^C
     $s->pump(0.5);
-    $s->write("!true\n");    # run a trivial shell command
+    $s->write_data("!true\n");    # run a trivial shell command
     $s->pump(1.2);
-    $s->write("\n");         # press return to continue
+    $s->write_data("\n");         # press return to continue
     $s->pump(1.0);
-    $s->write("\x13");       # save
+    $s->write_data("\x13");       # save
     $s->pump(1.0);
-    $s->write("\x11");       # quit
+    $s->write_data("\x11");       # quit
     my $exited = $s->wait_exit;
-    $s->close;
+    $s->close_session;
     return ( $exited && read_raw($path) eq "before after\n" ) ? 1 : 0;
 }
 
@@ -435,7 +437,7 @@ sub main {
 
     print "\npass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {
-        my $names = join '', map { " $_" } @FAILED;
+        my $names = join q{}, map { " $_" } @FAILED;
         print "failed tests:$names\n";
         return 1;
     }
