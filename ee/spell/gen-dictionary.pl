@@ -25,7 +25,7 @@ use warnings;
 
 my @SUFFIX_FLAGS = split //, "SDGRTL";
 my @PREFIXES     = ( [ "U", "un" ], [ "P", "re" ], [ "X", "dis" ] );
-my $WORD_RE      = qr/^[a-z]+$|^[a-z]+'(?:s|t|d|ll|re|ve|m|clock)$/;
+my $WORD_RE      = qr/^[a-z]+$|^[a-z]+'(?:s|t|d|ll|re|ve|m|clock)$/x;
 
 sub ends_with {
     my ( $s, $suffix ) = @_;
@@ -40,13 +40,13 @@ sub drop_last {
 
 sub undouble {
     my ($s) = @_;
-    return undef if length($s) < 2;
+    return if length($s) < 2;
     return substr( $s, -1 ) eq substr( $s, -2, 1 ) ? drop_last($s) : undef;
 }
 
 sub is_vowel {
     my ($c) = @_;
-    return $c =~ /[aeiou]/;
+    return $c =~ /[aeiou]/x;
 }
 
 sub consonant_y {
@@ -55,160 +55,271 @@ sub consonant_y {
     return substr( $w, -1 ) eq 'y' && !is_vowel( substr( $w, -2, 1 ) );
 }
 
+# True when $w ends in a doubled consonant eligible for -ed/-ing doubling.
+sub doubles {
+    my ($w) = @_;
+    return 0 if length($w) < 2;
+    my $last_ch = substr( $w, -1 );
+    my $prev    = substr( $w, -2, 1 );
+    return $last_ch !~ /[aeiouwxy]/x && is_vowel($prev);
+}
+
+# --- the single regular form for each suffix flag -------------------------
+
+sub _regular_s {
+    my ($w)     = @_;
+    my $last_ch = substr( $w, -1 );
+    my $prev    = length($w) >= 2 ? substr( $w, -2, 1 ) : '';
+    return drop_last($w) . 'ies' if consonant_y($w);
+    return $w . 'es'             if $last_ch =~ /[sxz]/x;
+    return $w . 'es' if ends_with( $w, 'ch' ) || ends_with( $w, 'sh' );
+    return $w . 's'  if $last_ch eq 'y' && is_vowel($prev);
+    return           if $last_ch eq 'h';
+    return $w . 's';
+}
+
+sub _regular_d {
+    my ($w) = @_;
+    my $last_ch = substr( $w, -1 );
+    return $w . 'd'              if $last_ch eq 'e';
+    return drop_last($w) . 'ied' if consonant_y($w);
+    return                       if $last_ch eq 'y';
+    return $w . 'ed';
+}
+
+sub _regular_g {
+    my ($w) = @_;
+    return drop_last($w) . 'ing' if substr( $w, -1 ) eq 'e';
+    return $w . 'ing';
+}
+
+sub _regular_r {
+    my ($w) = @_;
+    my $last_ch = substr( $w, -1 );
+    return $w . 'r'              if $last_ch eq 'e';
+    return drop_last($w) . 'ier' if consonant_y($w);
+    return                       if $last_ch eq 'y';
+    return $w . 'er';
+}
+
+sub _regular_t {
+    my ($w) = @_;
+    my $last_ch = substr( $w, -1 );
+    return $w . 'st'              if $last_ch eq 'e';
+    return drop_last($w) . 'iest' if consonant_y($w);
+    return                        if $last_ch eq 'y';
+    return $w . 'est';
+}
+
+sub _regular_l {
+    my ($w) = @_;
+    return drop_last($w) . 'ily' if consonant_y($w);
+    return                       if substr( $w, -1 ) eq 'y';
+    return $w . 'ly';
+}
+
+my %REGULAR_FORM = (
+    S => \&_regular_s,
+    D => \&_regular_d,
+    G => \&_regular_g,
+    R => \&_regular_r,
+    T => \&_regular_t,
+    L => \&_regular_l,
+);
+
 # The single form that the .aff rule for $flag produces for $word.
 sub regular_form {
     my ( $w, $flag ) = @_;
-    return undef unless length($w);
-    my $last = substr( $w, -1 );
-    my $prev = length($w) >= 2 ? substr( $w, -2, 1 ) : '';
-    my $cy   = consonant_y($w);
-
-    if ( $flag eq 'S' ) {
-        return drop_last($w) . 'ies' if $cy;
-        return $w . 'es'             if $last =~ /[sxz]/;
-        return $w . 'es' if ends_with( $w, 'ch' ) || ends_with( $w, 'sh' );
-        return $w . 's'  if $last eq 'y' && is_vowel($prev);
-        return undef     if $last eq 'h';
-        return $w . 's';
-    }
-    if ( $flag eq 'D' ) {
-        return $w . 'd'              if $last eq 'e';
-        return drop_last($w) . 'ied' if $cy;
-        return undef                 if $last eq 'y';
-        return $w . 'ed';
-    }
-    if ( $flag eq 'G' ) {
-        return drop_last($w) . 'ing' if $last eq 'e';
-        return $w . 'ing';
-    }
-    if ( $flag eq 'R' ) {
-        return $w . 'r'              if $last eq 'e';
-        return drop_last($w) . 'ier' if $cy;
-        return undef                 if $last eq 'y';
-        return $w . 'er';
-    }
-    if ( $flag eq 'T' ) {
-        return $w . 'st'              if $last eq 'e';
-        return drop_last($w) . 'iest' if $cy;
-        return undef                  if $last eq 'y';
-        return $w . 'est';
-    }
-    if ( $flag eq 'L' ) {
-        return drop_last($w) . 'ily' if $cy;
-        return undef                 if $last eq 'y';
-        return $w . 'ly';
-    }
-    return undef;
+    return unless length($w);
+    my $build = $REGULAR_FORM{$flag};
+    return $build->($w) if $build;
+    return;
 }
 
-# Plausible non-rule forms (doubling, -le -> -ly, ...).
-sub irregular_variants {
-    my ( $w, $flag ) = @_;
-    my %out;
-    my $last = substr( $w, -1 );
-    my $prev = length($w) >= 2 ? substr( $w, -2, 1 ) : '';
-    my $dbl  = length($w) >= 2 && $last !~ /[aeiouwxy]/ && is_vowel($prev);
-    my $cy   = consonant_y($w);
+# --- plausible non-rule forms (doubling, -le -> -ly, ...) -----------------
 
-    if ( $flag eq 'S' ) {
-        $out{ $w . 's' }              = 1;
-        $out{ $w . 'es' }             = 1;
-        $out{ drop_last($w) . 'ies' } = 1 if $cy;
-    }
-    elsif ( $flag eq 'D' ) {
-        $out{ $w . 'ed' }             = 1;
-        $out{ $w . 'd' }              = 1;
-        $out{ drop_last($w) . 'ied' } = 1 if $cy;
-        $out{ $w . $last . 'ed' }     = 1 if $dbl;
-        $out{ $w . 'ked' }            = 1 if ends_with( $w, 'c' );
-    }
-    elsif ( $flag eq 'G' ) {
-        $out{ $w . 'ing' }            = 1;
-        $out{ drop_last($w) . 'ing' } = 1 if $last eq 'e';
-        $out{ substr( $w, 0, -2 ) . 'ying' } = 1 if ends_with( $w, 'ie' );
-        $out{ $w . $last . 'ing' } = 1 if $dbl;
-        $out{ $w . 'king' }        = 1 if ends_with( $w, 'c' );
-    }
-    elsif ( $flag eq 'R' ) {
-        $out{ $w . 'er' }             = 1;
-        $out{ $w . 'r' }              = 1;
-        $out{ drop_last($w) . 'ier' } = 1 if $cy;
-        $out{ $w . $last . 'er' }     = 1 if $dbl;
-    }
-    elsif ( $flag eq 'T' ) {
-        $out{ $w . 'est' }             = 1;
-        $out{ $w . 'st' }              = 1;
-        $out{ drop_last($w) . 'iest' } = 1 if $cy;
-        $out{ $w . $last . 'est' }     = 1 if $dbl;
-    }
-    elsif ( $flag eq 'L' ) {
-        $out{ $w . 'ly' } = 1;
-        $out{ substr( $w, 0, -2 ) . 'ly' } = 1 if ends_with( $w, 'le' );
-        $out{ drop_last($w) . 'ily' } = 1 if $cy;
-        $out{ drop_last($w) . 'ly' }  = 1 if ends_with( $w, 'll' );
-        $out{ $w . 'ally' }           = 1 if ends_with( $w, 'ic' );
-    }
+sub _variants_s {
+    my ($w) = @_;
+    my %out = ( $w . 's' => 1, $w . 'es' => 1 );
+    $out{ drop_last($w) . 'ies' } = 1 if consonant_y($w);
     return %out;
 }
 
-# Possible base words for an inflected word, most likely first.
+sub _variants_d {
+    my ($w) = @_;
+    my %out = ( $w . 'ed' => 1, $w . 'd' => 1 );
+    $out{ drop_last($w) . 'ied' } = 1 if consonant_y($w);
+    $out{ $w . substr( $w, -1 ) . 'ed' } = 1 if doubles($w);
+    $out{ $w . 'ked' } = 1 if ends_with( $w, 'c' );
+    return %out;
+}
+
+sub _variants_g {
+    my ($w) = @_;
+    my %out = ( $w . 'ing' => 1 );
+    $out{ drop_last($w) . 'ing' } = 1 if substr( $w, -1 ) eq 'e';
+    $out{ substr( $w, 0, -2 ) . 'ying' }  = 1 if ends_with( $w, 'ie' );
+    $out{ $w . substr( $w, -1 ) . 'ing' } = 1 if doubles($w);
+    $out{ $w . 'king' } = 1 if ends_with( $w, 'c' );
+    return %out;
+}
+
+sub _variants_r {
+    my ($w) = @_;
+    my %out = ( $w . 'er' => 1, $w . 'r' => 1 );
+    $out{ drop_last($w) . 'ier' } = 1 if consonant_y($w);
+    $out{ $w . substr( $w, -1 ) . 'er' } = 1 if doubles($w);
+    return %out;
+}
+
+sub _variants_t {
+    my ($w) = @_;
+    my %out = ( $w . 'est' => 1, $w . 'st' => 1 );
+    $out{ drop_last($w) . 'iest' } = 1 if consonant_y($w);
+    $out{ $w . substr( $w, -1 ) . 'est' } = 1 if doubles($w);
+    return %out;
+}
+
+sub _variants_l {
+    my ($w) = @_;
+    my %out = ( $w . 'ly' => 1 );
+    $out{ substr( $w, 0, -2 ) . 'ly' } = 1 if ends_with( $w, 'le' );
+    $out{ drop_last($w) . 'ily' } = 1 if consonant_y($w);
+    $out{ drop_last($w) . 'ly' }  = 1 if ends_with( $w, 'll' );
+    $out{ $w . 'ally' }           = 1 if ends_with( $w, 'ic' );
+    return %out;
+}
+
+my %IRREGULAR_VARIANTS = (
+    S => \&_variants_s,
+    D => \&_variants_d,
+    G => \&_variants_g,
+    R => \&_variants_r,
+    T => \&_variants_t,
+    L => \&_variants_l,
+);
+
+sub irregular_variants {
+    my ( $w, $flag ) = @_;
+    my $build = $IRREGULAR_VARIANTS{$flag};
+    return () unless $build;
+    return $build->($w);
+}
+
+# --- possible base words for an inflected word, most likely first ---------
+
+sub _base_ies {
+    my ($w) = @_;
+    my $stem = substr( $w, 0, -3 );
+    return ( $stem . 'y', $stem, $stem . 'ie' );
+}
+
+sub _base_es {
+    my ($w) = @_;
+    return ( substr( $w, 0, -2 ), drop_last($w) );
+}
+
+sub _base_s {
+    my ($w) = @_;
+    return () if ends_with( $w, 'ss' );
+    return drop_last($w);
+}
+
+sub _base_ied {
+    my ($w) = @_;
+    return substr( $w, 0, -3 ) . 'y';
+}
+
+sub _base_ed {
+    my ($w)  = @_;
+    my $stem = substr( $w, 0, -2 );
+    my @out  = ( $stem, drop_last($w) );
+    my $und  = undouble($stem);
+    push @out, $und if defined $und;
+    return @out;
+}
+
+sub _base_ing {
+    my ($w)  = @_;
+    my $stem = substr( $w, 0, -3 );
+    my @out  = ( $stem, $stem . 'e' );
+    my $und  = undouble($stem);
+    push @out, $und if defined $und;
+    return @out;
+}
+
+sub _base_ier {
+    my ($w) = @_;
+    return substr( $w, 0, -3 ) . 'y';
+}
+
+sub _base_iest {
+    my ($w) = @_;
+    return substr( $w, 0, -4 ) . 'y';
+}
+
+sub _base_er {
+    my ($w)  = @_;
+    my $stem = substr( $w, 0, -2 );
+    my @out  = ( $stem, $stem . 'e' );
+    my $und  = undouble($stem);
+    push @out, $und if defined $und;
+    return @out;
+}
+
+sub _base_est {
+    my ($w)  = @_;
+    my $stem = substr( $w, 0, -3 );
+    my @out  = ( $stem, $stem . 'e' );
+    my $und  = undouble($stem);
+    push @out, $und if defined $und;
+    return @out;
+}
+
+sub _base_ily {
+    my ($w) = @_;
+    return substr( $w, 0, -3 ) . 'y';
+}
+
+sub _base_ly {
+    my ($w) = @_;
+    return substr( $w, 0, -2 );
+}
+
+# Suffix, minimum word length, and candidate builder, applied in this order.
+my @BASE_RULES = (
+    [ 'ies',  4, \&_base_ies ],
+    [ 'es',   3, \&_base_es ],
+    [ 's',    2, \&_base_s ],
+    [ 'ied',  4, \&_base_ied ],
+    [ 'ed',   3, \&_base_ed ],
+    [ 'ing',  4, \&_base_ing ],
+    [ 'ier',  4, \&_base_ier ],
+    [ 'iest', 5, \&_base_iest ],
+    [ 'er',   3, \&_base_er ],
+    [ 'est',  4, \&_base_est ],
+    [ 'ily',  4, \&_base_ily ],
+    [ 'ly',   3, \&_base_ly ],
+);
+
 sub base_candidates {
     my ($w) = @_;
     my @c = ($w);
-    my %seen;
-    my @out;
 
     for my $pair (@PREFIXES) {
         my $pre = $pair->[1];
-        if ( index( $w, $pre ) == 0 && length($w) > length($pre) + 1 ) {
-            push @c, substr( $w, length($pre) );
-        }
+        push @c, substr( $w, length($pre) )
+          if index( $w, $pre ) == 0 && length($w) > length($pre) + 1;
     }
-    if ( ends_with( $w, 'ies' ) && length($w) > 4 ) {
-        push @c, substr( $w, 0, -3 ) . 'y', substr( $w, 0, -3 ),
-          substr( $w, 0, -3 ) . 'ie';
+    for my $rule (@BASE_RULES) {
+        my ( $suffix, $minlen, $build ) = @$rule;
+        next if length($w) <= $minlen;
+        next unless ends_with( $w, $suffix );
+        push @c, $build->($w);
     }
-    if ( ends_with( $w, 'es' ) && length($w) > 3 ) {
-        push @c, substr( $w, 0, -2 ), drop_last($w);
-    }
-    if ( ends_with( $w, 's' ) && !ends_with( $w, 'ss' ) && length($w) > 2 ) {
-        push @c, drop_last($w);
-    }
-    if ( ends_with( $w, 'ied' ) && length($w) > 4 ) {
-        push @c, substr( $w, 0, -3 ) . 'y';
-    }
-    if ( ends_with( $w, 'ed' ) && length($w) > 3 ) {
-        my $und = undouble( substr( $w, 0, -2 ) );
-        push @c, substr( $w, 0, -2 ), drop_last($w);
-        push @c, $und if defined $und;
-    }
-    if ( ends_with( $w, 'ing' ) && length($w) > 4 ) {
-        my $und = undouble( substr( $w, 0, -3 ) );
-        push @c, substr( $w, 0, -3 ), substr( $w, 0, -3 ) . 'e';
-        push @c, $und if defined $und;
-    }
-    if ( ends_with( $w, 'ier' ) && length($w) > 4 ) {
-        push @c, substr( $w, 0, -3 ) . 'y';
-    }
-    if ( ends_with( $w, 'iest' ) && length($w) > 5 ) {
-        push @c, substr( $w, 0, -4 ) . 'y';
-    }
-    if ( ends_with( $w, 'er' ) && length($w) > 3 ) {
-        my $und = undouble( substr( $w, 0, -2 ) );
-        push @c, substr( $w, 0, -2 ), substr( $w, 0, -2 ) . 'e';
-        push @c, $und if defined $und;
-    }
-    if ( ends_with( $w, 'est' ) && length($w) > 4 ) {
-        my $und = undouble( substr( $w, 0, -3 ) );
-        push @c, substr( $w, 0, -3 ), substr( $w, 0, -3 ) . 'e';
-        push @c, $und if defined $und;
-    }
-    if ( ends_with( $w, 'ily' ) && length($w) > 4 ) {
-        push @c, substr( $w, 0, -3 ) . 'y';
-    }
-    if ( ends_with( $w, 'ly' ) && length($w) > 3 ) {
-        push @c, substr( $w, 0, -2 );
-    }
+
+    my %seen;
+    my @out;
     for my $item (@c) {
         next if !length($item) || $seen{$item}++;
         push @out, $item;
@@ -221,31 +332,36 @@ sub read_words {
     my %words;
     open my $fh, '<', $path or die "open $path: $!\n";
     while ( my $line = <$fh> ) {
-        $line =~ s/^\s+//;
-        $line =~ s/\s+\z//;
+        $line =~ s/^\s+//x;
+        $line =~ s/\s+\z//x;
         $words{$line} = 1 if $line =~ $WORD_RE;
     }
     close $fh;
     return %words;
 }
 
-sub build {
-    my ( $base, $enable ) = @_;
-    my ( %flags, %explicit );
+# --- assembling the entry table -------------------------------------------
 
+sub _flags_for_base {
+    my ( $base, $enable ) = @_;
+    my %flags;
     for my $w ( keys %$base ) {
         $flags{$w} = {};
         for my $f (@SUFFIX_FLAGS) {
             my $form = regular_form( $w, $f );
-            $flags{$w}{$f} = 1
-              if defined $form && $enable->{$form};
+            $flags{$w}{$f} = 1 if defined $form && $enable->{$form};
         }
         for my $pair (@PREFIXES) {
             my ( $pf, $pre ) = @$pair;
             $flags{$w}{$pf} = 1 if $enable->{ $pre . $w };
         }
     }
+    return %flags;
+}
 
+sub _explicit_forms {
+    my ( $base, $enable ) = @_;
+    my %explicit;
     for my $w ( keys %$base ) {
         for my $f (@SUFFIX_FLAGS) {
             my $regular = regular_form( $w, $f );
@@ -256,36 +372,41 @@ sub build {
             }
         }
     }
+    return %explicit;
+}
+
+sub _base_candidate {
+    my ( $word, $base ) = @_;
+    for my $candidate ( base_candidates($word) ) {
+        return $candidate if $base->{$candidate};
+    }
+    return;
+}
+
+sub _form_is_generated {
+    my ( $word, $cand, $flags ) = @_;
+    for my $f ( keys %{ $flags->{$cand} } ) {
+        my $form = regular_form( $cand, $f );
+        return 1 if defined $form && $word eq $form;
+    }
+    for my $pair (@PREFIXES) {
+        my ( $pf, $pre ) = @$pair;
+        return 1 if $flags->{$cand}{$pf} && $word eq $pre . $cand;
+    }
+    return 0;
+}
+
+sub build {
+    my ( $base, $enable ) = @_;
+    my %flags    = _flags_for_base( $base, $enable );
+    my %explicit = _explicit_forms( $base, $enable );
 
     for my $word ( keys %$enable ) {
         next if length($word) > 64;
-        my $cand;
-        for my $candidate ( base_candidates($word) ) {
-            if ( $base->{$candidate} ) {
-                $cand = $candidate;
-                last;
-            }
-        }
-        next unless defined $cand;
         next if $base->{$word};
-        my $generated = 0;
-        for my $f ( keys %{ $flags{$cand} } ) {
-            my $form = regular_form( $cand, $f );
-            if ( defined $form && $word eq $form ) {
-                $generated = 1;
-                last;
-            }
-        }
-        if ( !$generated ) {
-            for my $pair (@PREFIXES) {
-                my ( $pf, $pre ) = @$pair;
-                if ( $flags{$cand}{$pf} && $word eq $pre . $cand ) {
-                    $generated = 1;
-                    last;
-                }
-            }
-        }
-        $explicit{$word} = 1 unless $generated;
+        my $cand = _base_candidate( $word, $base );
+        next                 unless defined $cand;
+        $explicit{$word} = 1 unless _form_is_generated( $word, $cand, \%flags );
     }
 
     my %entries;
@@ -305,13 +426,8 @@ sub write_dic {
     binmode $fh;
     print {$fh} scalar(@words), "\n";
     for my $w (@words) {
-        my @fl = sort keys %{ $entries->{$w} };
-        if (@fl) {
-            print {$fh} $w, '/', join( '', @fl ), "\n";
-        }
-        else {
-            print {$fh} $w, "\n";
-        }
+        my $fl = join '', sort keys %{ $entries->{$w} };
+        print {$fh} $w, ( length($fl) ? "/$fl" : '' ), "\n";
     }
     close $fh;
     return scalar @words;
