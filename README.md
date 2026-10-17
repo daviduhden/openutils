@@ -74,8 +74,8 @@ followed symlinks (writing an attacker-chosen destination as root).
 The fork uses file-descriptor based validation (`open(2)` with
 `O_NOFOLLOW`, `fstat(2)` identity snapshots), an atomic, rename-based
 write-back through `install(1)` that cannot follow a swapped symlink,
-a private `mkdtemp(3)` directory, no shell invocation anywhere, and a
-`pledge(2)` policy.
+a private `mkdtemp(3)` directory and no shell invocation anywhere.
+It stays unpledged because it must execute the editor and doas.
 
 ### tree
 
@@ -169,16 +169,16 @@ OpenBSD); this exists so the code can be built and tested elsewhere.
 
 ### pledge profiles
 
-- `doasedit`: `stdio rpath wpath cpath proc exec` (forks/execs the
-  editor and doas; never drops to a shell).
+- `doasedit`: unpledged because it executes the editor and doas.
+  There is no compatible syscall ceiling without the execution promise.
 - `tree`: `stdio rpath`, plus `wpath cpath` only with `-o` and
   `getpw` only with `-u`/`-g` — the promises are chosen from the
   parsed options.
 - `truncate`: `stdio wpath`, plus `cpath` unless `-c` and `rpath`
   only with `-r` — likewise chosen from the parsed options.
-- `ee`: `stdio rpath wpath cpath tty proc exec getpw` (files,
-  terminal, shell commands, `~` expansion).  `unveil(2)` is not used
-  where an editor must reach arbitrary files.
+- `ee`: restricted mode uses `stdio rpath wpath cpath tty getpw`;
+  normal mode stays unpledged because it executes shell commands.
+  `unveil(2)` is not used where an editor must reach arbitrary files.
 
 Note: on non-OpenBSD hosts GNU make is known to work; some third-party
 BSD make ports come with embedded toolchain defaults for other

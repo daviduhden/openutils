@@ -12,7 +12,7 @@ This implementation uses file-descriptor based validation (`open(2)`
 with `O_NOFOLLOW`, `fstat(2)` identity snapshots), an atomic,
 rename-based write-back through `install(1)` that cannot follow a
 swapped symlink, a private `mkdtemp(3)` directory, no shell invocation
-anywhere, and a `pledge(2)` policy.
+anywhere. It stays unpledged because it executes the editor and doas.
 
 | File | Purpose |
 | --- | --- |

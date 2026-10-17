@@ -531,8 +531,7 @@ main(int argc, char *argv[])
 
 	setprogname(argv[0]);
 
-	if (pledge("stdio rpath wpath cpath proc exec", nullptr) == -1)
-		err(1, "pledge");
+	/* Stay unpledged: editor and doas execute after this point. */
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--") == 0) {

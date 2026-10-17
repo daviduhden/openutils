@@ -786,16 +786,11 @@ main(int argc, char *argv[])
 	ee_init();
 	if (argc > 0)
 		get_options(argc, argv);
-	/*
-	 * The editor edits files (rpath/wpath/cpath), uses the terminal
-	 * (tty), runs shell commands and spell(1) (proc/exec) and
-	 * expands ~ (getpw).  No network, no other privileges.  Since
-	 * the editor must be able to edit arbitrary files and spawn
-	 * arbitrary commands, unveil(2) cannot usefully restrict it.
-	 */
-	if (pledge("stdio rpath wpath cpath tty proc exec getpw", nullptr) ==
-	    -1)
+	/* Restricted mode never executes a shell (sh_command checks it). */
+	if (restricted &&
+	    pledge("stdio rpath wpath cpath tty getpw", nullptr) == -1)
 		err(1, "pledge");
+	/* Normal editing must remain unpledged to execute shell commands. */
 	set_up_term();
 	if (right_margin == 0)
 		right_margin = last_col;
