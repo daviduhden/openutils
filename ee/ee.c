@@ -52,7 +52,7 @@
 #define EE_PROSE_WIDTH 72
 
 /*
- *	SIGINT handler: only set a flag; terminal restoration happens in
+ *	Signal handler: only set a flag; terminal restoration happens in
  *	normal context (edit_abort() is called from the main loop).
  */
 static volatile sig_atomic_t ee_intr_flag;
@@ -64,7 +64,10 @@ ee_on_sigint(int)
 }
 
 /*
- *	Install the SIGINT handler.  SA_RESTART must NOT be set: the
+ *	Install the clean-exit handler for SIGINT, SIGTERM, SIGHUP and
+ *	SIGQUIT.  All four are ignored early in main(), so a terminal
+ *	hangup or a conventional termination request would otherwise
+ *	leave the screen in raw mode.  SA_RESTART must NOT be set: the
  *	blocking read(2) has to return EINTR so that the main loop can
  *	see ee_intr_flag promptly; otherwise a signal received while
  *	idle would only take effect on the next keystroke.
@@ -72,13 +75,17 @@ ee_on_sigint(int)
 static void
 ee_install_sigint(void)
 {
+	static const int clean_signals[] = {
+	    SIGINT, SIGTERM, SIGHUP, SIGQUIT};
 	struct sigaction sa;
+	size_t		 i;
 
 	memset(&sa, 0, sizeof(sa));
 	sa.sa_handler = ee_on_sigint;
 	sigemptyset(&sa.sa_mask);
 	sa.sa_flags = 0;
-	sigaction(SIGINT, &sa, nullptr);
+	for (i = 0; i < sizeof(clean_signals) / sizeof(clean_signals[0]); i++)
+		sigaction(clean_signals[i], &sa, nullptr);
 }
 
 static int
@@ -679,6 +686,8 @@ static const char restricted_msg[] =
     "restricted mode: unable to perform requested operation";
 static const char conf_dump_err_msg[] =
     "unable to open .init.ee for writing, no configuration saved!";
+static const char conf_rotate_err_msg[] =
+    "unable to rotate .init.ee, no configuration saved!";
 static const char conf_not_saved_msg[] = "ee configuration not saved";
 static const char ree_no_file_msg[] = "must specify a file when invoking ree";
 static const char menu_too_lrg_msg[] = "menu too large for window";
@@ -766,6 +775,7 @@ main(int argc, char *argv[])
 	dlt_line->line_length = 0;
 	curr_line = first_line = txtalloc();
 	curr_line->line = point = xmalloc(10);
+	curr_line->line[0] = '\0';
 	curr_line->line_length = 1;
 	curr_line->max_length = 10;
 	curr_line->prev_line = nullptr;
@@ -836,7 +846,7 @@ main(int argc, char *argv[])
 					edit_abort(0);
 				if (errno == EINTR)
 					continue;
-				exit(0);
+				edit_abort(0);
 			}
 
 			/* SIGINT may have arrived while not blocked in
@@ -1108,7 +1118,9 @@ insert_utf8(const unsigned char *mb, int len)
 /*
  * Insert a character given its Unicode code point (the value typed at
  * the "Character code" prompt).  The value is encoded as UTF-8, so the
- * editor never inserts a bare byte above 0x7f.
+ * editor never inserts a bare byte above 0x7f.  A zero code point is
+ * rejected as well: a NUL byte would truncate the line and cannot be
+ * represented in the text buffer.
  */
 static void
 insert_code(int code)
@@ -1116,7 +1128,7 @@ insert_code(int code)
 	unsigned char mb[4];
 	size_t	      n;
 
-	if (code < 0)
+	if (code <= 0)
 		return;
 	if (code < 0x80) {
 		in = code;
@@ -1560,8 +1572,14 @@ control(void)
 	if (in == 1) { /* control a	*/
 		string = get_string(ascii_code_str, TRUE);
 		if (string != nullptr) {
-			if (*string != '\0')
-				insert_code((int)strtol(string, nullptr, 10));
+			const char *errstr;
+			long long   code;
+
+			if (*string != '\0') {
+				code = strtonum(string, 0, 0x10FFFF, &errstr);
+				if (errstr == nullptr)
+					insert_code((int)code);
+			}
 			free(string);
 		}
 	} else if (in == 2) /* control b	*/
@@ -1659,8 +1677,14 @@ emacs_control(void)
 	else if (in == 15) { /* control o	*/
 		string = get_string(ascii_code_str, TRUE);
 		if (string != nullptr) {
-			if (*string != '\0')
-				insert_code((int)strtol(string, nullptr, 10));
+			const char *errstr;
+			long long   code;
+
+			if (*string != '\0') {
+				code = strtonum(string, 0, 0x10FFFF, &errstr);
+				if (errstr == nullptr)
+					insert_code((int)code);
+			}
 			free(string);
 		}
 	} else if (in == 16) /* control p	*/
@@ -2418,7 +2442,7 @@ get_string(const char *prompt, int advance)
 				edit_abort(0);
 			}
 			free(buf);
-			exit(0);
+			edit_abort(0);
 		}
 		in = (int)win;
 
@@ -2514,6 +2538,16 @@ get_string(const char *prompt, int advance)
 			char   mb[MB_LEN_MAX + 1];
 			size_t n = 0;
 
+			/*
+			 * A NUL input (plain or after ^V) would terminate
+			 * the prompt string early and, worse, put a zero
+			 * byte into the buffer.  Ignore it entirely.
+			 */
+			if (in == 0) {
+				show_prompt_line(prompt, buf, len, cur);
+				continue;
+			}
+
 			if (in == '\026') { /* control-v: literal */
 				wret = wget_wch(com_win, &win);
 				if (wret == ERR) {
@@ -2522,10 +2556,10 @@ get_string(const char *prompt, int advance)
 						edit_abort(0);
 					}
 					free(buf);
-					exit(0);
+					edit_abort(0);
 				}
 				in = (int)win;
-				if ((in >= 0) && (in < 0x80)) {
+				if ((in > 0) && (in < 0x80)) {
 					mb[0] = (char)in;
 					n = 1;
 				}
@@ -2538,18 +2572,27 @@ get_string(const char *prompt, int advance)
 					n = wcrtomb(mb, (wchar_t)win, &mbs);
 					if (n == (size_t)-1)
 						n = 0;
-				} else if ((in >= 0) && (in < 0x80)) {
+				} else if ((in > 0) && (in < 0x80)) {
 					mb[0] = (char)in;
 					n = 1;
 				}
 			}
 			if (n > 0) {
-				if ((len + n + 1) > bufsize) {
-					size_t newsize = bufsize * 2;
+				size_t need;
+
+				if (ckd_add(&need, len, n) ||
+				    ckd_add(&need, need, 1)) {
+					cancelled = TRUE;
+					done = TRUE;
+					continue;
+				}
+				if (need > bufsize) {
+					size_t newsize;
 					char  *nb;
 
-					if (newsize < (len + n + 1))
-						newsize = len + n + 1;
+					if (ckd_mul(&newsize, bufsize, 2) ||
+					    (newsize < need))
+						newsize = need;
 					nb = realloc(buf, newsize);
 					if (nb == nullptr) {
 						cancelled = TRUE;
@@ -2848,9 +2891,15 @@ check_fp(void)
 	if (input_file) {
 		input_file = FALSE;
 		if (start_at_line != nullptr) {
-			line_num =
-			    (int)strtol((char *)start_at_line, nullptr, 10) - 1;
-			move_rel('d', line_num);
+			const char *errstr;
+			long long   start_line;
+
+			start_line = strtonum(
+			    (const char *)start_at_line, 1, INT_MAX, &errstr);
+			if (errstr == nullptr) {
+				line_num = (int)start_line - 1;
+				move_rel('d', line_num);
+			}
 			line_num = 0;
 			start_at_line = nullptr;
 		}
@@ -3230,7 +3279,7 @@ confirm(const char *question)
 				edit_abort(0);
 			}
 			default_shortcuts();
-			exit(0);
+			edit_abort(0);
 		}
 		if (wret == KEY_CODE_YES) {
 			if (win == KEY_RESIZE) {
@@ -4001,15 +4050,60 @@ sh_command(char *string)
 				 pipe (to be read by the |  process forked and
 				 exec'd above as stdin)
 				 */
+				int pipe_error = FALSE;
+
 				close(pipe_out[0]);
 				line_holder = first_line;
-				while (line_holder != nullptr) {
-					write(pipe_out[1], line_holder->line,
-					    (size_t)(line_holder->line_length -
-						1));
-					write(pipe_out[1], "\n", 1);
-					line_holder = line_holder->next_line;
+				while ((line_holder != nullptr) && !pipe_error) {
+					const unsigned char *data =
+					    line_holder->line;
+					size_t remaining =
+					    (line_holder->line_length > 0)
+					    ? (size_t)(line_holder->line_length -
+						  1)
+					    : 0;
+
+					/*
+					 * write(2) may accept only part of
+					 * the buffer.  Keep going until
+					 * everything is written; stop on a
+					 * real error instead of losing
+					 * data silently.
+					 */
+					while (remaining > 0) {
+						ssize_t n = write(pipe_out[1],
+						    data, remaining);
+
+						if (n < 0) {
+							if (errno == EINTR)
+								continue;
+							pipe_error = TRUE;
+							break;
+						}
+						if (n == 0) {
+							pipe_error = TRUE;
+							break;
+						}
+						data += (size_t)n;
+						remaining -= (size_t)n;
+					}
+					if (!pipe_error) {
+						ssize_t n;
+
+						do {
+							n = write(pipe_out[1],
+							    "\n", 1);
+						} while (
+						    (n < 0) && (errno == EINTR));
+						if (n != 1)
+							pipe_error = TRUE;
+					}
+					line_holder =
+					    line_holder->next_line;
 				}
+				if (pipe_error)
+					fprintf(stderr, "ee: write: %s\n",
+					    strerror(errno));
 				close(pipe_out[1]);
 				out_pipe = FALSE;
 			}
@@ -4123,6 +4217,18 @@ set_up_term(void)
 
 	rows = LINES;
 	cols = COLS;
+
+	/*
+	 * Below 2x2 the title/prompt rows and the text area cannot be
+	 * laid out without windows overlapping.  Refuse before creating
+	 * any window rather than drawing a corrupt screen.
+	 */
+	if ((rows < 2) || (cols < 2)) {
+		endwin();
+		fprintf(stderr,
+		    "ee: terminal too small (minimum is 2 rows by 2 columns)\n");
+		exit(1);
+	}
 	if (rows < 1)
 		rows = 1;
 	if (cols < 1)
@@ -4354,7 +4460,7 @@ menu_op(struct menu_entries menu_list[])
 			if (wret == ERR) {
 				if (ee_intr_flag)
 					edit_abort(0);
-				exit(0);
+				edit_abort(0);
 			}
 			if ((wret == KEY_CODE_YES) && (win == KEY_RESIZE)) {
 				/*
@@ -4751,7 +4857,7 @@ help(void)
 			if (wret == ERR) {
 				if (ee_intr_flag)
 					edit_abort(0);
-				exit(0);
+				edit_abort(0);
 			}
 			if ((wret == KEY_CODE_YES) && (win == KEY_RESIZE)) {
 				resize_check();
@@ -4987,6 +5093,8 @@ create_info_window(void)
  * Save the buffer.  Used by the "save file" menu entry, the "write"
  * command and the ^S shortcut.  If the buffer has no file name yet one
  * is requested.  A cancelled prompt leaves the buffer untouched.
+ * Restricted mode may only write back to the file named on the command
+ * line; choosing a new name (save-as) stays refused.
  */
 static int
 save_op(void)
@@ -4994,10 +5102,9 @@ save_op(void)
 	char *string;
 	int   have_name;
 
-	if (restrict_mode())
-		return (FALSE);
-
 	have_name = ((in_file_name != nullptr) && (*in_file_name != '\0'));
+	if (!have_name && restrict_mode())
+		return (FALSE);
 	string = (char *)in_file_name;
 	if (!have_name) {
 		string = get_string(save_file_name_prompt, TRUE);
@@ -5037,9 +5144,13 @@ file_op(int arg)
 {
 	char *string;
 
-	if (restrict_mode()) {
+	/*
+	 * Restricted mode may save the file named on the command line,
+	 * but every operation that chooses a new file, prints through a
+	 * shell or runs a command stays refused.
+	 */
+	if ((arg != SAVE_FILE) && restrict_mode())
 		return (0);
-	}
 
 	if (arg == READ_FILE) {
 		string = get_string(file_read_prompt_str, TRUE);
@@ -5661,25 +5772,45 @@ ee_init(void)
 {
 	FILE	   *init_file;
 	const char *home_dir;
-	char	   *home;
+	char	   *home = nullptr;
 	char	   *line = nullptr;
 	char	   *p;
 	size_t	    linecap = 0;
-	size_t	    home_size;
+	size_t	    home_size = 0;
 	ssize_t	    linelen;
 	int	    counter;
-	int	    temp_int;
 
+	/*
+	 |	Without $HOME there is no per-user init file.  Do not fall
+	 |	back to a world-writable directory such as /tmp: a file there
+	 |	could change the editor's behaviour unexpectedly.
+	 */
 	home_dir = getenv("HOME");
-	if (home_dir == nullptr)
-		home_dir = "/tmp";
-	home_size = strlen(home_dir) + sizeof("/.init.ee");
-	home = xmalloc(home_size);
-	strlcpy(home, home_dir, home_size);
-	strlcat(home, "/.init.ee", home_size);
-	init_name[1] = home;
+	init_name[1] = nullptr;
+	if ((home_dir != nullptr) && (*home_dir != '\0')) {
+		home_size = strlen(home_dir) + sizeof("/.init.ee");
+		home = xmalloc(home_size);
+		strlcpy(home, home_dir, home_size);
+		strlcat(home, "/.init.ee", home_size);
+		init_name[1] = home;
+	}
 
 	for (counter = 0; counter < 3; counter++) {
+		/*
+		 |	If the current directory is $HOME, .init.ee and
+		 |	$HOME/.init.ee are the same file; read it only once.
+		 */
+		if ((counter == 2) && (init_name[1] != nullptr)) {
+			struct stat home_buf, cwd_buf;
+
+			if ((stat(init_name[1], &home_buf) == 0) &&
+			    (stat(init_name[2], &cwd_buf) == 0) &&
+			    (home_buf.st_dev == cwd_buf.st_dev) &&
+			    (home_buf.st_ino == cwd_buf.st_ino))
+				continue;
+		}
+		if (init_name[counter] == nullptr)
+			continue;
 		if (access(init_name[counter], R_OK) != 0)
 			continue;
 		init_file = fopen(init_name[counter], "r");
@@ -5726,12 +5857,13 @@ ee_init(void)
 				strlcpy(
 				    (char *)print_command, p, strlen(p) + 1);
 			} else if (compare(p, RIGHTMARGIN, FALSE)) {
+				const char *errstr;
+				long long   margin;
+
 				p = next_word(p);
-				if ((*p >= '0') && (*p <= '9')) {
-					temp_int = (int)strtol(p, nullptr, 10);
-					if (temp_int > 0)
-						right_margin = temp_int;
-				}
+				margin = strtonum(p, 1, INT_MAX, &errstr);
+				if (errstr == nullptr)
+					right_margin = (int)margin;
 			} else if (compare(p, HIGHLIGHT, FALSE))
 				nohighlight = FALSE;
 			else if (compare(p, NOHIGHLIGHT, FALSE))
@@ -5808,9 +5940,29 @@ dump_ee_conf(void)
 
 		old_name = xmalloc(n);
 		snprintf(old_name, n, "%s.old", file_name);
-		unlink(old_name);
-		link(file_name, old_name);
-		unlink(file_name);
+		if ((unlink(old_name) != 0) && (errno != ENOENT)) {
+			waddstr(com_win, conf_rotate_err_msg);
+			wrefresh(com_win);
+			clear_com_win = TRUE;
+			goto rotate_fail;
+		}
+		if (link(file_name, old_name) != 0) {
+			/*
+			 * Never remove the original when the backup could
+			 * not be created; the old configuration stays
+			 * intact.
+			 */
+			waddstr(com_win, conf_rotate_err_msg);
+			wrefresh(com_win);
+			clear_com_win = TRUE;
+			goto rotate_fail;
+		}
+		if (unlink(file_name) != 0) {
+			waddstr(com_win, conf_rotate_err_msg);
+			wrefresh(com_win);
+			clear_com_win = TRUE;
+			goto rotate_fail;
+		}
 		old_init_file = fopen(old_name, "r");
 	}
 
@@ -5889,6 +6041,7 @@ dump_ee_conf(void)
 	wrefresh(com_win);
 	clear_com_win = TRUE;
 
+rotate_fail:
 	free(old_name);
 	if ((resolved != nullptr) && (resolved != home_dir))
 		free(resolved);
@@ -5929,10 +6082,14 @@ echo_string(char *string)
 			else if (*temp == '\'')
 				putchar('\'');
 			else if ((*temp >= '0') && (*temp <= '9')) {
+				int digits = 0;
+
 				Counter = 0;
-				while ((*temp >= '0') && (*temp <= '9')) {
+				while ((digits < 3) && (*temp >= '0') &&
+				    (*temp <= '9')) {
 					Counter = (8 * Counter) + (*temp - '0');
 					temp++;
+					digits++;
 				}
 				putchar(Counter);
 				temp--;
@@ -6599,8 +6756,11 @@ modes_op(void)
 		case 7:
 			string = get_string(margin_prompt, TRUE);
 			if (string != nullptr) {
-				counter = (int)strtol(string, nullptr, 10);
-				if (counter > 0)
+				const char *errstr;
+
+				counter = (int)strtonum(
+				    string, 1, INT_MAX, &errstr);
+				if (errstr == nullptr)
 					right_margin = counter;
 				free(string);
 			}

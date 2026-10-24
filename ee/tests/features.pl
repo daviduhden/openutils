@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
-# Regression tests for the key binding sets (vi), configuration
-# persistence and the paragraph formatter's diff/code protection, the
+# Regression tests for the key binding sets (vi), settings-menu
+# navigation and the paragraph formatter's diff/code protection, the
 # whole-document formatter and its paragraph boundaries.
 #
 # Requires Perl 5 with the IO::Pty module; on OpenBSD install it with
@@ -110,7 +110,9 @@ sub test_vi_delete_line {
     return ( $exited && read_raw($path) eq "two\nthree\n" ) ? 1 : 0;
 }
 
-sub test_config_roundtrip {
+# Open the settings menu and leave it again.  This checks menu
+# navigation only; it does not save a configuration file.
+sub test_settings_menu_roundtrip {
     my ($work) = @_;
     my $path = "$work/vi-config.txt";
     write_raw( $path, "kept\n" );
@@ -280,7 +282,8 @@ sub main {
 
     check( 'vi: $ a append and :wq save',   test_vi_append_and_wq($work) );
     check( 'vi: dd deletes a line',         test_vi_delete_line($work) );
-    check( 'vi: menu/config round trip',    test_config_roundtrip($work) );
+    check( 'vi: settings menu round trip',
+        test_settings_menu_roundtrip($work) );
     check( 'diff content is not corrupted', test_format_protects_diff($work) );
     check( 'whole document is reformatted paragraph by paragraph',
         test_format_whole_document($work) );

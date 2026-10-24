@@ -3,6 +3,9 @@
  * provide them.  The BSDs provide them natively; glibc provides
  * strlcpy/strlcat since 2.38 and reallocarray since 2.26.
  *
+ * This file also defines the shared setprogname(3)/getprogname(3)
+ * buffer declared in bsdcompat.h.
+ *
  */
 
 /*
@@ -26,6 +29,18 @@
 
 #include <errno.h>
 // clang-format on
+
+#if !OPENUTILS_BSD_LIBC && (defined(__GLIBC__) || !defined(__linux__))
+
+/*
+ * Shared by setprogname(3)/getprogname(3) in bsdcompat.h.  The call to
+ * setprogname() is in the program's main source file, while compat/err.c
+ * reads the same name through getprogname(); a static buffer in the
+ * header would give every translation unit its own copy.
+ */
+char openutils_progname_buf[64]; /* zero-initialized */
+
+#endif
 
 #if !OPENUTILS_BSD_LIBC &&                                                     \
     (!defined(__GLIBC__) ||                                                    \

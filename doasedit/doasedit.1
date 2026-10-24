@@ -1,4 +1,4 @@
-.Dd September 8, 2026
+.Dd October 24, 2026
 .Dt DOASEDIT 1
 .Os
 .Sh NAME
@@ -6,7 +6,7 @@
 .Nd edit files with root privileges using an unprivileged editor
 .Sh SYNOPSIS
 .Nm doasedit
-.Op Fl h
+.Op Fl h | Fl Fl help
 .Op Fl -
 .Ar file ...
 .Sh DESCRIPTION
@@ -20,15 +20,42 @@ into it, then starts the editor on the copy in the user context.
 Once the editor exits, if the temporary file has been modified, the
 changes are written back to the original file with the least amount
 of privilege possible.
-Doas is called only when a privileged operation is actually needed,
-and always with a fixed command invocation
-.Pq never through a shell .
+Doas is used only through the fixed command invocations listed under
+.Sx "DOAS PERMISSIONS" ,
+never through a shell.
 .Pp
-The write-back replaces the file atomically and preserves its owner,
-group and permission bits.
-If the file is replaced or otherwise altered by another process while
-it is being edited, the changes are refused rather than written over
-the unexpected file.
+An initial
+.Nm doas Cm dd
+probe is always run, before any file is opened, to check that
+.Nm doas
+is available and permitted.
+It does not prove that the invocations needed to write back a
+particular file will be permitted.
+.Pp
+For an existing file, the target's recorded identity is checked again
+before the edited copy is written back; if it no longer matches, the
+changes are refused rather than written over the unexpected file.
+A file that the user may write but not read is updated in place
+through the existing inode; that path is not atomic.
+Other existing files are replaced through
+.Nm doas Cm install ,
+which renames a new file into place atomically and preserves the
+owner, group and permission bits.
+A newly created file is installed with mode 0644.
+.Pp
+.Nm
+refuses to edit:
+.Bl -bullet
+.It
+directories and other non-regular files;
+.It
+files owned by the calling user;
+.It
+files that are both readable and writable by the calling user;
+.It
+a new file whose parent directory exists and is owned by, or writable
+by, the calling user.
+.El
 .Sh OPTIONS
 .Bl -tag -width Ds
 .It Fl h , Fl Fl help
@@ -44,16 +71,24 @@ The program used to edit files.
 .It Ev VISUAL
 The program used to edit files if
 .Ev DOAS_EDITOR
-is unset.
+is unset or empty.
 .It Ev EDITOR
 The program used to edit files if
 .Ev DOAS_EDITOR
 and
 .Ev VISUAL
-are unset.
+are unset or empty.
+If this is also unset or empty,
+.Xr vi 1
+is used.
 .It Ev TMPDIR
-Directory for the private temporary files; defaults to
+Directory in which the private temporary directory is created;
+defaults to
 .Pa /tmp .
+The value is used as supplied: it is not checked for ownership,
+permissions or writability by
+.Nm ,
+so it must be trusted.
 .El
 .Pp
 The editor command may contain arguments, separated by whitespace.
@@ -76,15 +111,29 @@ configuration file.
 After editing it
 .Pq or a file below Pa /etc/doas.d/ ,
 .Nm
-parses the edited copy with
+asks
 .Nm doas Fl C
-and, on a syntax error, offers to edit again, overwrite anyway, or
-abort, so that a mistake cannot lock the user out.
+to parse the edited copy.
+This is a syntax check only; it does not verify that any rule grants
+or denies a particular operation, so a syntactically valid change can
+still lock the user out.
+On a syntax error,
+.Nm
+offers to edit again, overwrite anyway, or abort.
+Whether
+.Nm doas
+reads files below
+.Pa /etc/doas.d/
+depends on the local implementation.
+.Nm
+treats them as configuration for this check, but does not verify that
+.Nm doas
+uses them.
 .El
 .Sh EXIT STATUS
 .Nm
-exits 0 if at least one file was edited successfully, and 1
-otherwise, including when:
+exits 0 if help was requested, or if at least one file was edited
+successfully or reported unchanged, and 1 otherwise, including when:
 .Bl -bullet
 .It
 no arguments are passed,
@@ -97,25 +146,35 @@ no usable editor is found,
 .It
 a file cannot be read, validated or written back,
 .It
-three failed password attempts were made when writing a file.
+write-back still failed after three attempts.
 .El
 .Sh DOAS PERMISSIONS
 The following doas invocations are used:
 .Bl -bullet
 .It
 .Nm doas Cm dd Ar status=none count=0 of=/dev/null
-.Pq initial privilege check
+.Pq unconditional initial probe
 .It
 .Nm doas Cm cat Ar file
 .Pq only when the file is not readable by the user
 .It
 .Nm doas Cm install Fl o Ar uid Fl g Ar gid Fl m Ar mode Ar tmpfile Ar file
-.Pq write-back of modified files
+.Pq write-back of a modified existing file
+.It
+.Nm doas Cm install Fl m Ar 0644 Ar tmpfile Ar file
+.Pq write-back of a newly created file
 .It
 .Nm doas Fl C Ar tmpfile
 .Pq syntax check of an edited doas configuration
 .El
 .Pp
+Write-back through
+.Nm doas Cm install
+is retried after a failure, up to three attempts in total, which
+allows for mistyped passwords.
+When an unreadable file is copied with
+.Nm doas Cm cat ,
+a detected concurrent change causes another copy attempt.
 Using
 .Cm persist
 in
@@ -126,33 +185,55 @@ avoids repeated password prompts.
 never runs an editor, or any other program, with elevated
 privileges; privilege is confined to the fixed doas invocations
 listed above.
+The real security boundary is
+.Xr doas.conf 5 ,
+and its included files where the local implementation supports them:
+a broad or blanket rule that permits these invocations also permits
+other privileged operations.
+.Pp
 Temporary files are created with
 .Xr mkdtemp 3
-in a private directory and are not shared with other users; files are
-opened with
-.Dv O_NOFOLLOW
+in a private directory.
+The directory named by
+.Ev TMPDIR
+is trusted and is not validated.
+Files are opened with
+.Dv O_NOFOLLOW ,
 and their identity
-.Pq device, inode, mode, owner, group
-is verified before and after every privileged step.
-Files in user-writable locations cannot be used to gain write access
-to arbitrary files because the write-back is performed with an atomic
-rename in the destination directory, which replaces a symbolic link
-rather than following it.
-See
+.Pq device, inode, mode, owner, group, size and modification time
+is recorded before editing and checked again before write-back; if
+the target changed, the write is refused.
+.Pp
+On the
+.Nm doas Cm install
+path, the target is replaced by a rename in its directory, so a
+symbolic link swapped in for the final component is replaced rather
+than followed.
+This preserves ownership, group and permission bits, including
+setuid and setgid bits, but timestamps, ACLs, extended attributes and
+file flags may be lost, and hard links are broken.
+However,
+.Nm install
+reopens the temporary source by pathname, so the temporary directory
+must not be writable by an attacker.
+The target identity check is made immediately before the install, not
+atomically with it, and there is no post-install identity check.
+The direct-write path used for write-only files updates the existing
+inode in place and is not atomic: an error or interruption can leave
+a partially written file.
 .Sh LOCALE
 The interface of
 .Nm
-is U.S. English only, and its output is always UTF-8.
-The only supported locale is
-.Ev en_US.UTF-8 .
+is hard-coded English and the program does not call
+.Xr setlocale 3 ,
+so it runs in the C locale.
 Setting
 .Ev LANG ,
 .Ev LANGUAGE ,
 .Ev LC_ALL ,
 .Ev LC_MESSAGES
-or any other locale variable has no effect on the interface language,
-prompts or diagnostics.
-Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
+or any other locale variable does not change its messages, prompts or
+diagnostics.
 .Sh SEE ALSO
 .Xr doas 1 ,
 .Xr doas.conf 5

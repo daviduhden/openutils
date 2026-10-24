@@ -1,18 +1,29 @@
 # compat
 
 Portability shims used when the code is built on a host that is not
-OpenBSD (or another BSD).  On OpenBSD every file here compiles to
-nothing: the interfaces are native.  The directory exists so that the
-utilities can be built and tested on Linux without a large portability
-layer, and so that a C23-capable compiler paired with an older libc
-still works.
+OpenBSD (or another BSD).  The directory exists so that the utilities
+can be built and tested on Linux without a large portability layer, and
+so that a C23-capable compiler paired with an older libc still works.
+
+What is active on OpenBSD depends on the file.  `bsdcompat.h` is always
+used: every translation unit includes it first, it enforces the C23
+requirement, selects the BSD libc branch and pulls in the system
+headers.  Only the individual function shims inside it are compiled out
+on OpenBSD, where those interfaces are native.  `stdckdint.h` is a real
+shim on OpenBSD whenever the libc lacks `<stdckdint.h>` (as was the
+case at the time of writing): because `compat/` is searched ahead of
+the system headers, it supplies `ckd_add`/`ckd_sub`/`ckd_mul` from the
+compiler's overflow builtins.  The function shims in `strtonum.c`,
+`bsdstring.c` and `err.c` define nothing on a host whose libc already
+provides those interfaces; `bsdstring.c` still defines the shared
+`setprogname(3)`/`getprogname(3)` buffer on hosts that need that shim.
 
 | File | Purpose |
 | --- | --- |
 | [bsdcompat.h](bsdcompat.h) | Included first by every translation unit. Defines the feature-test macros for non-OpenBSD hosts and declares or provides the BSD interfaces the sources rely on. |
 | [stdckdint.h](stdckdint.h) | `<stdckdint.h>` shim. Uses the real header when one is reachable, otherwise provides `ckd_add`/`ckd_sub`/`ckd_mul` with the compiler's overflow builtins. |
 | [strtonum.c](strtonum.c) | `strtonum(3)` for libcs that lack it. |
-| [bsdstring.c](bsdstring.c) | `strlcpy(3)`, `strlcat(3)` and `reallocarray(3)` where the libc does not provide them. |
+| [bsdstring.c](bsdstring.c) | `strlcpy(3)`, `strlcat(3)` and `reallocarray(3)` where the libc does not provide them, plus the shared `setprogname(3)`/`getprogname(3)` buffer (one object per program, not one per translation unit). |
 | [err.c](err.c) | The `err(3)` family for libcs that declare but do not provide it. |
 | [tests/](tests/) | Self-test for the `<stdckdint.h>` fallback (see [Tests](#tests)). |
 

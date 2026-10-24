@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <fnmatch.h>
 #include <grp.h>
 #include <langinfo.h>
@@ -67,7 +68,7 @@ static long nfiles;
 static long ndirs;
 static int  had_error;
 
-/* (dev, ino) set of directories already descended into */
+/* (dev, ino) set of every directory already visited in the walk */
 struct seen {
 	dev_t dev;
 	ino_t ino;
@@ -135,8 +136,10 @@ static const char *uidtoname(uid_t);
 static const char *gidtoname(gid_t);
 static const char *jtype(mode_t);
 static void	   printname(const char *);
+static int	   utf8seqlen(const unsigned char *);
 static void	   json_enc(const char *);
 static char	   ftype(mode_t);
+static void	   closeoutput(void);
 static int	   seen(dev_t, ino_t);
 static void	   addseen(dev_t, ino_t);
 static char	  *joinpath(const char *, const char *);
@@ -279,6 +282,17 @@ prot(mode_t mode)
 		else
 			buf[i + 1] = '-';
 	}
+	/*
+	 * The three high bits replace the matching execute position:
+	 * lowercase when the execute bit is also set, uppercase when it
+	 * is not, as in ls(1).
+	 */
+	if (mode & S_ISUID)
+		buf[3] = (mode & S_IXUSR) ? 's' : 'S';
+	if (mode & S_ISGID)
+		buf[6] = (mode & S_IXGRP) ? 's' : 'S';
+	if (mode & S_ISVTX)
+		buf[9] = (mode & S_IXOTH) ? 't' : 'T';
 	buf[10] = '\0';
 	return (buf);
 }
@@ -421,7 +435,13 @@ printname(const char *s)
 			if (n == 0)
 				break;
 			p += n;
-			if (iswprint((wint_t)wc))
+			if (wc == '\\' || (wc == '"' && Qflag)) {
+				putc('\\', outfile);
+				putc((int)wc, outfile);
+			} else if (Qflag && wc >= 7 && wc <= 13) {
+				putc('\\', outfile);
+				putc("abtnvfr"[wc - 7], outfile);
+			} else if (iswprint((wint_t)wc))
 				fprintf(outfile, "%lc", (wint_t)wc);
 			else if (qflag)
 				putc('?', outfile);
@@ -457,29 +477,99 @@ printname(const char *s)
 		putc('"', outfile);
 }
 
+/*
+ * Length of the well-formed UTF-8 sequence at s, or 0 if s does not
+ * start one.  No byte past the terminating NUL is examined: every
+ * continuation byte is checked before the next one is read.
+ */
+static int
+utf8seqlen(const unsigned char *s)
+{
+	unsigned char c = s[0], c1, c2, c3;
+
+	if (c < 0x80)
+		return (1);
+	c1 = s[1];
+	if (c >= 0xc2 && c <= 0xdf) {
+		if (c1 < 0x80 || c1 > 0xbf)
+			return (0);
+		return (2);
+	}
+	if (c >= 0xe0 && c <= 0xef) {
+		if (c1 < 0x80 || c1 > 0xbf)
+			return (0);
+		if (c == 0xe0 && c1 < 0xa0)
+			return (0);
+		if (c == 0xed && c1 > 0x9f)
+			return (0);
+		c2 = s[2];
+		if (c2 < 0x80 || c2 > 0xbf)
+			return (0);
+		return (3);
+	}
+	if (c >= 0xf0 && c <= 0xf4) {
+		if (c1 < 0x80 || c1 > 0xbf)
+			return (0);
+		if (c == 0xf0 && c1 < 0x90)
+			return (0);
+		if (c == 0xf4 && c1 > 0x8f)
+			return (0);
+		c2 = s[2];
+		if (c2 < 0x80 || c2 > 0xbf)
+			return (0);
+		c3 = s[3];
+		if (c3 < 0x80 || c3 > 0xbf)
+			return (0);
+		return (4);
+	}
+	return (0);
+}
+
+/*
+ * Emit a string as a JSON string body.  Valid UTF-8 passes through
+ * unchanged; each byte that does not begin a valid sequence is escaped
+ * as \u00xx so that the resulting document is always valid JSON and
+ * valid UTF-8.
+ */
 static void
 json_enc(const char *s)
 {
-	static const char ctrl[] = "0-------btn-fr";
+	static const char    ctrl[] = "0-------btn-fr";
+	const unsigned char *p = (const unsigned char *)s;
 
-	for (; *s != '\0'; s++) {
-		unsigned char c = (unsigned char)*s;
+	while (*p != '\0') {
+		unsigned char c = *p;
+		int	      n;
 
-		if (c < 32) {
-			/*
-			 * ctrl[] only has entries for the control
-			 * characters that have a short JSON escape; every
-			 * other value in the range must fall back to the
-			 * \u00xx form instead of reading past the table.
-			 */
-			if ((size_t)c < sizeof(ctrl) - 1 && ctrl[c] != '-')
-				fprintf(outfile, "\\%c", ctrl[c]);
-			else
-				fprintf(outfile, "\\u%04x", c);
-		} else if (c == '"' || c == '\\') {
-			fprintf(outfile, "\\%c", c);
+		if (c < 0x80) {
+			if (c < 32) {
+				/*
+				 * ctrl[] only has entries for the control
+				 * characters that have a short JSON escape;
+				 * every other value in the range must fall
+				 * back to the \u00xx form instead of reading
+				 * past the table.
+				 */
+				if ((size_t)c < sizeof(ctrl) - 1 &&
+				    ctrl[c] != '-')
+					fprintf(outfile, "\\%c", ctrl[c]);
+				else
+					fprintf(outfile, "\\u%04x", c);
+			} else if (c == '"' || c == '\\') {
+				fprintf(outfile, "\\%c", c);
+			} else {
+				putc(c, outfile);
+			}
+			p++;
+			continue;
+		}
+		n = utf8seqlen(p);
+		if (n > 0) {
+			fwrite(p, 1, (size_t)n, outfile);
+			p += n;
 		} else {
-			putc(c, outfile);
+			fprintf(outfile, "\\u%04x", c);
+			p++;
 		}
 	}
 }
@@ -489,7 +579,7 @@ ftype(mode_t mode)
 {
 	int m = mode & S_IFMT;
 
-	if (!dflag && m == S_IFDIR)
+	if (m == S_IFDIR)
 		return ('/');
 	else if (m == S_IFSOCK)
 		return ('=');
@@ -647,6 +737,17 @@ collect(const char *path, struct ent **out, size_t *nout)
 				free(join);
 				continue;
 			}
+			/*
+			 * readlink(2) truncates silently.  A full buffer
+			 * means the target may be incomplete, and following
+			 * or displaying a truncated path would be wrong.
+			 */
+			if ((size_t)len == sizeof(lbuf)) {
+				warnx("%s: symbolic link target too long", join);
+				free(e->name);
+				free(join);
+				continue;
+			}
 			e->target = malloc((size_t)len + 1);
 			if (e->target == nullptr)
 				err(1, "malloc");
@@ -727,6 +828,8 @@ joinpath(const char *path, const char *name)
 		err(1, "malloc");
 	if (plen == 1 && path[0] == '/')
 		snprintf(p, plen + nlen + 2, "/%s", name);
+	else if (plen > 0 && path[plen - 1] == '/')
+		snprintf(p, plen + nlen + 2, "%s%s", path, name);
 	else
 		snprintf(p, plen + nlen + 2, "%s/%s", path, name);
 	return (p);
@@ -749,6 +852,8 @@ resolvelink(const char *path, const char *target)
 		err(1, "malloc");
 	if (plen == 1 && path[0] == '/')
 		snprintf(p, plen + tlen + 2, "/%s", target);
+	else if (plen > 0 && path[plen - 1] == '/')
+		snprintf(p, plen + tlen + 2, "%s%s", path, target);
 	else
 		snprintf(p, plen + tlen + 2, "%s/%s", path, target);
 	return (p);
@@ -777,8 +882,11 @@ entryline(
 		if (strcmp(path, "/") == 0)
 			fputs("/", outfile);
 		else {
+			size_t plen = strlen(path);
+
 			printname(path);
-			fputs("/", outfile);
+			if (plen == 0 || path[plen - 1] != '/')
+				fputs("/", outfile);
 		}
 	}
 	printname(e->name);
@@ -867,6 +975,11 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 						continue;
 				}
 				entryline(e, path, depth, bars, last);
+				/*
+				 * The visited set is global to the walk, so
+				 * this also covers links to directories that
+				 * were visited earlier in another branch.
+				 */
 				if (e->isdir && lflag && !dflag && !e->broken &&
 				    seen(e->st.st_dev, e->st.st_ino))
 					fputs("  [recursive, not followed]",
@@ -884,6 +997,19 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 				continue;
 			}
 
+			/*
+			 * -x: the mount point itself is displayed, but its
+			 * contents belong to another file system.  Followed
+			 * symlinks are handled by the follow test above.
+			 */
+			if (e->target == nullptr && xflag &&
+			    e->lst.st_dev != xdev) {
+				entryline(e, path, depth, bars, last);
+				fputs("\n", outfile);
+				ndirs++;
+				continue;
+			}
+
 			/* collect children to detect prune/filelimit
 			 * conditions and open errors */
 			cp = e->target != nullptr ?
@@ -892,7 +1018,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			if (collect(cp, &ch, &nch) == -1)
 				opened = 0;
 
-			if (filelimit > 0 && opened && (int)nch > filelimit) {
+			if (filelimit > 0 && opened && nch > (size_t)filelimit) {
 				entryline(e, path, depth, bars, last);
 				fprintf(outfile,
 				    "  [%d entries exceeds "
@@ -912,6 +1038,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			entryline(e, path, depth, bars, last);
 			if (!opened) {
 				fputs("  [error opening dir]\n", outfile);
+				had_error = 1;
 				ndirs++;
 				free(cp);
 				continue;
@@ -984,9 +1111,11 @@ json_info(const struct stat *st)
 	}
 	if (sflag)
 		fprintf(outfile, ",\"size\":%lld", (long long)st->st_size);
-	if (Dflag)
-		fprintf(outfile, ",\"time\":\"%s\"",
-		    do_date(cflag ? st->st_ctime : st->st_mtime));
+	if (Dflag) {
+		fprintf(outfile, ",\"time\":\"");
+		json_enc(do_date(cflag ? st->st_ctime : st->st_mtime));
+		fprintf(outfile, "\"");
+	}
 }
 
 /*
@@ -1004,6 +1133,16 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 
 	if (collect(path, &ents, &n) == -1)
 		return;
+
+	/*
+	 * --filelimit applies to contents reached through a followed
+	 * symbolic link too; jsonwalk() has already handled the
+	 * directories it opens itself.
+	 */
+	if (filelimit > 0 && n > (size_t)filelimit) {
+		freeents(ents, n);
+		return;
+	}
 
 	for (i = 0; i < n; i++) {
 		auto e = &ents[i];
@@ -1050,7 +1189,29 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 			continue;
 		}
 		if (e->isdir) {
-			char *cp = joinpath(path, e->name);
+			char *cp;
+
+			/*
+			 * -x: emit the directory object without opening it
+			 * when it is on another file system.  Followed
+			 * symlinks are filtered by the follow test above.
+			 */
+			if (xflag && e->lst.st_dev != xdev) {
+				if (emitted)
+					jsep();
+				jindent(lvl);
+				fprintf(outfile,
+				    "{\"type\":\"directory\",\"name\":\"");
+				json_enc(e->name);
+				fprintf(outfile, "\"");
+				json_info(&e->lst);
+				fprintf(outfile, "}");
+				ndirs++;
+				emitted = 1;
+				continue;
+			}
+
+			cp = joinpath(path, e->name);
 
 			if (pruneflag && !dflag) {
 				struct ent *ch = nullptr;
@@ -1115,17 +1276,31 @@ jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
 		memset(&st, 0, sizeof(st));
 	json_info(&st);
 
-	opened = collect(path, &ents, &n) == 0;
-	if (!opened || n == 0) {
+	/*
+	 * -L: at the display boundary the directory object is emitted
+	 * without opening it, so an unreadable directory at the boundary
+	 * is not an error.
+	 */
+	if (maxdepth > 0 && depth >= maxdepth) {
 		fprintf(outfile, "}");
-		if (!opened)
-			had_error = 1;
-		if (opened)
-			freeents(ents, n);
 		ndirs++;
 		return;
 	}
-	if (maxdepth > 0 && depth >= maxdepth) {
+
+	opened = collect(path, &ents, &n) == 0;
+	if (!opened) {
+		fprintf(outfile, "}");
+		had_error = 1;
+		ndirs++;
+		return;
+	}
+	if (n == 0) {
+		fprintf(outfile, "}");
+		freeents(ents, n);
+		ndirs++;
+		return;
+	}
+	if (filelimit > 0 && n > (size_t)filelimit) {
 		fprintf(outfile, "}");
 		freeents(ents, n);
 		ndirs++;
@@ -1154,6 +1329,24 @@ report(void)
 		fprintf(
 		    outfile, ", %ld file%s", nfiles, nfiles == 1 ? "" : "s");
 	fprintf(outfile, "\n");
+}
+
+/*
+ * Flush and close the output, recording a write or close error in
+ * had_error so that main() exits with status 2.
+ */
+static void
+closeoutput(void)
+{
+	if (outfile == stdout) {
+		if (fflush(outfile) == EOF || ferror(outfile))
+			had_error = 1;
+		return;
+	}
+	if (ferror(outfile))
+		had_error = 1;
+	if (fclose(outfile) == EOF)
+		had_error = 1;
 }
 
 struct lopt {
@@ -1279,7 +1472,7 @@ setopt(int c, const char *val)
 	case '2':
 		if (val == nullptr)
 			errx(1, "missing option argument");
-		filelimit = (int)strtonum(val, 0, INT_MAX, &estr);
+		filelimit = (int)strtonum(val, 1, INT_MAX, &estr);
 		if (estr != nullptr)
 			errx(1, "invalid file limit: %s", val);
 		break;
@@ -1315,6 +1508,7 @@ setopt(int c, const char *val)
 		if (val == nullptr)
 			errx(1, "missing option argument");
 		timefmt = val;
+		Dflag = 1;
 		break;
 	default:
 		errx(1, "invalid option: -%c", c);
@@ -1402,7 +1596,7 @@ main(int argc, char *argv[])
 				if (longopts[k].val == 'h') {
 					fprintf(stdout,
 					    "usage: tree "
-					    "[-adfFgilnpqrstuxACDJQNU] "
+					    "[-acdfFghilnpqrstuxCDJQNU] "
 					    "[-L level]\n"
 					    "\t[-o file] [-P pattern] "
 					    "[-I pattern] [--dirsfirst]\n"
@@ -1490,9 +1684,21 @@ main(int argc, char *argv[])
 	}
 
 	if (outpath != nullptr) {
-		outfile = fopen(outpath, "w");
-		if (outfile == nullptr)
+		int fd;
+
+		/*
+		 * O_NOFOLLOW: -o must create or truncate a regular file,
+		 * never write through a symbolic link planted at outpath.
+		 */
+		fd = open(outpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
+		    0666);
+		if (fd == -1)
 			err(1, "%s", outpath);
+		outfile = fdopen(fd, "w");
+		if (outfile == nullptr) {
+			close(fd);
+			err(1, "%s", outpath);
+		}
 	}
 
 	if (Jflag) {
@@ -1561,8 +1767,7 @@ main(int argc, char *argv[])
 			fputs("\n]\n", outfile);
 		else
 			fputs("]\n", outfile);
-		if (outfile != stdout)
-			fclose(outfile);
+		closeoutput();
 		return (had_error ? 2 : 0);
 	}
 
@@ -1602,7 +1807,7 @@ main(int argc, char *argv[])
 			had_error = 1;
 			continue;
 		}
-		if (filelimit > 0 && (int)n > filelimit) {
+		if (filelimit > 0 && n > (size_t)filelimit) {
 			fprintf(outfile,
 			    "  [%d entries exceeds filelimit, "
 			    "not opening dir]\n",
@@ -1619,7 +1824,6 @@ main(int argc, char *argv[])
 
 	report();
 
-	if (outfile != stdout)
-		fclose(outfile);
+	closeoutput();
 	return (had_error ? 2 : 0);
 }

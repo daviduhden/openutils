@@ -1,7 +1,8 @@
 #!/bin/sh
 # Behavioural tests for truncate(1).  Where a GNU truncate is
 # available in PATH (and is not this binary), the same operations are
-# run against both implementations and the results compared.
+# run against both implementations and the results compared.  Without
+# one, those differential checks are reported as skipped.
 
 set -u
 
@@ -11,6 +12,7 @@ TRUNC=${TRUNC:-$ROOT/truncate/truncate}
 
 PASS=0
 FAIL=0
+SKIP=0
 FAILED_TESTS=
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/truncate-test.XXXXXX") || exit 1
@@ -49,12 +51,19 @@ notok() {
 	printf 'not ok - %s\n' "$1"
 }
 
+skip() {
+	SKIP=$((SKIP + 1))
+	printf 'skip - %s\n' "$1"
+}
+
 assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
+		return 0
 	else
 		notok "$1"
 		printf '# expected: %s\n# actual:   %s\n' "$2" "$3"
+		return 1
 	fi
 }
 
@@ -67,31 +76,37 @@ blksize() {
 	stat -c %o "$1" 2>/dev/null || stat -f %k "$1" 2>/dev/null
 }
 
-# run one size specification through both implementations
+# run one size specification through both implementations and compare.
+# Without a GNU truncate there is no reference result, so the check is
+# skipped rather than counted as a pass.
 # compare <desc> <size-arg> <initial-size>
 compare() {
 	desc=$1
 	sarg=$2
 	init=$3
 
+	if [ -z "$GNU" ]; then
+		skip "$desc (no GNU truncate)"
+		return 0
+	fi
+
 	"$TRUNC" -s "$init" "$work/a" 2>/dev/null
 	"$TRUNC" -s "$sarg" "$work/a" 2>/dev/null
 	ra=$?
 	sa=$(size "$work/a")
 
-	if [ -n "$GNU" ]; then
-		"$GNU" -s "$init" "$work/b" 2>/dev/null
-		"$GNU" -s "$sarg" "$work/b" 2>/dev/null
-		rb=$?
-		sb=$(size "$work/b")
-		if [ "$ra:$sa" != "$rb:$sb" ]; then
-			notok "$desc"
-			printf '# %s -s %s: ref=(%s,%s) ours=(%s,%s)\n' \
-				"$desc" "$sarg" "$rb" "$sb" "$ra" "$sa"
-			return
-		fi
+	"$GNU" -s "$init" "$work/b" 2>/dev/null
+	"$GNU" -s "$sarg" "$work/b" 2>/dev/null
+	rb=$?
+	sb=$(size "$work/b")
+	if [ "$ra:$sa" != "$rb:$sb" ]; then
+		notok "$desc"
+		printf '# %s -s %s: ref=(%s,%s) ours=(%s,%s)\n' \
+			"$desc" "$sarg" "$rb" "$sb" "$ra" "$sa"
+		return 1
 	fi
 	ok "$desc"
+	return 0
 }
 
 : >"$work/a"
@@ -124,7 +139,7 @@ compare "/ rounds down" /30 100
 compare "/ never extends" /30 20
 compare "% rounds up" %30 100
 compare "% never shrinks" %30 110
-compare "negative absolute clamps to zero" -5 100
+compare "leading - means reduce by" -5 100
 
 # ------------------------------------------------ suffixes
 compare "K suffix" 3K 0
@@ -142,6 +157,37 @@ compare "Z suffix" 1Z 0
 compare "Y suffix" 1Y 0
 compare "R suffix" 1R 0
 compare "Q suffix" 1Q 0
+
+# Direct assertions for the relative modifiers and suffix forms, so the
+# tested behaviour is still covered when no GNU truncate is available
+# and the compare() cases above are skipped.
+"$TRUNC" -s 100 "$work/a"
+"$TRUNC" -s +10 "$work/a"
+assert_eq "direct + extends" 110 "$(size "$work/a")"
+"$TRUNC" -s -10 "$work/a"
+assert_eq "direct - reduces" 100 "$(size "$work/a")"
+"$TRUNC" -s '<90' "$work/a"
+assert_eq "direct < at most" 90 "$(size "$work/a")"
+"$TRUNC" -s '>95' "$work/a"
+assert_eq "direct > at least" 95 "$(size "$work/a")"
+"$TRUNC" -s 100 "$work/a"
+"$TRUNC" -s /30 "$work/a"
+assert_eq "direct / rounds down" 90 "$(size "$work/a")"
+"$TRUNC" -s 100 "$work/a"
+"$TRUNC" -s %30 "$work/a"
+assert_eq "direct % rounds up" 120 "$(size "$work/a")"
+
+"$TRUNC" -s 3K "$work/a"
+assert_eq "direct K suffix" 3072 "$(size "$work/a")"
+"$TRUNC" -s 3KB "$work/a"
+assert_eq "direct KB suffix" 3000 "$(size "$work/a")"
+"$TRUNC" -s 3KiB "$work/a"
+assert_eq "direct KiB suffix" 3072 "$(size "$work/a")"
+"$TRUNC" -s 5k "$work/a"
+assert_eq "direct lowercase k suffix" 5120 "$(size "$work/a")"
+"$TRUNC" -s 5D "$work/a" >/dev/null 2>&1
+assert_eq "D suffix rejected" 1 $?
+assert_eq "D suffix leaves file unchanged" 5120 "$(size "$work/a")"
 
 # ------------------------------------------------ creation
 rm -f "$work/new"
@@ -173,7 +219,7 @@ assert_eq "-r with at-most" 2 "$(size "$work/a")"
 # ------------------------------------------------ io blocks
 "$TRUNC" -o -s 1 "$work/a"
 assert_eq "-o scales by block size" "$(blksize "$work/a")" "$(size "$work/a")" 2>/dev/null ||
-	assert_eq "-o produces non-zero size" "0" \
+	assert_eq "-o produces non-zero size" "1" \
 		"$([ "$(size "$work/a")" -gt 0 ] && echo 1 || echo 0)"
 
 # ------------------------------------------------ multiple operands
@@ -210,17 +256,42 @@ assert_eq "-o without -s rejected" 1 $?
 "$TRUNC" -z >/dev/null 2>&1
 assert_eq "unknown option rejected" 1 $?
 
+# Options must precede the file operands.  With no size option before
+# the first operand, a later -s is not parsed as an option, so the
+# command fails for lack of a size.
+: >"$work/perm"
+(
+	cd "$work" || exit 1
+	"$TRUNC" perm -s 5 >/dev/null 2>&1
+)
+assert_eq "options after operands are not parsed" 1 $?
+
+# When a size was already given, a later option-looking word is a file
+# operand and must not override the size.
+: >"$work/perm"
+: >"$work/-s"
+(
+	cd "$work" || exit 1
+	"$TRUNC" -s 5 perm -s 7 >/dev/null 2>&1
+)
+assert_eq "trailing -s does not override size" 5 "$(size "$work/perm")"
+assert_eq "trailing -s is a file operand" 5 "$(size "$work/-s")"
+
 # ------------------------------------------------ long options
 : >"$work/l1"
 "$TRUNC" --size=5 --no-create "$work/l1"
 assert_eq "--size=N works" 5 "$(size "$work/l1")"
 "$TRUNC" --size 7 "$work/l1"
 assert_eq "--size N works" 7 "$(size "$work/l1")"
+"$TRUNC" --size 3 "$work/l1"
 "$TRUNC" --reference="$work/ref" "$work/l1"
 assert_eq "--reference=N works" 7 "$(size "$work/l1")"
+"$TRUNC" --size 3 "$work/l1"
+"$TRUNC" --reference "$work/ref" "$work/l1"
+assert_eq "--reference N works" 7 "$(size "$work/l1")"
 "$TRUNC" --io-blocks --size=1 "$work/l1"
 assert_eq "--io-blocks works" "$(blksize "$work/l1")" "$(size "$work/l1")" 2>/dev/null ||
-	assert_eq "--io-blocks produces non-zero size" "0" \
+	assert_eq "--io-blocks produces non-zero size" "1" \
 		"$([ "$(size "$work/l1")" -gt 0 ] && echo 1 || echo 0)"
 
 "$TRUNC" --help >/dev/null 2>&1
@@ -282,6 +353,12 @@ assert_eq "-s +1 -s 5 keeps relative mode" 8 "$(size "$work/q1")"
 "$TRUNC" -s +1 -s -2 "$work/q1" >/dev/null 2>&1
 assert_eq "-s +1 -s -2 rejected" 1 $?
 
+# With -r, the most recent -s token itself must be relative even when
+# an earlier -s left relative mode set.
+"$TRUNC" -s +1 -s 100 -r "$work/ref" "$work/q1" >/dev/null 2>&1
+assert_eq "-s +1 -s 100 -r rejected" 1 $?
+assert_eq "-s +1 -s 100 -r leaves file unchanged" 8 "$(size "$work/q1")"
+
 # -c with a missing file is silent and successful
 rm -f "$work/missing-c"
 "$TRUNC" -c -s 5 "$work/missing-c" >/dev/null 2>&1
@@ -331,9 +408,10 @@ say
 if [ -n "$GNU" ]; then
 	say "(differential mode against $GNU)"
 else
-	say "(standalone mode; no reference implementation found)"
+	say "(standalone mode; no reference implementation found;" \
+	    "differential checks skipped)"
 fi
-say "pass: $PASS  fail: $FAIL"
+say "pass: $PASS  fail: $FAIL  skip: $SKIP"
 if [ "$FAIL" -gt 0 ]; then
 	say "failed tests:$FAILED_TESTS"
 	exit 1

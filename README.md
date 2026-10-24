@@ -20,8 +20,9 @@ systems).
 
 ## Documentation
 
-Each utility directory documents its contents, requirements, usage and
-tests:
+Each utility directory documents its contents, requirements and usage.
+Automated test suites exist for compat, tree, truncate and ee;
+doasedit has no automated suite.
 
 - [compat](compat/README.md)
 - [doasedit](doasedit/README.md)
@@ -157,15 +158,25 @@ UTF-8; only the interface language is restricted to English.
 make             # or: make doasedit tree ee truncate
 make test
 make check       # strict developer build (extra warnings)
+make debug PROG=doasedit   # -O0 -g build run under $(DEBUGGER)
+make rebuild     # clean, then build everything again
 make install      # honours PREFIX (default /usr/local) and DESTDIR
 make uninstall
 ```
 
-The build uses `CC`, `CFLAGS`, `CPPFLAGS` and `LDFLAGS`.  `make
-install` installs the four binaries, their manual pages, and the
-`ree`/`edit` links for ee.  On non-OpenBSD systems the tiny shims in
-`compat/` are linked in automatically (they compile to nothing on
-OpenBSD); this exists so the code can be built and tested elsewhere.
+The build uses `CC`, `CFLAGS`, `CPPFLAGS` and `LDFLAGS`.  `CC`
+defaults to `clang` and `CFLAGS` to `-O2 -pipe`; override them on the
+make command line (`make CC=gcc`).  `-std=c23` is carried separately
+in `CSTD` so a `CFLAGS` override cannot drop it.  `make test` runs the
+compat, tree, truncate and ee suites; doasedit has no automated suite.  `make install` installs the four binaries, their
+manual pages, the `ree`/`edit` links for ee, and the `en_US.aff` /
+`en_US.dic` dictionary files under `DICTDIR` (default
+`$(PREFIX)/share/myspell`).  `PREFIX` and `DESTDIR` are honoured
+throughout the install and uninstall targets.  On non-OpenBSD systems
+the shims in `compat/` are linked in automatically; `bsdcompat.h` is
+used everywhere and `stdckdint.h` supplies `<stdckdint.h>` wherever the
+libc lacks it, including OpenBSD.  This exists so the code can be built
+and tested elsewhere.
 
 ### pledge profiles
 
@@ -180,28 +191,30 @@ OpenBSD); this exists so the code can be built and tested elsewhere.
   normal mode stays unpledged because it executes shell commands.
   `unveil(2)` is not used where an editor must reach arbitrary files.
 
-Note: on non-OpenBSD hosts GNU make is known to work; some third-party
-BSD make ports come with embedded toolchain defaults for other
-operating systems and may need `make CC=cc CFLAGS="-O2 -pipe"
+Note: on non-OpenBSD hosts GNU make 4.0 or later is known to work
+(`ee/Makefile` uses the `!=` shell-assignment operator).  Some
+third-party BSD make ports come with embedded toolchain defaults for
+other operating systems and may need `make CC=cc CFLAGS="-O2 -pipe"
 CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 `make` works as expected.
 
 ## Requirements
 
 - OpenBSD base system (`doas(1)`, `install(1)`, libc).  All components
-  need a C23 compiler and library: `-std=c23`, standard attributes,
-  and `<stdckdint.h>` (shipped with GCC 14+ and recent Clang, including
-  the Clang in current OpenBSD).  `ee` needs the
-  wide-character ncurses library (`ncursesw`); on OpenBSD it comes from
-  the `ncurses` package (devel/ncurses).  `pkg-config` is used when
-  available to locate it, otherwise the build falls back to
-  `-lncursesw`.
+  need a C23 compiler: `-std=c23` and standard attributes (GCC 14+ or a
+  recent Clang, including the Clang in current OpenBSD).  The libc may
+  lack `<stdckdint.h>`; the shim in `compat/` supplies it from the
+  compiler's overflow builtins.  `ee` needs the wide-character ncurses
+  library (`ncursesw`); on OpenBSD it comes from the `ncurses` package
+  (devel/ncurses).  `pkg-config` is used when available to locate it,
+  otherwise the build falls back to `-lncursesw`.
 - For doasedit, a `doas.conf` that permits `dd`, `cat` and `install`
   (e.g. `permit persist :wheel`).
 - Perl 5 with the IO::Pty module for the ee behavioural test suite
   (`make test`); install it on OpenBSD with `doas pkg_add p5-IO-Tty`
-  (devel/p5-IO-TTY).  The tree and truncate test suites are POSIX
-  shell and need no extra packages.
+  (devel/p5-IO-TTY).  The compat, tree and truncate suites are POSIX
+  shell scripts and need `mktemp(1)` plus `stat(1)` in either its GNU
+  (`-c`) or BSD (`-f`) option form; they need no extra packages.
 
 ## Known differences from the reference utilities
 
@@ -209,7 +222,9 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   (documented in `tree/tree.1`); `-s` prints sizes (use
   `--noreport` for the historical "no report" behaviour).
 - `truncate`: error messages are similar but not identical; usage
-  text differs.
+  text differs. Options must precede the operands (the command line is
+  not permuted), `--version`/`-V` are not supported, and the `D` suffix
+  is rejected.
 - `ee`: the message-catalog (localization) infrastructure of the
   original is removed; the interface is hard-coded U.S. English and
   text is always UTF-8.  Terminal handling is provided by `ncursesw`;
@@ -221,7 +236,8 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   that contain a NUL byte, are rejected rather than edited.  A
   configured non-UTF-8 locale makes `ee` refuse to start (there is no
   byte-oriented mode).  The historical `eightbit`/`noeightbit` settings
-  are accepted but have no effect (text is always UTF-8).  `spell` and
+  are not recognized; unknown initialization lines are ignored, and text
+  is always UTF-8.  `spell` and
   `ispell` integration has been removed and replaced by ee's own small
   affix checker (`ee/spell/`), which ships a public-domain U.S. English
   dictionary under CC0-1.0 and needs no external program;
@@ -230,8 +246,29 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   targets 72 columns for prose and refuses to reflow diffs, patches and
   code-like text; a whole-document command reflows every paragraph
   independently while preserving blank lines and paragraph boundaries.
-- `doasedit`: the write-back replaces the file atomically (inode is
-  not preserved, hard links are broken, file flags are not carried
-  over; owner/group/mode are preserved) instead of writing into the
-  existing inode — the same trade-off `sudoedit` makes, in exchange
-  for closing the symlink race.
+- `doasedit`: when the invoking user can write the target, the edited
+  content is written into the existing inode in place, so the inode and
+  hard links are preserved and the write is not atomic.  Otherwise —
+  the privileged path, which also covers creating a new file — the
+  write-back goes through `doas install` (temporary file in the
+  destination directory plus `rename(2)`).  That path is atomic and
+  cannot follow a swapped symlink, but it replaces the inode, breaks
+  hard links and does not carry over file flags; for an existing target
+  owner/group/mode are preserved.  The install path's trade-off is the
+  one `sudoedit` makes.
+
+## Licensing
+
+Each component keeps the licence of its origin; the full texts are in
+[LICENSES/](LICENSES/):
+
+- [compat](LICENSES/compat)
+- [doasedit](LICENSES/doasedit)
+- [ee](LICENSES/ee)
+- [spell](LICENSES/spell) (the dictionary data, dedicated to the public
+  domain under CC0-1.0)
+- [tree](LICENSES/tree)
+- [truncate](LICENSES/truncate)
+
+There is no single top-level licence file: the per-component files
+above govern the corresponding sources.

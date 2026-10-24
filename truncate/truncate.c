@@ -51,14 +51,15 @@ static off_t	    sizev;
 static const char  *ref_file;
 
 [[noreturn]] static void usage(void);
-[[nodiscard]] static int parse_size(const char *, off_t *, enum relmode *);
+[[nodiscard]] static int parse_size(const char *, off_t *, enum relmode *,
+    int *);
 
 [[noreturn]] static void
 usage(void)
 {
 	fprintf(stderr,
 	    "usage: truncate [-c] [-o] -s [+|-]<|>|/|%%SIZE[unit] file ...\n"
-	    "       truncate [-c] [-o] -r rfile file ...\n");
+	    "       truncate [-c] -r rfile file ...\n");
 	exit(1);
 }
 
@@ -78,7 +79,7 @@ help(void)
 	       "\n"
 	       "  -c, --no-create        do not create any files\n"
 	       "  -o, --io-blocks        treat SIZE as number of IO blocks "
-	       "instead of bytes\n"
+	       "instead of bytes (requires -s)\n"
 	       "  -r, --reference=RFILE  base size on RFILE\n"
 	       "  -s, --size=SIZE        set or adjust the file size by SIZE "
 	       "bytes\n"
@@ -100,17 +101,22 @@ help(void)
 
 /*
  * Parse a SIZE argument.  Returns 0 on success and fills in *val and
- * *relp (the relative mode in effect afterwards); -1 on an invalid
- * number (with errno set to ERANGE on overflow); -2 when a sign is
- * combined with a relative modifier.
+ * *relp (the relative mode in effect afterwards); *isrelp is set to 1
+ * when this particular token carried a modifying character and 0 when
+ * it was absolute.  Returns -1 on an invalid number (with errno set to
+ * ERANGE on overflow); -2 when a sign is combined with a relative
+ * modifier.
  */
 [[nodiscard]] static int
-parse_size(const char *arg, off_t *val, enum relmode *relp)
+parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
 {
 	const char *p = arg;
 	uintmax_t   acc = 0;
 	int	    sign = 1;
 	int	    anydigit = 0;
+	int	    token_relative = 0;
+
+	*isrelp = 0;
 
 	while (isspace((unsigned char)*p))
 		p++;
@@ -118,18 +124,22 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 	switch (*p) {
 	case '<':
 		*relp = RM_MAX;
+		token_relative = 1;
 		p++;
 		break;
 	case '>':
 		*relp = RM_MIN;
+		token_relative = 1;
 		p++;
 		break;
 	case '/':
 		*relp = RM_RDN;
+		token_relative = 1;
 		p++;
 		break;
 	case '%':
 		*relp = RM_RUP;
+		token_relative = 1;
 		p++;
 		break;
 	}
@@ -140,6 +150,7 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 		if (*relp != RM_ABS)
 			return (-2);
 		*relp = RM_REL;
+		token_relative = 1;
 		if (*p == '-')
 			sign = -1;
 		p++;
@@ -197,12 +208,12 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 		default:
 			return (-1);
 		}
-		if (!anydigit && !isdigit((unsigned char)*p))
+		if (!anydigit)
 			acc = 1;
 		p++;
 		if (*p == 'i' && p[1] == 'B') {
 			p += 2;
-		} else if (*p == 'B' || *p == 'D') {
+		} else if (*p == 'B') {
 			base = 1000;
 			p++;
 		}
@@ -239,6 +250,7 @@ parse_size(const char *arg, off_t *val, enum relmode *relp)
 		else
 			*val = -(off_t)acc;
 	}
+	*isrelp = token_relative;
 	return (0);
 }
 
@@ -330,6 +342,7 @@ main(int argc, char *argv[])
 	struct stat sb;
 	off_t	    file_size = -1;
 	int	    i, error = 0;
+	int	    last_size_relative = 0;
 
 	setprogname(argv[0]);
 
@@ -394,7 +407,8 @@ main(int argc, char *argv[])
 			case 's': {
 				int r;
 
-				r = parse_size(val, &sizev, &rel_mode);
+				r = parse_size(val, &sizev, &rel_mode,
+				    &last_size_relative);
 				if (r == -2) {
 					warnx("multiple relative modifiers "
 					      "specified");
@@ -448,7 +462,8 @@ main(int argc, char *argv[])
 						int r;
 
 						r = parse_size(
-						    val, &sizev, &rel_mode);
+						    val, &sizev, &rel_mode,
+						    &last_size_relative);
 						if (r == -2) {
 							warnx("multiple "
 							      "relative "
@@ -495,7 +510,7 @@ main(int argc, char *argv[])
 		warnx("you must specify either --size or --reference");
 		usage();
 	}
-	if (ref_file && got_size && rel_mode == RM_ABS) {
+	if (ref_file && got_size && !last_size_relative) {
 		warnx("you must specify a relative --size with --reference");
 		usage();
 	}
@@ -525,9 +540,12 @@ main(int argc, char *argv[])
 	if (ref_file != nullptr) {
 		if (stat(ref_file, &sb) != 0)
 			err(1, "cannot stat '%s'", ref_file);
-		if (sb.st_size >= 0) {
-			file_size = sb.st_size;
-		} else {
+		/*
+		 * A negative st_size is not a usable length.  Do not trust
+		 * it: fall back to SEEK_END, as for the target file, and
+		 * fail if that does not yield a length either.
+		 */
+		if (sb.st_size < 0) {
 			int   ref_fd;
 			off_t file_end;
 
@@ -538,6 +556,8 @@ main(int argc, char *argv[])
 				if (file_end >= 0)
 					file_size = file_end;
 			}
+		} else {
+			file_size = sb.st_size;
 		}
 		if (file_size < 0)
 			err(1, "cannot get the size of '%s'", ref_file);

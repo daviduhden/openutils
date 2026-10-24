@@ -16,8 +16,10 @@ CFLAGS=${CFLAGS:--O2 -pipe}
 WARNINGS=${WARNINGS:--Wall -Wextra -Wpedantic}
 CSTD=${CSTD:--std=c23}
 
-bin="${TMPDIR:-/tmp}/stdckdint-test.$$"
-trap 'rm -f "$bin"' EXIT HUP INT TERM
+work=$(mktemp -d "${TMPDIR:-/tmp}/stdckdint-test.XXXXXX") || exit 1
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+bin="$work/stdckdint-test"
 
 # shellcheck disable=SC2086  # the options are intentionally split
 "$CC" $CFLAGS $CSTD $WARNINGS -I"$COMPAT_DIR" \

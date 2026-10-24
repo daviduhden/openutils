@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdckdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,8 +53,7 @@ help(void)
 	fprintf(stderr,
 	    "doasedit - edit files as root using an unprivileged editor\n"
 	    "\n"
-	    "usage: doasedit file...\n"
-	    "       doasedit -h\n"
+	    "usage: doasedit [-h] [--] file ...\n"
 	    "\n"
 	    "Options:\n"
 	    "  -h, --help     display help message and exit\n"
@@ -298,11 +298,15 @@ files_equal(const char *a, const char *b)
 	}
 	for (;;) {
 		na = read(fa, ba, sizeof(ba));
-		if (na == -1)
+		if (na == -1) {
+			rc = -1;
 			break;
+		}
 		nb = read(fb, bb, sizeof(bb));
-		if (nb == -1)
+		if (nb == -1) {
+			rc = -1;
 			break;
+		}
 		if (na != nb || (na > 0 && memcmp(ba, bb, (size_t)na) != 0)) {
 			rc = 0;
 			break;
@@ -377,6 +381,10 @@ snapshot_of(const char *path, struct snapshot *snap)
 
 	if (lstat(path, &st) == -1)
 		return (-1);
+	if (!S_ISREG(st.st_mode)) {
+		errno = EINVAL;
+		return (-1);
+	}
 	snap->dev = st.st_dev;
 	snap->ino = st.st_ino;
 	snap->mode = st.st_mode;
@@ -388,17 +396,23 @@ snapshot_of(const char *path, struct snapshot *snap)
 }
 
 static int
+stat_matches_snapshot(const struct stat *st, const struct snapshot *snap)
+{
+	return (st->st_dev == snap->dev && st->st_ino == snap->ino &&
+	    st->st_mode == snap->mode && st->st_uid == snap->uid &&
+	    st->st_gid == snap->gid && st->st_size == snap->size &&
+	    st->st_mtim.tv_sec == snap->mtim.tv_sec &&
+	    st->st_mtim.tv_nsec == snap->mtim.tv_nsec);
+}
+
+static int
 snapshot_equal(const char *path, const struct snapshot *snap)
 {
 	struct stat st;
 
 	if (lstat(path, &st) == -1)
 		return (0);
-	return (st.st_dev == snap->dev && st.st_ino == snap->ino &&
-	    st.st_mode == snap->mode && st.st_uid == snap->uid &&
-	    st.st_gid == snap->gid && st.st_size == snap->size &&
-	    st.st_mtim.tv_sec == snap->mtim.tv_sec &&
-	    st.st_mtim.tv_nsec == snap->mtim.tv_nsec);
+	return (stat_matches_snapshot(&st, snap));
 }
 
 /* copy the content of a source fd into an already-open file */
@@ -450,28 +464,24 @@ command_exists(const char *cmd)
 	path = getenv("PATH");
 	if (path == nullptr)
 		path = "/usr/bin:/bin";
-	for (p = path; *p != '\0';) {
-		size_t len;
+	for (p = path;;) {
+		const char *end = strchr(p, ':');
+		size_t	    len = end != nullptr ? (size_t)(end - p) : strlen(p);
 
-		while (*p == ':')
-			p++;
-		if (*p == '\0')
-			break;
-		len = strcspn(p, ":");
 		if (len == 0) {
 			/* empty PATH element means the current directory */
 			if (access(cmd, X_OK) == 0)
 				return (1);
-			continue;
-		}
-		if (len + 1 + strlen(cmd) + 1 < sizeof(buf)) {
+		} else if (len + 1 + strlen(cmd) + 1 < sizeof(buf)) {
 			memcpy(buf, p, len);
 			buf[len] = '/';
 			strlcpy(buf + len + 1, cmd, sizeof(buf) - len - 1);
 			if (access(buf, X_OK) == 0)
 				return (1);
 		}
-		p += len;
+		if (end == nullptr)
+			break;
+		p = end + 1;
 	}
 	return (0);
 }
@@ -481,7 +491,7 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 {
 	const char *doas_argv[] = {"doas", "-C", tmpfile, nullptr};
 	char	    line[16];
-	int	    status;
+	int	    status, rc;
 
 	if (!is_doas_conf(target))
 		return (0);
@@ -508,7 +518,8 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 		case 'e':
 		case 'E':
 		default:
-			if (run_editor(editor, tmpfile) == -1) {
+			rc = run_editor(editor, tmpfile);
+			if (rc == -1 || rc == 127) {
 				warnx("editor could not be started");
 				return (1);
 			}
@@ -525,7 +536,7 @@ main(int argc, char *argv[])
 	const char *editor_env;
 	const char *env_editor;
 	char	   *tmpdir = nullptr;
-	char	    tdir_tmpl[] = "/tmp/doasedit.XXXXXXXXXX";
+	char	   *tdir_tmpl;
 	const char *tmpenv;
 	int	    i, exit_code = 1;
 
@@ -554,8 +565,7 @@ main(int argc, char *argv[])
 		    "doasedit - edit files as root using an unprivileged "
 		    "editor\n"
 		    "\n"
-		    "usage: doasedit file...\n"
-		    "       doasedit -h\n"
+		    "usage: doasedit [-h] [--] file ...\n"
 		    "\n"
 		    "Options:\n"
 		    "  -h, --help     display help message and exit\n"
@@ -564,7 +574,7 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	if (getuid() == 0)
+	if (getuid() == 0 || geteuid() == 0)
 		errx(1, "using this program as root is not permitted");
 
 	/*
@@ -598,32 +608,27 @@ main(int argc, char *argv[])
 
 	/* private temporary directory */
 	tmpenv = getenv("TMPDIR");
-	if (tmpenv != nullptr && tmpenv[0] != '\0') {
-		auto len = strlen(tmpenv);
+	if (tmpenv == nullptr || tmpenv[0] == '\0')
+		tmpenv = "/tmp";
+	{
+		static const char suffix[] = "doasedit.XXXXXXXXXX";
+		size_t		  dlen = strlen(tmpenv), need;
 
-		/*
-		 * Leave room for the separating '/' that may be added
-		 * below: with len == sizeof(tdir_tmpl) - 1 the writes
-		 * would run one byte past the end of the template.
-		 */
-		if (len + 1 < sizeof(tdir_tmpl)) {
-			memcpy(tdir_tmpl, tmpenv, len);
-			tdir_tmpl[len] = '\0';
-			if (tdir_tmpl[len - 1] != '/') {
-				tdir_tmpl[len] = '/';
-				tdir_tmpl[len + 1] = '\0';
-			}
-			strlcat(tdir_tmpl, "doasedit.XXXXXXXXXX",
-			    sizeof(tdir_tmpl));
-		}
+		/* directory, separating '/', suffix and terminating NUL */
+		if (ckd_add(&need, dlen, sizeof(suffix)) ||
+		    ckd_add(&need, need, 1))
+			errx(1, "TMPDIR too long");
+		tdir_tmpl = malloc(need);
+		if (tdir_tmpl == nullptr)
+			err(1, "malloc");
+		memcpy(tdir_tmpl, tmpenv, dlen);
+		if (tdir_tmpl[dlen - 1] != '/')
+			tdir_tmpl[dlen++] = '/';
+		memcpy(tdir_tmpl + dlen, suffix, sizeof(suffix));
 	}
 	tmpdir = mkdtemp(tdir_tmpl);
 	if (tmpdir == nullptr)
 		err(1, "mkdtemp");
-	/* mkdtemp(3) returns its argument (a stack buffer here) */
-	tmpdir = strdup(tdir_tmpl);
-	if (tmpdir == nullptr)
-		err(1, "strdup");
 
 	cur_tmpdir = tmpdir;
 	signal(SIGINT, sighandler);
@@ -811,8 +816,8 @@ main(int argc, char *argv[])
 					struct stat fst;
 
 					if (fstat(fd, &fst) == -1 ||
-					    fst.st_dev != snap.dev ||
-					    fst.st_ino != snap.ino) {
+					    !stat_matches_snapshot(&fst,
+						&snap)) {
 						warnx("%s: file changed "
 						      "while reading",
 						    file);
@@ -917,7 +922,21 @@ main(int argc, char *argv[])
 		if (!exists) {
 			const char *inst_argv[] = {"doas", "install", "-m",
 			    "0644", tmpfile, target, nullptr};
+			struct stat nst;
 			int	    tries;
+
+			/* the target must still be absent: install(1)
+			 * would otherwise replace whatever appeared */
+			if (lstat(target, &nst) == 0) {
+				warnx("%s: file appeared during editing, "
+				      "not saving",
+				    file);
+				goto next;
+			}
+			if (errno != ENOENT) {
+				warn("%s", target);
+				goto next;
+			}
 
 			/* like the original: retry after failed password
 			 * attempts, three tries in total */
@@ -950,9 +969,10 @@ main(int argc, char *argv[])
 			fd = open(target, O_WRONLY | O_NOFOLLOW);
 		if (fd != -1) {
 			struct stat fst;
+			off_t	    pos;
 
-			if (fstat(fd, &fst) == -1 || fst.st_dev != snap.dev ||
-			    fst.st_ino != snap.ino) {
+			if (fstat(fd, &fst) == -1 ||
+			    !stat_matches_snapshot(&fst, &snap)) {
 				warnx("%s: file changed during editing, "
 				      "not saving",
 				    file);
@@ -964,7 +984,8 @@ main(int argc, char *argv[])
 				close(fd);
 				goto next;
 			}
-			if (ftruncate(fd, lseek(fd, 0, SEEK_CUR)) == -1) {
+			pos = lseek(fd, 0, SEEK_CUR);
+			if (pos == -1 || ftruncate(fd, pos) == -1) {
 				warn("failed to truncate %s", target);
 				close(fd);
 				goto next;
@@ -1026,6 +1047,6 @@ main(int argc, char *argv[])
 
 	cleanup_current();
 	cur_tmpdir = nullptr;
-	free(tmpdir);
+	free(tdir_tmpl);
 	return (exit_code);
 }

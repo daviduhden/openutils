@@ -1,10 +1,11 @@
-.TH ee 1 "" "" ""
+.TH ee 1 "October 24, 2026" "" ""
 .SH NAME
-ee \- easy editor
+ee, ree, edit \- easy editor
 .SH SYNOPSIS
 .nf
-ee [-e] [-i] [-h] [+#] [\fIfile\fR ...]
-ree [-e] [-i] [-h] [+#] [\fIfile\fR ...]
+ee [-e] [-i] [-h] [-?] [+#] [\fIfile\fR ...]
+ree [-e] [-i] [-h] [-?] [+#] \fIfile\fR ...
+edit [-e] [-i] [-h] [-?] [+#] [\fIfile\fR ...]
 .ta
 .fi
 .ad b
@@ -16,10 +17,17 @@ It is always in text insertion mode unless there is a prompt at the bottom
 of the terminal, or a menu present (in a panel in the middle of the terminal).
 The command
 .I ree
-is the same as
-.I ee,
-but restricted to editing the named file (no file operations, or shell escapes
-are allowed).
+is the same editor, but restricted to editing the file named on its command
+line.
+It can save that file, but not under another name; shell escapes (including
+printing, which runs the print command through a shell), the read and write
+commands, and saving the editor configuration are refused.
+.I ree
+requires at least one file operand.
+The command
+.I edit
+is a symbolic link to
+.IR ee .
 .PP
 An editor with similar user-friendly qualities but more features is available
 and is called
@@ -55,8 +63,17 @@ information window).
 Turns off reverse video in the title, status and shortcut bars
 (improves performance on some terminals).
 .TP
+.B -?
+Print a usage summary to standard error and exit with status 1.
+.TP
 .B +#
 Moves the cursor to line '#' at startup.
+.PP
+Option processing stops at the first argument that is not an option; an
+option that follows a file name is treated as a file name.
+The special argument
+.B --
+ends option processing.
 .br
 .\"
 .\"     screen layout
@@ -102,7 +119,7 @@ For instance, to move the cursor up, the user can use the up arrow key, or
 .nf
 .ta 1.4i
 .sp
-^a 	Prompt for the decimal value of a character to insert.
+^a 	Prompt for a decimal Unicode code point to insert.
 ^b 	Move to the bottom of the text.
 ^c 	Get the prompt for a command.
 ^d 	Move the cursor down.
@@ -165,7 +182,7 @@ bindings suit users familiar with the shell's Emacs mode:
 ^l	Undelete last deleted line.
 ^m	Insert a newline.
 ^n	Move to the next line.
-^o	Prompt for the decimal value of a character to insert.
+^o	Prompt for a decimal Unicode code point to insert.
 ^p	Previous line.
 ^r	Restore last deleted word.
 ^t	Move to the top of the text.
@@ -253,7 +270,9 @@ Move to the line indicated.
 .IP "\fBcase\fR"
 Make searches case sensitive.
 .IP "\fBcharacter\fR"
-Display the ascii value of the character at the cursor.
+Display the decimal value of the byte at the cursor.
+For a multibyte character this is the first byte of its UTF-8 sequence, not
+its Unicode code point.
 .IP "\fBexit\fR"
 Save the edited text, and leave the editor.
 .IP "\fBexpand\fR"
@@ -329,7 +348,7 @@ Displays a help screen, with all of the keyboard operations and commands.
 Pops up a menu for selecting whether to read a file, write to a file, or
 save the current contents of the editor, as well as send the contents of
 the editor to a print command (see the section \fBInitializing ee from a
-file\fR).
+file\fR).  In restricted mode only saving the named file is available.
 .IP "\fBredraw screen\fR"
 Provides a means to repaint the screen if the screen has been corrupted.
 .IP "\fBsettings\fR"
@@ -446,12 +465,17 @@ The
 .B miscellaneous
 menu can check the word at the cursor and offer a small set of
 suggestions, and spell checking can be toggled on and off.
+Only ASCII words are recognised: a word is a run of ASCII letters and the
+ASCII apostrophe, and text outside that set is not checked.
 .PP
 The engine reads a dictionary in the common
 .B .aff
 and
 .B .dic
 text format.
+A
+.B SET
+directive in the affix file is accepted and ignored.
 .I ee
 ships a U.S. English dictionary
 .RB ( en_US.aff
@@ -496,7 +520,7 @@ command
 .B printcommand
 (see the section
 .B Initializing ee from a file below).
-The default is to send the contents to "lp".
+The default is to send the contents to "lpr".
 .PP
 Whatever the user assigns to
 .B printcommand
@@ -518,10 +542,10 @@ execute at the
 .B command:
 prompt.
 Additionally, the user may direct the contents of the edit buffer out to
-a shell operation (via a pipe) by using the left angle bracket
+a shell operation (via a pipe) by using the right angle bracket
 (">"), followed by a "!" and the shell command to execute.
 The output of a shell operation can also be directed into the
-edit buffer by using a right angle bracket ("<") before the exclamation mark.
+edit buffer by using the left angle bracket ("<") before the exclamation mark.
 These can even be used together to send output to a shell operation and
 read back the results into the editor.
 So, if the editor contained a list of words to be sorted, they could be
@@ -536,6 +560,7 @@ This would send the contents of the editor to be piped into the
 utility and the result would be placed into the edit buffer at the current
 cursor location.
 The old information would have to be deleted by the user.
+In restricted mode none of these shell operations is available.
 .\"
 .\"     initializing ee from a file
 .\"
@@ -545,8 +570,9 @@ Since different users have different preferences, \fIee\fR allows some
 slight configurability.
 There are three possible locations for an initialization file for ee:
 the file \fI/usr/share/misc/init.ee\fR, the file \fI.init.ee\fR in the
-user's home directory, or the file \fI.init.ee\fR in the current directory
-(if different from the home directory).
+user's home directory, and the file \fI.init.ee\fR in the current directory.
+When the current directory is the user's home directory, the same file is
+not read a second time.
 This allows system administrators to set some preferences for the users on a
 system-wide basis (for example, the \fBprint\fR command), and the user to customize
 settings for particular directories (like one for correspondence, and a
@@ -555,6 +581,8 @@ different directory for programming).
 The file \fI\/usr/share/misc/init.ee\fR is read first, then
 \fI$HOME/.init.ee\fR, then \fI.init.ee\fR, with the settings specified by the most
 recent file read taking precedence.
+When the current directory is the home directory, \fI$HOME/.init.ee\fR is
+read once and the current-directory file is not read again.
 .PP
 The following items may be entered in the initialization file:
 .RS 4
@@ -581,7 +609,7 @@ text insertion is occurring.
 .IP \fBnoautoformat\fR
 Turns off automatic paragraph formatting (default).
 .IP \fBprintcommand\fR
-Allows the setting of the print command (default: "lp").
+Allows the setting of the print command (default: "lpr").
 .IP \fBrightmargin\fR
 The user can select a value for the right margin (the first column on the screen is zero).
 .IP \fBhighlight\fR
@@ -599,6 +627,10 @@ Turns on the vi key bindings.
 Turns on spell checking.
 .IP \fBnospell\fR
 Turns off spell checking.
+.IP \fBECHO\fR
+Writes the rest of the line to standard output, interpreting backslash
+escapes.
+It does not change an editor setting.
 .RE
 .\"
 .\"     save editor configuration
@@ -616,6 +648,7 @@ If a file named
 .I .init.ee
 already exists, it will be renamed
 .IR .init.ee.old .
+This operation is not available in restricted mode.
 .\"
 .\"     Caveats
 .\"
@@ -699,7 +732,18 @@ slower systems.
 .I $HOME/.init.ee
 .br
 .I .init.ee
+.SH EXIT STATUS
+The
+.I ee
+utility exits 0 on a normal exit and 1 if an error occurs.
+.TP 4
+.B 0
+Normal exit.
+.TP 4
+.B 1
+The terminal could not be initialized, the locale is not UTF-8, usage was
+requested with \fB-?\fR, or the editor aborted because of another error.
 .SH "SEE ALSO"
 .PP
-curses(3), ncurses(3), terminfo(4), environ(5), lp(1),
+curses(3), ncurses(3), terminfo(4), environ(5), lpr(1),
 aee(1)

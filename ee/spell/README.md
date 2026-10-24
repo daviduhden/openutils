@@ -1,16 +1,18 @@
 # ee spell checker
 
 `spell.c` and `spell.h` are ee's own affix-based spell checker, written in
-C23. It is an original component: no third-party engine code and no
-third-party dictionary data are included, and everything here is covered
-by the project licence (see [`LICENSES/ee`](../../LICENSES/ee)).
+C23. It is an original component: no third-party engine code or dictionary
+files are included; the bundled word data comes only from the
+public-domain sources recorded in
+[`DICTIONARY-SOURCES.md`](DICTIONARY-SOURCES.md).  The engine code is
+covered by the project licence (see [`LICENSES/ee`](../../LICENSES/ee)).
 
 ## Scope
 
 Supported, i.e. the subset ee needs:
 
 - a dictionary given as a `.dic` word list with optional `/flags`;
-- `.aff` directives: `SET`, `FLAG char|long`, `TRY`, `REP`, `PFX` and `SFX`;
+- `.aff` directives: `FLAG char|long`, `TRY`, `REP`, `PFX` and `SFX`;
 - exact word lookup, one prefix or one suffix at a time;
 - affix conditions: literals, `.`, `[...]`, `[^...]` and a trailing `*`;
 - one-edit suggestions (replacement, deletion, transposition, substitution,
@@ -22,6 +24,9 @@ Not supported (deliberately):
 - compound words, `MAP` tables and n-gram suggestions;
 - multiple dictionaries or languages;
 - any encoding other than the byte-oriented data around `en_US`.
+
+A `SET` directive is parsed and ignored; it does not select an encoding
+for the engine.
 
 ## Design
 
@@ -39,12 +44,13 @@ dictionary is read once, on the first query, and kept in memory.
 
 ee ships a U.S. English dictionary in this directory:
 
-- [`en_US.aff`](en_US.aff) - affix rules written from scratch for ee;
-- [`en_US.dic`](en_US.dic) - about 43,000 common words with optional
-  `/flags`.
+- [`en_US.aff`](en_US.aff) - a 71-line affix file written from scratch for
+  ee;
+- [`en_US.dic`](en_US.dic) - a count header followed by 43,221 common
+  words with optional `/flags`.
 
 Both files are placed in the public domain under CC0-1.0; see
-[`LICENSES/CC0-1.0`](../../LICENSES/CC0-1.0).  The dictionary is compiled
+[`LICENSES/spell`](../../LICENSES/spell).  The dictionary is compiled
 exclusively from public-domain word lists (12dicts and ENABLE2K);
 [`DICTIONARY-SOURCES.md`](DICTIONARY-SOURCES.md) records the exact sources,
 versions, checksums, filters and generation procedure, and
@@ -80,9 +86,10 @@ spell checker.
 
 ### Where ee finds the dictionary
 
-`make install` installs the two files into `$(PREFIX)/share/myspell`
-(`/usr/local/share/myspell` by default), which is one of the standard data
-directories ee searches (see [`ee(1)`](../ee.1)).  The `EE_DICTIONARY`
+`make install` installs the two files into `$(DICTDIR)`
+(`$(PREFIX)/share/myspell`, which is `/usr/local/share/myspell` by
+default), one of the standard data directories ee searches (see
+[`ee(1)`](../ee.1)).  The `EE_DICTIONARY`
 environment variable overrides this and may name a `.dic` file, an `.aff`
 file, a directory or a base path; use it when ee is installed under a
 different `PREFIX` or run from the source tree.

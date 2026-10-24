@@ -2,8 +2,9 @@
  * openutils portability shims.
  *
  * Every translation unit includes this header first.  On OpenBSD it
- * provides nothing: all of the interfaces below are native to the
- * base system.  On other hosts it does two things:
+ * checks the language revision and selects the BSD libc branch, but
+ * all of the interfaces below are native to the base system.  On other
+ * hosts it does two things:
  *
  *   - it defines the feature-test macros that expose the POSIX/XSI
  *     interfaces used by the sources (glibc in strict ISO C23 mode
@@ -101,20 +102,19 @@ unveil(const char *, const char *)
  * setprogname(3)/getprogname(3) for libcs that lack them (glibc).
  * glibc's err(3) family does not consult getprogname(), so on glibc
  * this is cosmetic; it exists so the sources compile and run.
+ *
+ * The buffer is a single external object (defined in bsdstring.c), not
+ * a static in this header: setprogname() is called from the program's
+ * main source file, while compat/err.c reads the name through
+ * getprogname().  Per-translation-unit storage would leave err.c with
+ * an empty name.
  */
 #if !OPENUTILS_BSD_LIBC && (defined(__GLIBC__) || !defined(__linux__))
-static inline char *
-openutils_progname(void)
-{
-	static char buf[64]; /* zero-initialized */
-
-	return (buf);
-}
+extern char openutils_progname_buf[64];
 
 static inline void
 setprogname(const char *name)
 {
-	char	   *buf = openutils_progname();
 	const char *base;
 	size_t	    len;
 
@@ -123,14 +123,14 @@ setprogname(const char *name)
 	len = strlen(base);
 	if (len >= 64)
 		len = 63;
-	memcpy(buf, base, len);
-	buf[len] = '\0';
+	memcpy(openutils_progname_buf, base, len);
+	openutils_progname_buf[len] = '\0';
 }
 
 static inline const char *
 getprogname(void)
 {
-	return (openutils_progname());
+	return (openutils_progname_buf);
 }
 #endif
 

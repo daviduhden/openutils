@@ -3,7 +3,7 @@
 # Second-phase regression tests for ee: resize in every modal state,
 # safe exit, strict UTF-8/NUL policy, Unicode insertion bounds, display
 # of wide and combining characters, tiny terminals, help paging and
-# shell round trips.
+# shell command execution.
 #
 # Requires Perl 5 with the IO::Pty module; on OpenBSD install it with
 # "pkg_add p5-IO-Tty" (devel/p5-IO-TTY).
@@ -381,7 +381,10 @@ sub test_resize_stress {
     return 1;
 }
 
-sub test_shell_roundtrip {
+# Verify that the "!" shell-command path runs a command and leaves the
+# editor working.  This is not a pipe round trip: the '>' and '<'
+# buffer-pipe commands are not exercised here.
+sub test_shell_command {
     my ($work) = @_;
     my $path = "$work/shell.txt";
     write_raw( $path, "before\n" );
@@ -414,7 +417,10 @@ sub main {
     ok('ee binary exists');
 
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $work   = tempdir( 'ee-modern.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $home =
+      tempdir( 'ee-modern-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    local $ENV{HOME} = $home;
+    my $work = tempdir( 'ee-modern.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
     check( 'resize inside the menu',       test_resize_in_menu($work) );
     check( 'resize inside a prompt',       test_resize_in_prompt($work) );
@@ -433,7 +439,7 @@ sub main {
     check( 'control characters are preserved and visible',
         test_control_characters($work) );
     check( 'resize stress',    test_resize_stress($work) );
-    check( 'shell round trip', test_shell_roundtrip($work) );
+    check( 'shell command runs', test_shell_command($work) );
 
     print "\npass: $PASS  fail: $FAIL\n";
     if ( $FAIL > 0 ) {

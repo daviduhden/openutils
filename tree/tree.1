@@ -1,4 +1,4 @@
-.Dd September 8, 2026
+.Dd October 24, 2026
 .Dt TREE 1
 .Os
 .Sh NAME
@@ -6,7 +6,7 @@
 .Nd display a tree of a directory's contents
 .Sh SYNOPSIS
 .Nm tree
-.Op Fl adfFgilnpqrstuxACDJQNU
+.Op Fl acdfFghilnpqrstuxCDJQNU
 .Op Fl L Ar level
 .Op Fl o Ar file
 .Op Fl P Ar pattern
@@ -44,6 +44,12 @@ The options are as follows:
 .It Fl a
 Include directory entries whose names begin with a dot
 .Pq Sq \&. .
+.It Fl c
+Print the last status change time
+.Pq ctime
+instead of the last modification time when dates are shown.
+Implies
+.Fl D .
 .It Fl d
 Only show directories.
 Symbolic links to directories are shown, but not followed.
@@ -74,9 +80,11 @@ Useful when the output is consumed by scripts.
 .It Fl l
 Follow symbolic links if they point to directories, as if they were
 directories.
-Symbolic links that would result in recursion are displayed with the
-message
+A symbolic link to any directory that has already been visited earlier
+in the walk is displayed with the message
 .Sq [recursive, not followed] .
+Loop detection is therefore global to the walk, not limited to the
+current chain of ancestors.
 .It Fl L Ar level
 Maximum display depth of the directory tree.
 Entries at depth
@@ -89,6 +97,9 @@ Output is always monochrome.
 Send output to
 .Ar file
 instead of standard output.
+The file is created or truncated; a symbolic link at
+.Ar file
+is refused.
 .It Fl p
 Print the protections for each file.
 .It Fl P Ar pattern
@@ -103,8 +114,13 @@ May be specified multiple times.
 Print non-printable characters in filenames as question marks instead
 of the default octal escapes.
 .It Fl Q
-Quote the names of files in double quotes, using C-style escapes for
-special characters.
+Quote the names of files in double quotes.
+Embedded double quotes and backslashes are escaped.
+Control characters in the range 7 to 13 are written as C-style escapes;
+other non-printable characters are written as octal escapes, or as
+.Sq \&?
+with
+.Fl q .
 .It Fl r
 Sort the output in reverse order.
 .It Fl s
@@ -115,15 +131,21 @@ Sort the output by last modification time instead of alphabetically.
 Print the username, or UID number if no username is available, of the
 file.
 .It Fl x
-Stay on the current file system only, like
+Do not descend into directories on a different file system than the
+argument being displayed, like
 .Xr find 1 Fl xdev .
+The mount point itself is displayed.
+Symbolic links that would cross a file system boundary are not followed.
 .It Fl C
 Accepted for compatibility and ignored.
 Output is always monochrome.
 .It Fl D
 Print the date of the last modification time for the file listed.
+With
+.Fl c ,
+print the last status change time instead.
 .It Fl J
-Prints out an JSON representation of the tree.
+Print a JSON representation of the tree.
 .It Fl N
 Print non-printable characters as is instead of the default octal
 escapes.
@@ -136,6 +158,8 @@ List directories before files.
 Do not descend directories that contain more than
 .Ar n
 entries.
+.Ar n
+must be a positive integer.
 .It Fl Fl inodes
 Prints the inode number of the file or directory.
 Implies
@@ -225,10 +249,22 @@ Use
 .Fl Fl noreport
 to suppress the trailing report instead.
 .El
+.Sh EXIT STATUS
+.Nm
+exits with one of the following values:
+.Bl -tag -width Ds
+.It 0
+Success.
+.It 1
+A usage, option, pledge or output-file open error occurred.
+.It 2
+An error occurred while opening or reading the root or a nested
+directory, or while writing or closing the output.
+.El
 .Sh LOCALE
 The interface of
 .Nm
-is U.S. English only, and its output is always UTF-8.
+is U.S. English only.
 The only supported locale is
 .Ev en_US.UTF-8 ,
 which
@@ -243,8 +279,21 @@ or any other locale variable has no effect on the interface language,
 the sorting order, the decimal separator
 .Pq always Sq \&. ,
 or the date format.
+When the
+.Ev en_US.UTF-8
+locale data is not available,
+.Nm
+prints a warning and falls back to byte-oriented output with ASCII line
+drawing; bytes above 127 are then escaped.
 Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
-File names and other user data may contain arbitrary valid UTF-8.
+File names and other user data may contain arbitrary valid UTF-8 and
+are printed unchanged in that case.
+Invalid byte sequences are escaped rather than emitted as-is;
+JSON output uses
+.Sq \eu00xx
+escapes for them, and
+.Fl N
+prints non-printable bytes raw.
 .Sh SEE ALSO
 .Xr find 1 ,
 .Xr ls 1 ,

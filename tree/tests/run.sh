@@ -87,6 +87,9 @@ newline'
 touch 'sub/with space'
 dd if=/dev/zero of=sub/tenk bs=1024 count=10 2>/dev/null
 touch sub/zzz
+mkdir sub/wide
+touch sub/wide/w1 sub/wide/w2 sub/wide/w3
+touch 'sub/quote"name' 'sub/back\slash'
 
 # ------------------------------------------------ basic output
 assert_out "lists directory" "afile" "$TREE" .
@@ -104,8 +107,10 @@ assert_not_out "-d hides files" "afile" "$TREE" -d sub
 assert_out "-d shows dir symlink" "lnk" "$TREE" -d sub
 
 assert_out "-f prints full path" "sub/afile" "$TREE" -f sub
+assert_not_out "-f avoids double slash" "sub//afile" "$TREE" -f sub/
 
 assert_out "-F classifies dirs" "deep/" "$TREE" -F sub
+assert_out "-F -d still classifies dirs" "deep/" "$TREE" -F -d sub
 assert_out "-F classifies symlink target" "lnk -> ../sub/deep/" \
 	"$TREE" -F sub
 assert_out "-F classifies fifo" "pipe|" "$TREE" -F sub
@@ -129,6 +134,15 @@ assert_out "-g shows group" "$(id -gn)" "$TREE" -g sub
 assert_out "-D shows date" "\[" "$TREE" -D --timefmt '%Y' sub
 assert_out "--timefmt respected" "$(date +%Y)" \
 	"$TREE" -D --timefmt '%Y' sub
+assert_out "--timefmt implies -D" "$(date +%Y)" \
+	"$TREE" --timefmt '%Y' sub
+assert_out "-c implies -D" "$(date +%Y)" \
+	"$TREE" -c --timefmt '%Y' sub
+touch sub/suid
+if chmod 4755 sub/suid 2>/dev/null; then
+	assert_out "-p shows setuid bit" "rws" "$TREE" -p sub
+	chmod 755 sub/suid
+fi
 
 # sorting
 assert_out "-r reverses" "zzz" "$TREE" -r sub
@@ -152,6 +166,8 @@ assert_out "--prune removes empty dirs" "afile" "$TREE" --prune sub
 assert_not_out "--prune drops empty" "empty" "$TREE" --prune .
 assert_out "--filelimit blocks descent" "exceeds filelimit" \
 	"$TREE" --filelimit 2 sub
+"$TREE" --filelimit 0 sub >/dev/null 2>&1
+assert_eq "--filelimit 0 is rejected" 1 $?
 assert_out "--noreport suppresses report" "afile" \
 	"$TREE" --noreport sub
 assert_not_out "--noreport no report" "director" \
@@ -168,17 +184,38 @@ assert_out "newlines escaped" "with" "$TREE" sub
 assert_out "-q replaces non-printables" "with?newline" "$TREE" -q sub
 assert_out "-N prints raw" "with" "$TREE" -N sub
 assert_out "-Q quotes names" '"with space"' "$TREE" -Q sub
+assert_out "-Q escapes embedded quote" 'quote\\"name' "$TREE" -Q sub
+assert_out "-Q escapes embedded backslash" 'back\\\\slash' "$TREE" -Q sub
 
 # JSON
 assert_out "-J emits json" '"type":"directory"' "$TREE" -J sub
 assert_out "-J report object" '"type":"report"' "$TREE" -J sub
 assert_out "-J link target" '"target":"../sub/deep"' "$TREE" -J sub
 assert_out "-J escapes newlines" 'with\\nnewline' "$TREE" -J sub
+assert_out "-J escapes embedded quote" 'quote\\"name' "$TREE" -J sub
+assert_out "-J escapes embedded backslash" 'back\\\\slash' "$TREE" -J sub
+assert_not_out "JSON --filelimit blocks nested descent" '"name":"afile"' \
+	"$TREE" -J --filelimit 2 sub
+assert_out "JSON --filelimit keeps directory object" '"name":"sub"' \
+	"$TREE" -J --filelimit 2 sub
+
+# JSON filelimit also applies to the contents of a followed symlink
+mkdir -p fl/holder
+ln -s ../../sub/wide fl/holder/link
+assert_out "JSON -l shows followed link" '"name":"link"' \
+	"$TREE" -J -l --filelimit 2 fl
+assert_not_out "JSON --filelimit limits followed symlink contents" \
+	'"name":"w1"' "$TREE" -J -l --filelimit 2 fl
 
 # -o output file
 "$TREE" -o "$work/out.txt" sub 2>/dev/null
 assert "output file written" [ -s "$work/out.txt" ]
 assert_out "output file has content" "afile" grep . "$work/out.txt"
+
+ln -s "$work/out-target" "$work/out-link"
+"$TREE" -o "$work/out-link" sub >/dev/null 2>&1
+assert_eq "-o refuses a symlink" 1 $?
+assert "-o did not create the symlink target" [ ! -e "$work/out-target" ]
 
 # error handling
 "$TREE" /nonexistent-tree-test >/dev/null 2>&1
@@ -187,8 +224,22 @@ assert_out "nonexistent root reported" "error opening dir" \
 	"$TREE" /nonexistent-tree-test
 "$TREE" -Z >/dev/null 2>&1
 assert_eq "invalid option exits 1" 1 $?
+"$TREE" -A >/dev/null 2>&1
+assert_eq "-A is rejected" 1 $?
 "$TREE" --help >/dev/null 2>&1
 assert_eq "--help exits 0" 0 $?
+
+# A nested unreadable directory makes the text output fail (not root).
+mkdir -p sub/noread
+touch sub/noread/inside
+chmod 000 sub/noread
+if [ "$(id -u)" -ne 0 ]; then
+	assert_out "nested unreadable dir reported" "error opening dir" \
+		"$TREE" sub
+	"$TREE" sub >/dev/null 2>&1
+	assert_eq "nested unreadable dir exits 2" 2 $?
+fi
+chmod 755 sub/noread
 
 # option combinations
 assert_out "-d -L 1 shows nested dirs" "sub" "$TREE" -d -L 1 .

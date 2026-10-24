@@ -126,4 +126,4 @@ The underlying word data is in the public domain (12dicts and ENABLE2K).
 The compilation, the affix rules and the generator are dedicated to the
 public domain under CC0-1.0:
 
-See [`LICENSES/CC0-1.0`](../../LICENSES/CC0-1.0).
+See [`LICENSES/spell`](../../LICENSES/spell).

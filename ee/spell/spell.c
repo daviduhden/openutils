@@ -177,6 +177,12 @@ build_index(struct ee_spell *sp)
 	unsigned long h;
 	int	      i, n;
 
+	/*
+	 * The bucket count is 2 * nents + 1 (at least one empty bucket).
+	 * Refuse rather than overflow int on an implausibly large list.
+	 */
+	if (sp->nents > (INT_MAX - 1) / 2)
+		return (-1);
 	n = sp->nents * 2 + 1;
 	sp->head = calloc((size_t)n, sizeof(int));
 	sp->next = calloc((size_t)(sp->nents > 0 ? sp->nents : 1), sizeof(int));
@@ -821,21 +827,29 @@ int
 ee_spell_suggest(
     struct ee_spell *sp, const char *word, size_t len, char out[][64], int max)
 {
-	int ns = 0;
+	char wbuf[SPELL_MAX_WORD];
+	int  ns = 0;
 
 	if ((sp == nullptr) || (len == 0) || (len >= SPELL_MAX_WORD) ||
 	    (max <= 0))
 		return (0);
-	if (check_word(sp, word, len))
+	/*
+	 * The caller's slice is not required to be NUL-terminated.  The
+	 * suggestion helpers expect a C string, so copy exactly len bytes
+	 * (the length-based check_word() contract) into a private buffer.
+	 */
+	memcpy(wbuf, word, len);
+	wbuf[len] = '\0';
+	if (check_word(sp, wbuf, len))
 		return (0);
-	ns = sug_replacements(sp, out, ns, max, word, len);
+	ns = sug_replacements(sp, out, ns, max, wbuf, len);
 	if (ns < max)
-		ns = sug_deletions(sp, out, ns, max, word, len);
+		ns = sug_deletions(sp, out, ns, max, wbuf, len);
 	if (ns < max)
-		ns = sug_transpositions(sp, out, ns, max, word, len);
+		ns = sug_transpositions(sp, out, ns, max, wbuf, len);
 	if (ns < max)
-		ns = sug_substitutions(sp, out, ns, max, word, len);
+		ns = sug_substitutions(sp, out, ns, max, wbuf, len);
 	if (ns < max)
-		ns = sug_insertions(sp, out, ns, max, word, len);
+		ns = sug_insertions(sp, out, ns, max, wbuf, len);
 	return (ns);
 }

@@ -1,4 +1,4 @@
-.Dd September 8, 2026
+.Dd October 24, 2026
 .Dt TRUNCATE 1
 .Os
 .Sh NAME
@@ -12,7 +12,6 @@
 .Ar file ...
 .Nm
 .Op Fl c
-.Op Fl o
 .Fl r Ar rfile
 .Ar file ...
 .Sh DESCRIPTION
@@ -36,6 +35,11 @@ Treat the
 .Ar size
 argument as a number of I/O blocks rather than bytes.
 The I/O block size of each file is used.
+This option requires
+.Fl s
+and is not valid with
+.Fl r
+alone.
 .It Fl r Ar rfile , Fl Fl reference Ns = Ns Ar rfile
 Truncate files to the length of the file
 .Ar rfile .
@@ -48,14 +52,44 @@ bytes (or blocks with
 Display usage information and exit.
 .El
 .Pp
+The long options also accept a separate argument:
+.Fl Fl reference Ar rfile
+and
+.Fl Fl size Ar size
+are equivalent to
+.Fl Fl reference Ns = Ns Ar rfile
+and
+.Fl Fl size Ns = Ns Ar size ,
+respectively.
+.Pp
 The
 .Ar size
-argument is an integer and optional unit
+argument is an integer and an optional unit
 (example: 10K is 10*1024).
-Units are K, M, G, T, P, E, Z, Y, R and Q (powers of 1024) or KB, MB,
-and so on (powers of 1000).
+The integer may be omitted when a unit is given, in which case it is
+taken as 1.
+Units are K, M, G, T, P, E, Z, Y, R, and Q (powers of 1024) or
+KB, MB, and so on (powers of 1000).
 Binary prefixes can be used, too: KiB=K, MiB=M, and so on.
-The number may be negative.
+The lowercase forms
+.Cm k ,
+.Cm m ,
+.Cm g ,
+and
+.Cm t
+are also accepted.
+The
+.Cm D
+suffix is not accepted.
+Sizes that do not fit in an
+.Vt off_t
+are rejected; on systems with a 64-bit
+.Vt off_t ,
+the Z, Y, R, and Q suffixes overflow for every nonzero value.
+.Pp
+An absolute
+.Ar size
+cannot be negative.
 .Pp
 The
 .Ar size
@@ -75,15 +109,19 @@ round down to multiple of
 round up to multiple of
 .El
 .Pp
-Exactly one of
+A leading
+.Cm -
+is the reduce-by modifier, not a negative absolute size.
+.Pp
+At least one of
 .Fl r
 and
 .Fl s
 must be specified.
 When both are given,
-the
+the final
 .Fl s
-argument must carry a modifying character.
+argument must begin with a modifying character.
 .Pp
 If a file is made smaller, its extra data is lost.
 If a file is made larger, it will be extended as if by writing bytes
@@ -123,6 +161,18 @@ syntax
 .Pq always ASCII digits and the documented suffixes
 or on diagnostics.
 Legacy encodings such as ISO-8859-1 and Shift-JIS are not supported.
+.Sh COMPATIBILITY
+Options must precede the file operands.
+.Nm
+stops option processing at the first non-option argument and does not
+permute the command line the way some GNU utilities do; any later
+argument that looks like an option is treated as a file operand.
+.Pp
+The
+.Fl Fl version
+and
+.Fl V
+options are not supported.
 .Sh SEE ALSO
 .Xr dd 1 ,
 .Xr touch 1 ,

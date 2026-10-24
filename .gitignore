@@ -6,6 +6,9 @@ truncate/truncate
 ee/tests/test-spell
 ee/tests/test-dictionary
 
+# debug builds
+*_debug
+
 # objects and cores
 *.o
 core

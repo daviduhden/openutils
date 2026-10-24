@@ -4,17 +4,18 @@
 # extensions are used.
 #
 # Build variables are propagated to the per-utility Makefiles through
-# the environment (not the make command line) so that the
-# per-utility Makefiles can extend them with += as usual.
+# the environment so that the per-utility Makefiles can extend them with
+# += as usual.  CC and CSTD have fixed defaults; override them on the
+# make command line (for example, make CC=gcc).
 
 CC = clang
 CFLAGS ?= -O2 -pipe
 # C23 is declared explicitly at the top level so that tooling which scans
-# build metadata (e.g. scripts/tests-format/clang-format-all.sh) recognises
-# the standard for every file below, including compat/tests/ whose ancestors
-# carry no other declaration.  The per-utility Makefiles also set it for
-# direct builds.
-CFLAGS += -std=c23
+# build metadata recognises the standard for every file below, including
+# compat/tests/ whose ancestors carry no other declaration.  It is kept
+# separate from CFLAGS so that a command-line CFLAGS override cannot drop
+# it.  The per-utility Makefiles also set it for direct builds.
+CSTD ?= -std=c23
 CPPFLAGS ?=
 LDFLAGS ?=
 DEBUGGER ?= lldb
@@ -23,13 +24,15 @@ DEBUG_CFLAGS ?= -O0 -g
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/man/man
+DICTDIR ?= $(PREFIX)/share/myspell
 DESTDIR ?=
 
 SUBDIR = doasedit tree ee truncate
 
-MAKE_ENV = env CC="$(CC)" CFLAGS="$(CFLAGS)" CPPFLAGS="$(CPPFLAGS)" \
-	LDFLAGS="$(LDFLAGS)" PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" \
-	MANDIR="$(MANDIR)" DESTDIR="$(DESTDIR)" \
+MAKE_ENV = env CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" \
+	CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
+	PREFIX="$(PREFIX)" BINDIR="$(BINDIR)" MANDIR="$(MANDIR)" \
+	DICTDIR="$(DICTDIR)" DESTDIR="$(DESTDIR)" \
 	DEBUGGER="$(DEBUGGER)" DEBUG_CFLAGS="$(DEBUG_CFLAGS)"
 
 all:
@@ -54,8 +57,9 @@ truncate:
 	$(MAKE_ENV) $(MAKE) -C truncate all
 
 test: all
-	CC="$(CC)" CFLAGS="$(CFLAGS)" sh compat/tests/run.sh
-	CC="$(CC)" CFLAGS="$(CFLAGS)" FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK \
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" sh compat/tests/run.sh
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" \
+	    FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK \
 	    sh compat/tests/stdckdint-compile-fail.sh
 	sh tree/tests/run.sh
 	sh truncate/tests/run.sh
@@ -71,18 +75,16 @@ debug:
 
 # strict-warning build of every component (developer target).
 #
-# doasedit, tree and truncate build warning-free under the full set
-# below with both compilers, with one intentional exception: GCC's
-# -Wformat-nonliteral (implied by -Wformat=2) diagnoses do_date()'s
-# runtime strftime(3) format string, which comes from the --timefmt
-# option and is user-supplied by design.  ee builds warning-free under
-# -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef
-# -Wstrict-prototypes -Wmissing-prototypes with both compilers, and it
-# was additionally verified clean under -Wformat-nonliteral and
-# -Wconversion/-Wsign-conversion with GCC (the message formats are now
-# compile-time literals and the byte/character arithmetic was audited).
-# The extra flags are not enabled in the check target because clang was
-# not available in the verification environment.
+# CHECK_CC defaults to clang; override it on the command line for a
+# build with another compiler.  doasedit, tree and truncate are checked
+# with the full CHECK_WARNINGS set below, with one intentional
+# exception: GCC's -Wformat-nonliteral (implied by -Wformat=2)
+# diagnoses do_date()'s runtime strftime(3) format string, which comes
+# from the --timefmt option and is user-supplied by design.  ee is
+# checked with EE_WARNINGS, which omits -Wconversion and
+# -Wsign-conversion; those two flags are not part of the routine check
+# target.  -Werror is deliberately not used, so a newer compiler's new
+# diagnostics do not turn the developer build into a failure.
 CHECK_CC ?= clang
 CHECK_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 	-Wstrict-prototypes -Wmissing-prototypes -Wconversion -Wsign-conversion
@@ -98,7 +100,8 @@ check:
 			exit 1; \
 		fi; \
 	done
-	@if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c ee/*.c; then \
+	@if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c \
+		ee/*.c ee/*.h ee/spell/*.c ee/spell/*.h; then \
 		echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; \
 		exit 1; \
 	fi

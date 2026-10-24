@@ -189,7 +189,10 @@ sub main {
     ok('ee binary exists');
 
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $work   = tempdir( 'ee-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $home =
+      tempdir( 'ee-run-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    local $ENV{HOME} = $home;
+    my $work = tempdir( 'ee-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
     # refuses to run without a terminal
     my $rc = run_no_tty( $EE, q{-?} );

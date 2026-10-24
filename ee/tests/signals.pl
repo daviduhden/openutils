@@ -190,8 +190,19 @@ sub noterm_test {
 }
 
 sub main {
+    unless ( -x $EE ) {
+        notok('ee binary exists');
+        print "\n";
+        print "pass: $PASS  fail: $FAIL\n";
+        return 1;
+    }
+    ok('ee binary exists');
+
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $work   = tempdir( 'ee-sig-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $home =
+      tempdir( 'ee-sig-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    local $ENV{HOME} = $home;
+    my $work = tempdir( 'ee-sig-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
     my ( $exited, $restored, $saved ) = sigint_test($work);
     check( 'SIGINT exits the editor',      $exited );
     check( 'SIGINT restores the terminal', $restored );

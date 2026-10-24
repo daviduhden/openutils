@@ -11,7 +11,7 @@ SRCS = ee.c utf8.c help.c spell/spell.c
 CC = clang
 CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
-CSTD = -std=c23
+CSTD ?= -std=c23
 DEBUGGER ?= lldb
 DEBUG_CFLAGS ?= -O0 -g
 
