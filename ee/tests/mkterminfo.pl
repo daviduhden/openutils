@@ -26,6 +26,9 @@ my $KE = 88;     # keypad off
 my $PC = 104;    # pad character
 my $NS = 190;    # total number of string capabilities (see new_curse.c)
 
+# Write one minimal little-endian terminfo entry.  The optional arguments
+# override the clear, cursor-address and pad strings so callers can inject
+# malformed escapes for the parser tests.
 sub build {
     my ( $path, $clear, $cup, $pad ) = @_;
     $clear = "\033[H\033[2J" unless defined $clear;

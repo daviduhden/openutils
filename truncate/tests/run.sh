@@ -1,5 +1,5 @@
 #!/bin/sh
-# Behavioural tests for truncate(1).  Where a GNU truncate is
+# Behavioral tests for truncate(1).  Where a GNU truncate is
 # available in PATH (and is not this binary), the same operations are
 # run against both implementations and the results compared.  Without
 # one, those differential checks are reported as skipped.
@@ -36,26 +36,31 @@ if command -v truncate >/dev/null 2>&1; then
 	esac
 fi
 
+# Print one human-readable test progress line.
 say() {
 	printf '%s\n' "$*"
 }
 
+# Record a passing test and its label.
 ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
+# Record a failure and keep running so all checks are reported.
 notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
+# Record a skipped differential check and its reason.
 skip() {
 	SKIP=$((SKIP + 1))
 	printf 'skip - %s\n' "$1"
 }
 
+# Assert that two values are byte-identical.
 assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"
@@ -67,6 +72,7 @@ assert_eq() {
 	fi
 }
 
+# Return a file's size in bytes using GNU or BSD stat syntax.
 size() {
 	stat -c %s "$1" 2>/dev/null || stat -f %z "$1" 2>/dev/null
 }

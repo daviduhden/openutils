@@ -82,6 +82,7 @@ struct ee_spell {
 /* helpers							    */
 /* ---------------------------------------------------------------- */
 
+/* Duplicate a string into heap storage; returns null on allocation failure. */
 static char *
 spell_strdup(const char *s)
 {
@@ -95,6 +96,10 @@ spell_strdup(const char *s)
 	return (p);
 }
 
+/*
+ * Strip CR and LF from the end of a line read by getline(3).  The dictionary
+ * and affix formats are line-oriented; other whitespace is preserved.
+ */
 static void
 spell_rstrip(char *s)
 {
@@ -125,6 +130,10 @@ spell_hash(const char *word, size_t len)
 /* word tables							    */
 /* ---------------------------------------------------------------- */
 
+/*
+ * Record one affix flag on an entry.  The array grows by one; failure leaves
+ * the existing flags intact and is reported to the caller.
+ */
 static int
 add_flag(struct spell_entry *e, unsigned short flag)
 {
@@ -139,6 +148,7 @@ add_flag(struct spell_entry *e, unsigned short flag)
 	return (0);
 }
 
+/* Return true when the entry carries the requested affix flag. */
 static int
 entry_has_flag(const struct spell_entry *e, unsigned short flag)
 {
@@ -151,6 +161,10 @@ entry_has_flag(const struct spell_entry *e, unsigned short flag)
 	return (0);
 }
 
+/*
+ * Look up one exact word in the hash index.  The comparison is length-aware so
+ * callers may pass a non-NUL-terminated slice; returns the entry index or -1.
+ */
 static int
 find_word(const struct ee_spell *sp, const char *word, size_t len)
 {
@@ -171,6 +185,10 @@ find_word(const struct ee_spell *sp, const char *word, size_t len)
 	return (-1);
 }
 
+/*
+ * Build the chained hash index over the loaded dictionary.  The helper arrays
+ * are owned by the spell object and freed on close.
+ */
 static int
 build_index(struct ee_spell *sp)
 {
@@ -208,6 +226,7 @@ build_index(struct ee_spell *sp)
 /* conditions							    */
 /* ---------------------------------------------------------------- */
 
+/* Test one condition token against a byte; non-ASCII bytes never match a set. */
 static int
 tok_match(const struct spell_tok *t, unsigned char c)
 {
@@ -269,6 +288,11 @@ match_suffix(
 	return (0);
 }
 
+/*
+ * Evaluate a compiled affix condition against a candidate stem.  Prefixes are
+ * anchored at the start, suffixes at the end; an empty token list matches
+ * every stem.
+ */
 static int
 rule_matches(const struct spell_rule *r, const char *stem, int len, int suffix)
 {
@@ -283,6 +307,12 @@ rule_matches(const struct spell_rule *r, const char *stem, int len, int suffix)
 	    r->tok, 0, r->ntok, (const unsigned char *)stem, len, 0));
 }
 
+/*
+ * Compile one affix condition into a token sequence.  The supported subset is
+ * literal characters, "." wildcards, "[...]" and "[^...]" sets, and a single
+ * trailing "*" repetition.  An empty condition, or ".", means "always match";
+ * an unsupported shape returns -1 so the caller can disable the rule.
+ */
 static int
 parse_condition(const char *s, struct spell_rule *r)
 {
@@ -334,6 +364,10 @@ parse_condition(const char *s, struct spell_rule *r)
 /* rules and checking						    */
 /* ---------------------------------------------------------------- */
 
+/*
+ * Copy one strip/add field into a fixed rule buffer.  "0" denotes an empty
+ * field in the affix format; the destination is always NUL-terminated.
+ */
 static void
 copy_part(char *dst, int dstsz, const char *src, int *lenp)
 {
@@ -346,6 +380,11 @@ copy_part(char *dst, int dstsz, const char *src, int *lenp)
 	*lenp = (int)strlen(dst);
 }
 
+/*
+ * Decode one flag.  In short mode a flag is a single byte; in long mode it is
+ * a 16-bit value assembled from up to two bytes.  "used" reports how many input
+ * bytes were consumed so the dictionary loop can advance.
+ */
 static unsigned short
 parse_flag(const char *s, int flag_long, size_t *used)
 {
@@ -362,6 +401,10 @@ parse_flag(const char *s, int flag_long, size_t *used)
 	return ((unsigned char)s[0]);
 }
 
+/*
+ * Append one compiled rule to a flat array.  The temporary pointer preserves
+ * the existing array if reallocarray(3) fails.
+ */
 static int
 append_rule(struct spell_rule **list, int *n, const struct spell_rule *r)
 {
@@ -376,6 +419,12 @@ append_rule(struct spell_rule **list, int *n, const struct spell_rule *r)
 	return (0);
 }
 
+/*
+ * Try one suffix or prefix rule at a time.  For each candidate, reconstruct the
+ * stem by applying the rule's strip/add transformation, reject stems outside
+ * the supported length, and require the dictionary entry to carry the rule's
+ * flag.  Cross-product affixes are intentionally not attempted.
+ */
 static int
 check_affixes(struct ee_spell *sp, const char *word, int len)
 {
@@ -428,6 +477,10 @@ check_affixes(struct ee_spell *sp, const char *word, int len)
 	return (0);
 }
 
+/*
+ * Check an exact word first, then the affix rules.  The length limit keeps
+ * stack buffers bounded; invalid or oversized words are simply unknown.
+ */
 static int
 check_word(struct ee_spell *sp, const char *word, size_t len)
 {
@@ -442,6 +495,12 @@ check_word(struct ee_spell *sp, const char *word, size_t len)
 /* dictionary and affix files					    */
 /* ---------------------------------------------------------------- */
 
+/*
+ * Read the .dic file into the entry array.  The first line (the advisory word
+ * count) is ignored.  Compound entries containing whitespace are skipped, as
+ * are malformed or oversized entries; flags after '/' are decoded according to
+ * the FLAG mode seen in the .aff file.
+ */
 static int
 load_dic(struct ee_spell *sp, const char *path)
 {
@@ -508,6 +567,12 @@ load_dic(struct ee_spell *sp, const char *path)
 	return (0);
 }
 
+/*
+ * Read the supported subset of the .aff file: FLAG mode, TRY characters, REP
+ * replacements and PFX/SFX rules.  Unknown directives are ignored.  A rule
+ * whose condition cannot be compiled is kept with an empty add field so it can
+ * never match.
+ */
 static int
 load_aff(struct ee_spell *sp, const char *path)
 {
@@ -620,6 +685,7 @@ load_aff(struct ee_spell *sp, const char *path)
 /* suggestions							    */
 /* ---------------------------------------------------------------- */
 
+/* Return true when the candidate is already present in the output array. */
 static int
 sug_has(char out[][64], int ns, const char *cand, size_t len)
 {
@@ -632,6 +698,10 @@ sug_has(char out[][64], int ns, const char *cand, size_t len)
 	return (0);
 }
 
+/*
+ * Add a candidate only when it is a real word and fits the caller's output
+ * buffer.  Duplicate candidates are suppressed; returns the updated count.
+ */
 static int
 sug_add(struct ee_spell *sp, char out[][64], int ns, int max, const char *cand,
     size_t len)
@@ -647,6 +717,7 @@ sug_add(struct ee_spell *sp, char out[][64], int ns, int max, const char *cand,
 	return (ns + 1);
 }
 
+/* One-edit suggestions formed by deleting one byte from the word. */
 static int
 sug_deletions(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
@@ -666,6 +737,7 @@ sug_deletions(struct ee_spell *sp, char out[][64], int ns, int max,
 	return (ns);
 }
 
+/* One-edit suggestions formed by swapping each adjacent byte pair. */
 static int
 sug_transpositions(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
@@ -686,6 +758,10 @@ sug_transpositions(struct ee_spell *sp, char out[][64], int ns, int max,
 	return (ns);
 }
 
+/*
+ * One-edit suggestions formed by replacing each position with one of the TRY
+ * characters from the .aff file.  An empty TRY set disables this strategy.
+ */
 static int
 sug_substitutions(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
@@ -707,6 +783,7 @@ sug_substitutions(struct ee_spell *sp, char out[][64], int ns, int max,
 	return (ns);
 }
 
+/* One-edit suggestions formed by inserting one TRY character at each gap. */
 static int
 sug_insertions(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
@@ -728,6 +805,11 @@ sug_insertions(struct ee_spell *sp, char out[][64], int ns, int max,
 	return (ns);
 }
 
+/*
+ * Suggestions from the REP replacement table.  Every occurrence of a source
+ * substring is tried in turn, and the replacement is accepted only if the
+ * resulting word is known.
+ */
 static int
 sug_replacements(struct ee_spell *sp, char out[][64], int ns, int max,
     const char *word, size_t len)
@@ -766,6 +848,11 @@ sug_replacements(struct ee_spell *sp, char out[][64], int ns, int max,
 /* public interface						    */
 /* ---------------------------------------------------------------- */
 
+/*
+ * Open a dictionary.  The optional affix file is loaded first because it
+ * determines flag width and rule sets; the dictionary must contain at least one
+ * usable entry.  All partially allocated state is released on failure.
+ */
 struct ee_spell *
 ee_spell_open(const char *aff_path, const char *dic_path)
 {
@@ -791,6 +878,10 @@ ee_spell_open(const char *aff_path, const char *dic_path)
 	return (sp);
 }
 
+/*
+ * Release all dictionary storage, including per-entry flags and replacement
+ * strings.  A null dictionary is accepted so callers can close unconditionally.
+ */
 void
 ee_spell_close(struct ee_spell *sp)
 {
@@ -815,6 +906,10 @@ ee_spell_close(struct ee_spell *sp)
 	free(sp);
 }
 
+/*
+ * Public lookup wrapper.  The word is a length-delimited slice and need not be
+ * NUL-terminated; a null dictionary reports every word as unknown.
+ */
 int
 ee_spell_check(struct ee_spell *sp, const char *word, size_t len)
 {
@@ -823,6 +918,11 @@ ee_spell_check(struct ee_spell *sp, const char *word, size_t len)
 	return (check_word(sp, word, len));
 }
 
+/*
+ * Public suggestion wrapper.  A known word produces no suggestions.  The
+ * one-edit strategies run in a fixed order until the caller's buffer is full;
+ * the return value is the number of rows written.
+ */
 int
 ee_spell_suggest(
     struct ee_spell *sp, const char *word, size_t len, char out[][64], int max)

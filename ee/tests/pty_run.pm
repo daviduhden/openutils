@@ -28,6 +28,9 @@ POSIX::sigaction( POSIX::SIGPIPE(), POSIX::SigAction->new('IGNORE') );
 
 package Session;
 
+# Spawn the requested program on a new pseudo-terminal.  The parent keeps the
+# master side and the child gets the slave as its controlling terminal and
+# standard streams, so ncurses sees a real TTY.
 sub new {
     my ( $class, $argv, $env ) = @_;
     my $pty = IO::Pty->new or Carp::croak "cannot allocate a pty: $!";
@@ -57,6 +60,8 @@ sub pid { my ($self) = @_; return $self->{pid} }
 sub pty { my ($self) = @_; return $self->{pty} }
 sub buf { my ($self) = @_; return $self->{buf} }
 
+# Drain output for up to $sec seconds.  Returns false at EOF so callers can
+# distinguish an exited child from a quiet one.
 sub pump {
     my ( $self, $sec ) = @_;
     my $deadline = time + $sec;
@@ -69,6 +74,8 @@ sub pump {
     return 1;
 }
 
+# Write all bytes to the PTY master, retrying short writes.  Returns false on
+# EOF or write error.
 sub write_data {
     my ( $self, $data ) = @_;
     my $off = 0;
@@ -81,6 +88,8 @@ sub write_data {
     return 1;
 }
 
+# Close the PTY and make a non-blocking attempt to reap the child.  The wait
+# path normally reaps it first; this is a safety net for early failures.
 sub close_session {
     my ($self) = @_;
     close( $self->{pty} ) if $self->{pty};
@@ -113,6 +122,8 @@ sub wait_exit {
     return 0;
 }
 
+# Decode the tiny escape language accepted on the command line: \xHH plus the
+# common C escapes.  Unknown escapes are copied literally.
 sub main::decode_input {
     my ($s) = @_;
     my %esc = ( n => 10, r => 13, t => 9, e => 27, q{\\} => 92 );
@@ -139,6 +150,9 @@ sub main::decode_input {
     return $out;
 }
 
+# Run one program under the PTY helper.  The optional timing tuple controls
+# startup, inter-sequence delay and final drain; each input sequence is decoded
+# and written in order.
 sub main::run {
     my ( $argv, $inputs, $env, @timing ) = @_;
     my ( $startup, $delay, $drain ) = @timing;
@@ -159,6 +173,8 @@ sub main::run {
     return $out;
 }
 
+# Command-line wrapper: split argv at "--", run the program, and print its
+# decoded UTF-8 transcript.  The module is silent when loaded by a test.
 sub main::cli {
     my @args = @ARGV;
     my $sep  = scalar @args;

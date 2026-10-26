@@ -27,6 +27,7 @@ my $PASS = 0;
 my $FAIL = 0;
 my @FAILED;
 
+# Record a passing assertion and its label.
 sub ok {
     my ($desc) = @_;
     $PASS++;
@@ -34,6 +35,7 @@ sub ok {
     return;
 }
 
+# Record a failing assertion without aborting the remaining checks.
 sub notok {
     my ($desc) = @_;
     $FAIL++;
@@ -42,12 +44,14 @@ sub notok {
     return;
 }
 
+# Check a boolean condition and emit a diagnostic on failure.
 sub check {
     my ( $desc, $value ) = @_;
     $value ? ok($desc) : notok($desc);
     return;
 }
 
+# Write raw bytes to a file without newline or encoding translation.
 sub write_raw {
     my ( $path, $bytes ) = @_;
     open my $fh, '>:raw', $path or Carp::croak "open $path: $!";
@@ -56,6 +60,7 @@ sub write_raw {
     return;
 }
 
+# Read a file in binary mode and return its exact bytes.
 sub read_raw {
     my ($path) = @_;
     return q{} unless -e $path;
@@ -67,6 +72,7 @@ sub read_raw {
 }
 
 # Run ee configured for vi bindings (through a private $HOME/.init.ee).
+# Drive one vi-mode editing session and return the PTY transcript.
 sub vi_session {
     my ( $work, $path ) = @_;
     write_raw( "$work/.init.ee", "VI\n" );
@@ -265,6 +271,8 @@ sub test_format_paragraph_stays_in_paragraph {
     return 1;
 }
 
+# Run the key-binding, menu and formatter regression cases and exit nonzero if
+# any assertion failed.
 sub main {
     unless ( -x $EE ) {
         notok('ee binary exists');

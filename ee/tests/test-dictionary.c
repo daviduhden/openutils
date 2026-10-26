@@ -17,6 +17,10 @@
 
 static int failures;
 
+/*
+ * Assert one exact-word result.  The test is deliberately quiet on success so
+ * the suite output stays focused on failures.
+ */
 static void
 expect(struct ee_spell *sp, const char *word, int want)
 {
@@ -28,6 +32,7 @@ expect(struct ee_spell *sp, const char *word, int want)
 	}
 }
 
+/* Require one specific suggestion for a misspelled word. */
 static void
 expect_suggest(struct ee_spell *sp, const char *word, const char *want)
 {
@@ -45,6 +50,11 @@ expect_suggest(struct ee_spell *sp, const char *word, const char *want)
 	}
 }
 
+/*
+ * Open the bundled en_US dictionary and exercise regular, irregular and
+ * contraction forms.  The optional arguments override the default affix and
+ * dictionary paths; the failure count is the process exit status.
+ */
 int
 main(int argc, char **argv)
 {

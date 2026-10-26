@@ -16,6 +16,10 @@
 
 static int failures;
 
+/*
+ * Assert the engine's exact-word result and print a compact diagnostic line.
+ * The failure counter is shared by all assertions and becomes the exit status.
+ */
 static void
 expect_check(struct ee_spell *sp, const char *w, int want)
 {
@@ -27,6 +31,10 @@ expect_check(struct ee_spell *sp, const char *w, int want)
 		failures++;
 }
 
+/*
+ * Require a specific suggestion and also detect duplicate candidates.  The
+ * output array has eight rows, matching the fixed capacity used by the test.
+ */
 static void
 expect_suggest(struct ee_spell *sp, const char *w, const char *want)
 {
@@ -55,6 +63,11 @@ expect_suggest(struct ee_spell *sp, const char *w, const char *want)
 	}
 }
 
+/*
+ * Open the tiny test dictionary, run exact-word and suggestion assertions, and
+ * return the failure count.  The optional arguments override the default
+ * affix/dictionary paths.
+ */
 int
 main(int argc, char **argv)
 {

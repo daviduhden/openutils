@@ -1,5 +1,5 @@
 #!/bin/sh
-# Behavioural tests for tree(1).  Builds a temporary hierarchy with
+# Behavioral tests for tree(1).  Builds a temporary hierarchy with
 # regular files, hidden files, symlinks, fifos, unusual filenames and
 # nested directories, then checks option parsing and output.
 
@@ -13,21 +13,26 @@ PASS=0
 FAIL=0
 FAILED_TESTS=
 
+# Print one human-readable test progress line.
 say() {
 	printf '%s\n' "$*"
 }
 
+# Record a passing test and its label.
 ok() {
 	PASS=$((PASS + 1))
 	printf 'ok %s - %s\n' "$PASS" "$1"
 }
 
+# Record a failing test, remember its label, and keep running so the summary
+# reports every failure.
 notok() {
 	FAIL=$((FAIL + 1))
 	FAILED_TESTS="$FAILED_TESTS $1"
 	printf 'not ok - %s\n' "$1"
 }
 
+# Assert that a command exits with the expected status.
 assert() {
 	desc=$1
 	shift
@@ -38,6 +43,7 @@ assert() {
 	fi
 }
 
+# Assert that captured output contains a literal substring.
 assert_out() {
 	desc=$1
 	pattern=$2
@@ -50,6 +56,7 @@ assert_out() {
 	fi
 }
 
+# Assert that captured output does not contain a literal substring.
 assert_not_out() {
 	desc=$1
 	pattern=$2
@@ -61,6 +68,7 @@ assert_not_out() {
 	fi
 }
 
+# Assert that two strings are byte-identical.
 assert_eq() {
 	if [ "$2" = "$3" ]; then
 		ok "$1"

@@ -27,6 +27,7 @@ my $PASS = 0;
 my $FAIL = 0;
 my @FAILED;
 
+# Record a passing assertion and its label.
 sub ok {
     my ($desc) = @_;
     $PASS++;
@@ -34,6 +35,7 @@ sub ok {
     return;
 }
 
+# Record a failing assertion and its label without stopping the run.
 sub notok {
     my ($desc) = @_;
     $FAIL++;
@@ -42,6 +44,7 @@ sub notok {
     return;
 }
 
+# Compare two values and feed the result to the pass/fail helpers.
 sub assert_eq {
     my ( $desc, $expected, $actual ) = @_;
     if ( $expected eq $actual ) {
@@ -57,6 +60,7 @@ sub assert_eq {
 
 # Return the file content with trailing newlines stripped, as a
 # shell command substitution would.
+# Read a file in binary mode so CR, NUL and non-UTF-8 bytes survive unchanged.
 sub read_text {
     my ($path) = @_;
     open my $fh, '<', $path or return q{};
@@ -71,6 +75,8 @@ sub read_text {
 # Run a command with standard input connected to a pipe (not a
 # terminal) and return its exit status, like a subprocess with
 # stdin=PIPE, stdout inherited and stderr discarded.
+# Run ee without a terminal for the startup and usage checks; the caller gets
+# stdout, stderr and the exit status.
 sub run_no_tty {
     my (@cmd) = @_;
     pipe( my $rd, my $wr ) or Carp::croak "pipe: $!";
@@ -101,6 +107,8 @@ sub read_locale_list {
 # Locale policy: no locale configured means ee picks a UTF-8 one and the
 # interface is English; an explicitly configured non-UTF-8 locale is
 # rejected cleanly; an explicit UTF-8 locale works.
+# Verify that locale-related environment variables do not change ee's startup
+# messages or exit behavior; the interface is intentionally U.S. English only.
 sub test_locale_policy {
     my ( $ee, $work ) = @_;
 
@@ -179,6 +187,8 @@ sub test_locale_policy {
     return;
 }
 
+# Run all non-interactive and PTY-backed checks in the order listed, then
+# report the accumulated failure count as the process status.
 sub main {
     unless ( -x $EE ) {
         notok('ee binary exists');

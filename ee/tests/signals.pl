@@ -37,6 +37,7 @@ my $PASS = 0;
 my $FAIL = 0;
 my @FAILED;
 
+# Record a passing assertion and its label.
 sub ok {
     my ($desc) = @_;
     $PASS++;
@@ -44,6 +45,7 @@ sub ok {
     return;
 }
 
+# Record a failing assertion without aborting the remaining checks.
 sub notok {
     my ($desc) = @_;
     $FAIL++;
@@ -52,6 +54,7 @@ sub notok {
     return;
 }
 
+# Check a boolean condition and emit a diagnostic on failure.
 sub check {
     my ( $desc, $value ) = @_;
     if ($value) {
@@ -64,6 +67,7 @@ sub check {
 }
 
 # Write a minimal compiled terminfo entry (magic 282).
+# Generate a hostile terminfo entry for the unknown-terminal checks.
 sub build_terminfo {
     my ( $path, $clear, $names ) = @_;
     my $NS      = 190;
@@ -94,6 +98,7 @@ sub build_terminfo {
     return;
 }
 
+# Send SIGINT during editing and verify that the terminal is restored.
 sub sigint_test {
     my ($work) = @_;
     my $session =
@@ -110,6 +115,7 @@ sub sigint_test {
     return ( $exited, $restored, $saved );
 }
 
+# Send SIGWINCH and verify that the display survives a resize.
 sub sigwinch_test {
     my ($work) = @_;
     my $session =
@@ -147,6 +153,8 @@ sub sigwinch_test {
 }
 
 # Run ee against a synthetic entry with a hostile clear string.
+# Run ee against a deliberately malformed terminfo entry and require a clean
+# exit rather than a crash.
 sub tinfo_test {
     my ( $work, $clear ) = @_;
     my $tdir = "$work/terminfo";
@@ -171,6 +179,7 @@ sub tinfo_test {
 
 # An unknown terminal name must be rejected by ncursesw with a clean,
 # non-zero exit, never a crash.
+# Run ee with an unknown TERM value and require a clean rejection.
 sub noterm_test {
     my ($work) = @_;
     my $session = Session->new(
@@ -189,6 +198,7 @@ sub noterm_test {
     return ( $exited, $crashed );
 }
 
+# Run the signal, terminfo and unknown-terminal cases and report failures.
 sub main {
     unless ( -x $EE ) {
         notok('ee binary exists');

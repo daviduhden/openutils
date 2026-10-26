@@ -32,6 +32,7 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 fail=0
 
+# Compile one translation unit and require the compiler to reject it.
 # $1 = label, $2 = translation unit.
 must_reject() {
 	printf '%s\n' "$2" >"$tmp/case.c"
@@ -46,6 +47,7 @@ must_reject() {
 	fi
 }
 
+# Compile one translation unit and require the compiler to accept it.
 # $1 = label, $2 = translation unit.
 must_accept() {
 	printf '%s\n' "$2" >"$tmp/case.c"

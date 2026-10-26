@@ -30,6 +30,7 @@ my $PASS = 0;
 my $FAIL = 0;
 my @FAILED;
 
+# Record a passing assertion and its label.
 sub ok {
     my ($desc) = @_;
     $PASS++;
@@ -37,6 +38,7 @@ sub ok {
     return;
 }
 
+# Record a failing assertion without aborting the remaining checks.
 sub notok {
     my ($desc) = @_;
     $FAIL++;
@@ -45,6 +47,7 @@ sub notok {
     return;
 }
 
+# Check a boolean condition and print a diagnostic when it is false.
 sub check {
     my ( $desc, $value ) = @_;
     $value ? ok($desc) : notok($desc);
@@ -53,6 +56,7 @@ sub check {
 
 # TAP diagnostic: printed with a leading '#' so it is ignored by the
 # harness but shows up when a check fails.
+# Emit one diagnostic line prefixed for easy filtering in test output.
 sub diag {
     my ($msg) = @_;
     print "# $msg\n";
@@ -60,12 +64,14 @@ sub diag {
 }
 
 # Render a byte string with non-printable bytes escaped, for diagnostics.
+# Render nonprintable bytes in a readable escaped form for failure messages.
 sub escaped {
     my ($data) = @_;
     $data =~ s/([^\x20-\x7e])/sprintf('\\x%02x', ord($1))/gex;
     return $data;
 }
 
+# Write raw bytes to a file without newline or encoding translation.
 sub write_raw {
     my ( $path, $bytes ) = @_;
     open my $fh, '>:raw', $path or Carp::croak "open $path: $!";
@@ -74,6 +80,7 @@ sub write_raw {
     return;
 }
 
+# Read a file in binary mode and return its exact bytes.
 sub read_raw {
     my ($path) = @_;
     return q{} unless -e $path;
@@ -84,6 +91,7 @@ sub read_raw {
     return defined $data ? $data : q{};
 }
 
+# Change the PTY window size and let the program process SIGWINCH.
 sub resize {
     my ( $s, $rows, $cols ) = @_;
 
@@ -97,6 +105,7 @@ sub resize {
 }
 
 # Open a file, type text, save with ^S and quit with ^Q.
+# Start ee with initial content and drive a short edit sequence.
 sub simple_edit {
     my ( $path, $text, $extra_inputs ) = @_;
     my @inputs = ( $text, "\x13", "\x11" );
@@ -408,6 +417,8 @@ sub test_shell_command {
     return ( $exited && read_raw($path) eq "before after\n" ) ? 1 : 0;
 }
 
+# Run the resize, UTF-8, bounds, tiny-terminal and shell-command cases and
+# report the accumulated failure count.
 sub main {
     unless ( -x $EE ) {
         notok('ee binary exists');
