@@ -8,6 +8,19 @@
 // clang-format on
 
 /*
+ * Built-in help content.  The tables below are immutable static data;
+ * the screen is assembled on demand from ee_help_count() and
+ * ee_help_line(), so the help renderer does not need to know the
+ * content and the content does not need to know the terminal size.
+ *
+ * ee_help_line() numbers logical lines in a fixed order: for every
+ * visible section, a header line, its item lines, then a blank
+ * separator, followed by the "Command line" header and the usage
+ * lines.  The count and lookup functions must therefore agree exactly;
+ * both iterate the same section table in the same order.
+ */
+
+/*
  * An entry lists the key in normal mode, the key in emacs mode (nullptr if
  * identical) and the description.  All text is U.S. English.
  */
@@ -182,6 +195,11 @@ static const char *const help_usage[] = {
     "  -e  do not expand tabs     -h  no reverse video",
 };
 
+/*
+ * Total number of logical lines for a binding set, including headers
+ * and blank separators.  The arithmetic here is the contract that
+ * ee_help_line() implements; both must stay in step.
+ */
 int
 ee_help_count(int keys_mode)
 {
@@ -198,6 +216,15 @@ ee_help_count(int keys_mode)
 	return (total);
 }
 
+/*
+ * Return logical line index for keys_mode.  The function walks the
+ * section table with a separate line counter; when the counter reaches
+ * index it formats the header, the item (selecting the emacs key label
+ * when applicable), the blank separator, or one of the trailing usage
+ * lines.  Out-of-range indices leave out empty, as the header contract
+ * requires, and key labels are bounded so a long label cannot push the
+ * description out of the caller's buffer.
+ */
 void
 ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
 {

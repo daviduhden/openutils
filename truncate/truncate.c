@@ -17,6 +17,24 @@
 // clang-format on
 
 /*
+ * truncate: set or adjust the size of one or more files.
+ *
+ * A SIZE argument is parsed into an off_t plus a relative mode
+ * (enum relmode).  Absolute sizes are used directly.  Relative modes
+ * combine SIZE with the current size of each target: extend/reduce by,
+ * at least, at most, round down to a multiple, or round up to a
+ * multiple.  With -r, the size of a reference file supplies the base
+ * size; a relative -s then adjusts it.  With -o, the value is in units
+ * of the target's st_blksize rather than bytes.
+ *
+ * All size arithmetic uses <stdckdint.h> so that absurd inputs report an
+ * overflow instead of wrapping, and a computed negative size is clamped
+ * to zero.  Options must precede the file operands; the command line is
+ * not permuted.  The pledge profile is derived from the options because
+ * only -r needs rpath and only the default (create) mode needs cpath.
+ */
+
+/*
  * Representable bounds of the signed off_t, derived from its width.
  * The shift is performed in uintmax_t, so the derivation is
  * well-defined for off_t of at most 64 bits only when uintmax_t is at
@@ -118,6 +136,7 @@ parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
 
 	*isrelp = 0;
 
+	/* Leading whitespace is accepted, matching the reference utility. */
 	while (isspace((unsigned char)*p))
 		p++;
 
@@ -146,6 +165,11 @@ parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
 	while (isspace((unsigned char)*p))
 		p++;
 
+	/*
+	 * A sign is the extend/reduce modifier, not a negative absolute
+	 * size, so it cannot be combined with '<', '>', '/' or '%'.
+	 * Combining them is an error, reported as -2.
+	 */
 	if (*p == '+' || *p == '-') {
 		if (*relp != RM_ABS)
 			return (-2);
@@ -166,6 +190,12 @@ parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
 		p++;
 	}
 
+	/*
+	 * Unit suffix: the letter selects a power of the base, and the
+	 * optional "iB" (binary) or "B" (decimal) suffix selects 1024 or
+	 * 1000.  A suffix without a number means one unit.  Anything
+	 * left after the suffix is invalid.
+	 */
 	if (*p != '\0') {
 		int base = 1024;
 		int power = -1;
@@ -254,6 +284,19 @@ parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
 	return (0);
 }
 
+/*
+ * Apply the parsed size request to one open file.
+ *
+ * ssize is sizev from the command line.  fstat(2) is needed by block
+ * mode (for st_blksize) and by a relative mode whose base is not
+ * supplied by -r (for st_size); it is skipped otherwise.  A negative
+ * st_size is not usable as a base, so lseek(2) to the end is the last
+ * fallback.
+ *
+ * A request that would produce a negative size is clamped to zero
+ * instead of being passed to ftruncate(2), which would reject it.
+ * Returns 0 on success and 1 on any error, after printing a diagnostic.
+ */
 [[nodiscard]] static int
 do_ftruncate(const char *fname, int fd, off_t ssize)
 {
@@ -267,6 +310,11 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 		}
 	}
 
+	/*
+	 * -o: the value is a count of I/O blocks.  A file system that
+	 * reports no block size at all falls back to the traditional
+	 * 512-byte block rather than multiplying by zero.
+	 */
 	if (block_mode) {
 		off_t bs = sb.st_blksize ? sb.st_blksize : 512;
 
@@ -278,6 +326,12 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 		}
 	}
 
+	/*
+	 * Establish the base size for a relative operation: the -r
+	 * reference (rsize) wins, then the target's own st_size, then
+	 * SEEK_END for file systems that do not report a usable size.
+	 * The switch below then computes the new absolute size.
+	 */
 	if (rel_mode != RM_ABS) {
 		if (rsize >= 0) {
 			fsize = rsize;
@@ -346,6 +400,12 @@ main(int argc, char *argv[])
 
 	setprogname(argv[0]);
 
+	/*
+	 * Parse options.  Both the historical short forms and GNU-style
+	 * long forms are accepted; a long option may carry its argument
+	 * after '=' or as the next argv element.  The first non-option
+	 * ends parsing, so operands are never permuted.
+	 */
 	for (i = 1; i < argc; i++) {
 		char *arg = argv[i];
 
@@ -506,6 +566,11 @@ main(int argc, char *argv[])
 	argv += i;
 	argc -= i;
 
+	/*
+	 * Validate the option combination before touching any file.
+	 * A -s used together with -r must be relative, because an
+	 * absolute -s would make the reference size meaningless.
+	 */
 	if (!ref_file && !got_size) {
 		warnx("you must specify either --size or --reference");
 		usage();
@@ -567,6 +632,14 @@ main(int argc, char *argv[])
 			rsize = file_size;
 	}
 
+	/*
+	 * Process every operand even after an error, so one failure does
+	 * not silently skip the remaining files; the final status is 1 if
+	 * anything failed.  O_NONBLOCK keeps open(2) from blocking on a
+	 * FIFO; ftruncate(2) on such a descriptor then fails normally.
+	 * A close(2) error is also a failure because it can report a
+	 * deferred write error.
+	 */
 	for (; argc > 0; argc--, argv++) {
 		const char *fname = argv[0];
 		int	    fd, oflags;

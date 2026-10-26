@@ -18,6 +18,7 @@
  * pre-defined NCURSES_WIDECHAR, so ask for the wide API directly; the
  * program always links against the wide library (-lncursesw).
  */
+
 #ifndef NCURSES_WIDECHAR
 #define NCURSES_WIDECHAR 1
 #endif
@@ -45,6 +46,55 @@
 #include <wchar.h>
 #include <wctype.h>
 // clang-format on
+
+/*
+ * ee: a small full-screen editor built on ncursesw.
+ *
+ * Buffer model
+ * ------------
+ * The document is a doubly linked list of struct text lines.  Each line
+ * is a NUL-terminated byte buffer holding UTF-8; line_length includes
+ * the terminating NUL, while max_length is the allocated capacity.  The
+ * cursor is the pair (curr_line, point), where point is a byte pointer
+ * on a character boundary.  position is the 1-based byte offset of
+ * point, scr_horz the display column in terminal cells and horiz_offset
+ * the first visible column.  Characters are never split: all movement
+ * and deletion goes through utf8_prev()/utf8_len(), and the helpers in
+ * utf8.c are the only UTF-8 implementation.
+ *
+ * Terminal layout
+ * ---------------
+ * set_up_term() computes all geometry once from LINES/COLS and creates
+ * title_win (status bar), text_win (editing area), com_win (prompt and
+ * messages), key_win (contextual shortcut bar) and help_win (overlay).
+ * The rest of the editor uses the windows and the derived bounds
+ * (text_top, text_rows, last_line, last_col) rather than recomputing
+ * them; the pop-up menu is the one exception, because it is sized from
+ * LINES/COLS when it opens.  SIGWINCH appears as KEY_RESIZE;
+ * resize_check() rebuilds the layout and redraws.
+ *
+ * Input and signals
+ * -----------------
+ * main() runs a wget_wch(3) loop.  The signal handler only sets
+ * ee_intr_flag; after every read (successful or interrupted) the loop
+ * checks the flag and leaves through edit_abort(), which restores the
+ * terminal.  Three key binding sets (traditional, Emacs, small vi
+ * normal/insert) dispatch to the same editing primitives.
+ *
+ * State and ownership
+ * -------------------
+ * Most editor state is deliberately global: there is one buffer per
+ * invocation, and menus and prompts operate on it in place.  Menu
+ * tables are static; the settings menu allocates its generated label
+ * buffers once in strings_init() and rewrites their contents as the
+ * settings change.  The spell engine is opened lazily and cached.
+ * The formatter manipulates the live buffer through the ordinary
+ * editing operations, saving and restoring the cut buffers and search
+ * state around the operation.
+ *
+ * The interface is monochrome and U.S. English only.  Reverse video is
+ * used for emphasis unless -h; there are no message catalogs.
+ */
 
 #define TAB 9
 
@@ -103,10 +153,10 @@ ee_min(int a, int b)
 #define MENU_ITEM_COL 3
 
 struct text {
-	unsigned char *line;	    /* line of characters		*/
+	unsigned char *line;	    /* UTF-8 text plus a NUL terminator	*/
 	int	       line_number; /* line number			*/
-	int line_length; /* actual number of characters in the line */
-	int max_length;	 /* maximum number of characters the line handles */
+	int line_length; /* bytes used, including the terminating NUL */
+	int max_length;	 /* bytes allocated for line			*/
 	struct text *next_line; /* next line of text		*/
 	struct text *prev_line; /* previous line of text	*/
 };
@@ -317,7 +367,11 @@ utf8_width(const unsigned char *s)
 	return (ee_utf8_width(s));
 }
 
-/* Return the number of terminal columns occupied by a UTF-8 string. */
+/*
+ * Return the number of terminal columns occupied by a UTF-8 string.
+ * ASCII and bytes that do not begin a valid sequence count one column;
+ * valid sequences use their wcwidth(3) width.
+ */
 static int
 utf8_strwidth(const char *s)
 {
@@ -738,12 +792,34 @@ const char *init_strings[] = {CASE, NOCASE, EXPAND, NOEXPAND, INFO, NOINFO,
     RIGHTMARGIN, HIGHLIGHT, NOHIGHLIGHT, EMACS_string, NOEMACS_string,
     VI_string, SPELL_string, NOSPELL_string, nullptr};
 
-/* beginning of main program		*/
+/*
+ * Program entry point.
+ *
+ * Startup order matters: ignore signals 1..23 first, require a terminal
+ * on both stdin and stdout, establish the UTF-8 LC_CTYPE invariant, then
+ * reset SIGCHLD/SIGSEGV to their defaults, install the clean-exit
+ * handler and allocate the initial buffer.  Only after that are the init
+ * files read, the command line parsed (overriding init settings) and the
+ * first file loaded.
+ *
+ * The event loop repaints the status and shortcut bars, blocks in
+ * wget_wch(3), and dispatches one key.  ERR is either a signal
+ * (ee_intr_flag) or a closed terminal; both leave through edit_abort().
+ * KEY_RESIZE rebuilds the layout.  Ordinary keys go to insert() in
+ * insert/traditional mode, to vi_normal() in vi normal mode, or to the
+ * selected control-key handler for control characters.  Every
+ * iteration ends by restoring the default shortcut labels.
+ */
 int
 main(int argc, char *argv[])
 {
 	int counter;
 
+	/*
+	 * Ignore signals 1..23 up front.  The ones that need clean
+	 * handling are installed explicitly below, and SIGCHLD/SIGSEGV are
+	 * reset to their defaults before any shell command can run.
+	 */
 	for (counter = 1; counter < 24; counter++)
 		signal(counter, SIG_IGN);
 
@@ -767,6 +843,11 @@ main(int argc, char *argv[])
 	signal(SIGCHLD, SIG_DFL);
 	signal(SIGSEGV, SIG_DFL);
 	ee_install_sigint();
+	/*
+	 * Start with one empty line.  The cut-word buffer is allocated
+	 * eagerly (subsequent cuts free and reallocate it); the line cut
+	 * buffer starts empty and grows on first use.
+	 */
 	d_word = xmalloc(150);
 	*d_word = '\0';
 	d_line = nullptr;
@@ -922,7 +1003,13 @@ main(int argc, char *argv[])
 	return (0);
 }
 
-/* resize the line to length + factor*/
+/*
+ * Grow (positive factor) or shrink (negative factor) a line buffer by
+ * factor bytes and return a pointer to byte offset rpos in the new
+ * buffer.  The capacity never drops below one byte.  An allocation
+ * failure or an impossible capacity is fatal; the terminal is restored
+ * first because the editor cannot continue without the buffer.
+ */
 static unsigned char *
 resiz_line(int factor, struct text *rline, int rpos)
 {
@@ -958,7 +1045,15 @@ resiz_line(int factor, struct text *rline, int rpos)
 	return (rpoint);
 }
 
-/* insert character into line		*/
+/*
+ * Insert one byte at the cursor.  Tabs are expanded to spaces first when
+ * expand_tabs is set (recursively, so the margin logic still runs).
+ * The line tail, including the terminating NUL, is shifted right; the
+ * buffer grows by ten bytes when fewer than five are free.  The display
+ * is updated immediately, the window is scrolled horizontally if the
+ * cursor leaves the text area, and observing the right margin may split
+ * the line at the previous word.  auto_format is applied after a space.
+ */
 static void
 insert(int character)
 {
@@ -1033,7 +1128,15 @@ insert(int character)
 	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
-/* insert a complete multi-byte UTF-8 character into line	*/
+/*
+ * Insert one complete UTF-8 sequence at the cursor.  The tail is moved
+ * right by len bytes in one step and all bytes of the sequence are
+ * copied together, so the cursor only ever advances past a complete
+ * character.  Only 1..4-byte scalar values are accepted; a longer
+ * result from wcrtomb(3) would not be valid UTF-8.  The display column is
+ * recomputed with scanline() because the width is not the byte count,
+ * and the usual margin/scroll/auto-format rules follow.
+ */
 static void
 insert_utf8(const unsigned char *mb, int len)
 {
@@ -1148,7 +1251,18 @@ insert_code(int code)
 	insert_utf8(mb, (int)n);
 }
 
-/* delete character		*/
+/*
+ * Delete the character before the cursor (backspace semantics; del_char()
+ * moves the cursor forward first for a forward delete).
+ *
+ * Inside a line, the preceding UTF-8 sequence is removed, the tail is
+ * shifted left and, when in == 8, d_char is updated so that
+ * undel_char() can restore it.  At the start of a
+ * line, the current line is joined onto the previous one: the previous
+ * line grows by the current line's contents (excluding its NUL), the
+ * current node is freed and the display rows are adjusted.  In both
+ * cases total_lines is kept in step and the line is redrawn.
+ */
 static void
 delete(int disp)
 {
@@ -1237,7 +1351,15 @@ delete(int disp)
 	formatted = FALSE;
 }
 
-/* find the proper horizontal position for the pointer	*/
+/*
+ * Recompute scr_horz from the start of the current line to pos, then
+ * adjust horiz_offset so the cursor is visible.  Display widths are not
+ * byte counts: control characters occupy two cells ("^X"), a tab
+ * advances to the next eight-column stop, and UTF-8 characters use
+ * wcwidth(3).  When the offset changes, midscreen() redraws around the
+ * cursor; the guard against a zero-change redraw prevents unbounded
+ * recursion on very narrow screens.
+ */
 static void
 scanline(unsigned char *pos)
 {
@@ -1304,7 +1426,13 @@ tabshift(int temp_int)
 		return (9 - leftover);
 }
 
-/* output non-printing character */
+/*
+ * Draw one control character (or a tab) and return the number of cells
+ * it occupies.  Tabs expand to the next eight-column stop but stop at
+ * the right edge; other C0 controls and DEL are drawn in caret notation
+ * ("^A", "^?"), and a byte outside the printable range is written raw
+ * defensively.  The clipping tests use the current horiz_offset.
+ */
 static int
 out_char(WINDOW *window, int character, int column)
 {
@@ -1345,7 +1473,12 @@ out_char(WINDOW *window, int character, int column)
 	return ((int)strlen(string));
 }
 
-/* return the length of the character	*/
+/*
+ * Display width in cells of one byte-sized character at the given
+ * column: a tab depends on the tab stop, C0 controls and DEL take two
+ * cells, printable ASCII takes one, and anything else (a UTF-8 lead
+ * byte, which callers normally handle separately) is assumed to be one.
+ */
 static int
 len_char(int character, int column)
 {
@@ -1365,7 +1498,16 @@ len_char(int character, int column)
 	return (length);
 }
 
-/* redraw line from current position */
+/*
+ * Draw one line from the current cursor position to the right edge of
+ * text_win.  ptr is the first byte to draw, t_pos its 1-based byte
+ * position and length the line_length (including NUL).  Part of the
+ * line may be left of horiz_offset; those cells are skipped before
+ * positioning the cursor.  Control characters are expanded through
+ * out_char(), UTF-8 sequences are emitted only when their full display
+ * width fits, and horizontal scrolling is preserved by the final
+ * wmove().  The old remainder of the row is cleared with wclrtoeol().
+ */
 static void
 draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 {
@@ -1443,7 +1585,14 @@ draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length)
 	wmove(text_win, vertical, (horiz - horiz_offset));
 }
 
-/* insert new line		*/
+/*
+ * Split the current line at the cursor and insert a new line node after
+ * it.  The text to the right of the cursor (if any) becomes the new
+ * line; the current line is shortened to the cursor.  When disp is
+ * true the text window is scrolled or shifted and the new line is
+ * drawn, and the cursor is reset to column 0.  The cursor ends up at the
+ * start of the new line.
+ */
 static void
 insert_line(int disp)
 {
@@ -1529,7 +1678,12 @@ name_alloc(void)
 	return ((struct files *)xmalloc(sizeof(struct files)));
 }
 
-/* move to next word in string		*/
+/*
+ * Skip the current word and following blanks in a NUL-terminated string
+ * and return a pointer to the next word (or to the terminator).  This is
+ * also how the command parser separates a command name from its first
+ * argument.  Only space and tab count as separators.
+ */
 static char *
 next_word(char *string)
 {
@@ -1540,7 +1694,13 @@ next_word(char *string)
 	return (string);
 }
 
-/* move to start of previous word in text	*/
+/*
+ * Move the cursor to the start of the previous word in the buffer,
+ * crossing a line boundary when already at column 1.  The three walks
+ * handle the usual cases: cursor just after a word, cursor in trailing
+ * blanks, and cursor inside a word.  The final adjustment leaves the
+ * cursor on the first character rather than on the preceding blank.
+ */
 static void
 prev_word(void)
 {
@@ -1563,7 +1723,12 @@ prev_word(void)
 		left(TRUE);
 }
 
-/* use control for commands		*/
+/*
+ * Traditional Easy Editor control-key bindings.  Each control code is
+ * mapped to the corresponding editor primitive; ^A inserts a character
+ * by code and ^[ opens the main menu.  The key map is intentionally a
+ * direct chain of comparisons so it can be read alongside ee.1.
+ */
 static void
 control(void)
 {
@@ -1959,7 +2124,13 @@ prevline(void)
 	}
 }
 
-/* move left one character	*/
+/*
+ * Move left by one whole UTF-8 character, or to the end of the previous
+ * line at the start of a line.  disp == FALSE is the bulk-movement mode:
+ * the pointers are updated without touching the screen, which callers
+ * use before a single redraw.  With disp == TRUE the cursor is
+ * repositioned and the line is scrolled if needed.
+ */
 static void
 left(int disp)
 {
@@ -1987,7 +2158,11 @@ left(int disp)
 	}
 }
 
-/* move right one character	*/
+/*
+ * Move right by one whole UTF-8 character, or to column 1 of the next
+ * line at the end of a line.  As with left(), disp == FALSE updates only
+ * the pointers; disp == TRUE also scrolls and moves the cursor.
+ */
 static void
 right(int disp)
 {
@@ -2019,7 +2194,14 @@ right(int disp)
 	}
 }
 
-/* move to the same column as on other line	*/
+/*
+ * Place point and position at the character boundary whose display
+ * column is closest to (not past) the remembered scr_pos.  Vertical
+ * movement calls this after changing lines.  Control characters count
+ * two columns and tabs advance to the next tab stop; a wide character
+ * that would cross the remembered column is not entered partly.  The
+ * horizontal offset is adjusted and the cursor is moved.
+ */
 static void
 find_pos(void)
 {
@@ -2078,7 +2260,12 @@ down(void)
 	}
 }
 
-/* process function key		*/
+/*
+ * Handle KEY_CODE_YES input.  Navigation and deletion keys map directly
+ * to the editor primitives; F1 toggles the "gold" (alternate) function
+ * set, and F2..F8 select a second operation while gold is active.  Gold
+ * is cleared when the alternate operation runs.
+ */
 static void
 function_key(void)
 {
@@ -2156,6 +2343,12 @@ function_key(void)
 	}
 }
 
+/*
+ * Print the buffer by feeding it to the configured print command.  The
+ * historical syntax ">!cmd" is handed to command(), which routes the
+ * buffer through the shell as stdin; restricted mode is enforced by
+ * sh_command() before anything is executed.
+ */
 static void
 print_buffer(void)
 {
@@ -2179,6 +2372,12 @@ print_buffer(void)
 	free(buffer);
 }
 
+/*
+ * Read a command name at the prompt and require an unambiguous match
+ * against commands[] (unique_test()).  An unknown or ambiguous name is
+ * reported without executing anything.  Argument handling is left to
+ * command(), which receives the text as typed.
+ */
 static void
 command_prompt(void)
 {
@@ -2207,7 +2406,17 @@ command_prompt(void)
 	free(cmd_str);
 }
 
-/* process commands from keyboard	*/
+/*
+ * Execute one command by abbreviated name (compare() accepts a unique
+ * prefix and is case-insensitive), or dispatch a leading '!', '<' or
+ * '>' as a shell, input-pipe or output-pipe command.  The pipe forms
+ * recurse with the prefix removed: '<' sets in_pipe so the nested
+ * command's output is read into the buffer, and '>' sets out_pipe so the
+ * nested command receives the buffer on stdin.  The in_pipe/out_pipe
+ * guards prevent nesting the same direction more than once.  Commands
+ * that touch files or run a shell call restrict_mode() themselves, so
+ * this dispatcher does not need a central restriction check.
+ */
 static void
 command(char *cmd_str1)
 {
@@ -2322,7 +2531,12 @@ command(char *cmd_str1)
 		free(cmd_str2);
 }
 
-/* determine horizontal position for get_string	*/
+/*
+ * Return the display column reached after offset bytes of line, starting
+ * from column.  Used by the prompt editor to place and scroll the cursor
+ * without confusing bytes, code points and cells.  offset must be on a
+ * UTF-8 character boundary (get_string() maintains that invariant).
+ */
 static int
 scan(char *line, int offset, int column)
 {
@@ -2406,7 +2620,19 @@ show_prompt_line(const char *prompt, const char *buf, size_t len, size_t cur)
 	wrefresh(com_win);
 }
 
-/* read string from input on command line; nullptr if cancelled */
+/*
+ * Prompt for a line of input in com_win.  Returns a newly allocated
+ * NUL-terminated string, or nullptr when canceled (Esc or ^C) or on
+ * allocation failure.  The editor supports cursor movement, Home/End,
+ * Backspace and Delete at Unicode character boundaries.  A NUL byte is
+ * ignored because it would terminate the resulting string early.  When
+ * advance is true, leading blanks are skipped before the result is
+ * copied, which is what the command parser expects; callers that need
+ * the literal text (for example the search prompt) pass false.
+ *
+ * The input buffer grows without a fixed limit; Ctrl-V inserts the next
+ * ASCII character literally, matching the historical editor.
+ */
 static char *
 get_string(const char *prompt, int advance)
 {
@@ -2640,7 +2866,14 @@ get_string(const char *prompt, int advance)
 	}
 }
 
-/* compare two strings	*/
+/*
+ * Compare string1 against string2 as a command name: comparison stops
+ * at a space in either string, so "write" and "write file" are equal
+ * for command lookup.  When sensitive is false, ASCII letters are
+ * folded with toupper(3).  A nullptr or empty string never matches.
+ * This is a prefix test, not a full strcmp(3): "wr" matches "WRITE",
+ * and the caller's unique_test() decides whether that is ambiguous.
+ */
 static int
 compare(const char *string1, const char *string2, int sensitive)
 {
@@ -2672,6 +2905,14 @@ compare(const char *string1, const char *string2, int sensitive)
 	return (equal);
 }
 
+/*
+ * Go to the line number at the start of cmd_str.  The decimal number is
+ * parsed with saturation at INT_MAX, then the closest existing line is
+ * found by walking the list.  A move of 1..29 lines is performed with
+ * move_rel() so the screen scrolls incrementally; zero or 30 or more
+ * lines repositions curr_line directly and centers it with
+ * midscreen().  Numbers past the end stop at the last line.
+ */
 static void
 goto_line(char *cmd_str)
 {
@@ -2753,7 +2994,17 @@ midscreen(int line, unsigned char *pnt)
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
-/* get arguments from command line	*/
+/*
+ * Parse the command line.  The program name selects restricted mode
+ * when the editor was invoked as "ree"; "edit" needs no special case
+ * because it is not restricted.  Options must precede file operands:
+ * the first argument that is not recognized as an option starts the
+ * file list (and is itself a file), so "-i" after a file name is a file
+ * name.  "--" ends options explicitly.  Only the first "+#" is treated as
+ * a start line.  The file names are copied into a singly linked list
+ * (struct files) and input_file/recv_file are set so check_fp() knows to
+ * load the first one.
+ */
 static void
 get_options(int numargs, char *arguments[])
 {
@@ -2831,7 +3082,23 @@ get_options(int numargs, char *arguments[])
 	}
 }
 
-/* open or close files according to flags */
+/*
+ * Load the next file named on the command line, or insert a file read
+ * with the "read" command into the current buffer.
+ *
+ * input_file means the file becomes the editor's main buffer: the cursor
+ * and screen state are saved, the file is loaded, and the cursor is
+ * moved to the start (or to +line).  Without input_file, recv_file is a
+ * read-into-buffer operation: the existing text is preserved and the
+ * cursor returns to its previous line.  The stat(2) type check rejects
+ * known non-regular files (directories, devices, FIFOs and sockets)
+ * before open(2); symlinks are followed by stat(2) as usual.  A file
+ * that cannot be opened is reported; when it was to be the main input,
+ * the editor continues with an empty buffer instead of exiting.
+ *
+ * in_file_name is set to point into the file list entry; that storage
+ * is owned by the list, not by this function.
+ */
 static void
 check_fp(void)
 {
@@ -3097,7 +3364,18 @@ get_file(char *file_name)
 	}
 }
 
-/* read string and split into lines */
+/*
+ * Split length bytes of input into the buffer's line list.
+ *
+ * *append is a continuation flag: it is true when the previous chunk
+ * ended in the middle of a line, in which case the first piece here is
+ * appended to the current line instead of starting a new node.  On
+ * return it is set for the next call when this chunk ended without a
+ * newline.  get_file() feeds arbitrary 512-byte chunks through this
+ * function, so long lines and lines spanning chunks are handled without
+ * a second input buffer.  input is already validated UTF-8 and contains
+ * no NUL bytes; only '\n' is treated as a line separator.
+ */
 static void
 get_line(int length, unsigned char *input, int *append)
 {
@@ -3161,6 +3439,11 @@ get_line(int length, unsigned char *input, int *append)
 	}
 }
 
+/*
+ * Repaint the text window starting at curr_line and scr_vert, one line
+ * at a time, until the window or the buffer ends.  The cursor is then
+ * returned to its logical position (scr_vert, scr_horz - horiz_offset).
+ */
 static void
 draw_screen(void) /* redraw the screen from current position */
 {
@@ -3226,6 +3509,12 @@ edit_abort(int)
 	exit(1);
 }
 
+/*
+ * Empty the buffer while keeping the first line node allocated.  Every
+ * other line and its byte buffer is freed; the surviving line is reset
+ * to empty, line 1, and the cursor and screen offsets are reset.  This is
+ * used when advancing to the next command-line file, not when quitting.
+ */
 static void
 delete_text(void)
 {
@@ -3302,6 +3591,16 @@ confirm(const char *question)
 	return (result);
 }
 
+/*
+ * Write the whole buffer to file_name, one line at a time, each line
+ * followed by '\n'.  When warn_if_exists is true and the name differs
+ * from the current buffer's file, an existing file is confirmed before
+ * it is truncated.  Returns TRUE only if every fwrite(3)/fputc(3) and
+ * the final fflush(3)/fclose(3) succeeded; an I/O failure prints a
+ * message in com_win, while a declined overwrite simply returns FALSE.
+ * The caller is responsible for updating in_file_name and the modified
+ * flag on success.
+ */
 static int
 write_file(char *file_name, int warn_if_exists)
 {
@@ -3376,7 +3675,17 @@ write_file(char *file_name, int warn_if_exists)
 	return (TRUE);
 }
 
-/* search for string in srch_str	*/
+/*
+ * Search forward from the cursor for srch_str (or its upper-cased form
+ * u_srch_str when case_sen is false) and leave the cursor at the first
+ * match.  The search starts at the next byte and continues to the end of
+ * the buffer; it does not wrap.  Returns TRUE when found, FALSE when
+ * exhausted or when no search string is set.  A match spanning lines is
+ * not attempted.  Large moves are repositioned directly, short ones use
+ * the normal movement primitives.  display_message controls only the
+ * "searching" and "not found" status text, not the search itself; the
+ * formatter calls this with FALSE and restores the cursor afterwards.
+ */
 static int
 search(int display_message)
 {
@@ -3561,7 +3870,13 @@ search_prompt(void)
 	search(TRUE);
 }
 
-/* delete current character	*/
+/*
+ * Delete the character at the cursor (forward delete).  The cursor is
+ * moved past the UTF-8 sequence first, then delete() removes it as if it
+ * had been backspaced; at the end of a line that has a following line,
+ * the cursor moves to the next line so the line break is joined.
+ * last_delete records the operation for vi's single-level undo.
+ */
 static void
 del_char(void)
 {
@@ -3597,7 +3912,13 @@ undel_char(void)
 	}
 }
 
-/* delete word in front of cursor	*/
+/*
+ * Cut the word starting at the cursor plus the whitespace that follows
+ * it.  The cut text is copied into d_word (the single-level word cut
+ * buffer) and d_wrd_len, and the line tail is shifted left.  It does not
+ * touch the whitespace before the cursor; callers that want to join a
+ * line position the cursor after the separating blank first.
+ */
 static void
 del_word(void)
 {
@@ -3646,7 +3967,12 @@ del_word(void)
 	formatted = FALSE;
 }
 
-/* undelete last deleted word		*/
+/*
+ * Insert the contents of d_word at the cursor.  The line is grown first
+ * if necessary; the word and the tail of the line are copied through a
+ * temporary buffer so that the destination can be written in one
+ * forward pass.  There is no history beyond the single saved word.
+ */
 static void
 undel_word(void)
 {
@@ -3707,7 +4033,14 @@ undel_word(void)
 	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
-/* delete from cursor to end of line	*/
+/*
+ * Cut from the cursor to the end of the current line and store the text
+ * in d_line/dlt_line for undel_line().  The line is then shortened to
+ * the cursor, and if a following line exists, the line break is deleted
+ * too (so the next line's text joins the current one).  vi's "dd"
+ * reaches this after moving to column 1; "D" leaves the cursor where it
+ * is.
+ */
 static void
 del_line(void)
 {
@@ -3740,7 +4073,13 @@ del_line(void)
 	text_changes = TRUE;
 }
 
-/* undelete last deleted line		*/
+/*
+ * Restore the text saved by del_line().  insert_line() splits the
+ * current line at the cursor and left() moves back to the end of the
+ * left part; the saved bytes are then copied there.  The operation is a
+ * no-op when nothing has been cut.  dlt_line->line_length is the saved
+ * length including the NUL.
+ */
 static void
 undel_line(void)
 {
@@ -3768,7 +4107,11 @@ undel_line(void)
 	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
-/* advance to next word		*/
+/*
+ * Move forward to the start of the next word within the current line;
+ * unlike next_word(), this moves the cursor and stops at the end of the
+ * line instead of crossing into the next one.
+ */
 static void
 adv_word(void)
 {
@@ -3780,7 +4123,13 @@ adv_word(void)
 		right(TRUE);
 }
 
-/* move relative to current line	*/
+/*
+ * Move lines lines up ('u') or down (anything else) using the normal
+ * up()/down() primitives.  When the destination leaves the cursor in
+ * the top or bottom five rows of the text window, the view is scrolled
+ * by walking five lines and adjusting the screen rows; this avoids
+ * redrawing the whole buffer for a page move.
+ */
 static void
 move_rel(int direction, int lines)
 {
@@ -3837,7 +4186,12 @@ move_rel(int direction, int lines)
 	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
-/* go to end of line			*/
+/*
+ * Move to the logical end of the current line (position == line_length,
+ * which is the terminating NUL, one past the last text byte).  When
+ * already there and a following line exists, move to the end of that
+ * line instead.
+ */
 static void
 eol(void)
 {
@@ -3851,7 +4205,12 @@ eol(void)
 	}
 }
 
-/* move to beginning of line	*/
+/*
+ * Move to the beginning of the current line.  When already there, move
+ * up to the beginning of the previous line (the historical behavior).
+ * Formatter code that must not cross into the previous paragraph uses
+ * line_start() instead.
+ */
 static void
 bol(void)
 {
@@ -3878,7 +4237,12 @@ line_start(void)
 		left(TRUE);
 }
 
-/* advance to beginning of next line	*/
+/*
+ * Move to the beginning of the next line.  If the cursor is not already
+ * at column 1, first go to the end of the current line and cross the
+ * line break; otherwise move down.  Used by the formatter to advance one
+ * line without depending on the display column.
+ */
 static void
 adv_line(void)
 {
@@ -3892,6 +4256,12 @@ adv_line(void)
 	}
 }
 
+/*
+ * Recompute absolute_lin from first_line by walking to curr_line.  Used
+ * after operations (file insertion, pipe reads, whole-document
+ * formatting) that move lines around, so the absolute line counter
+ * stays correct without changing the cursor.
+ */
 static void
 from_top(void)
 {
@@ -3905,7 +4275,22 @@ from_top(void)
 	absolute_lin = x;
 }
 
-/* execute shell command			*/
+/*
+ * Run a command through the user's shell ($SHELL, default /bin/sh).
+ *
+ * Three modes share this function:
+ *   - plain command: curses is temporarily shut down, the shell inherits
+ *     the terminal, and the editor waits for it before restoring the
+ *     screen;
+ *   - in_pipe ("<cmd"): a pipe is created and the shell's stdout/stderr
+ *     are read into the buffer by get_file(); the editor stays in curses
+ *     mode;
+ *   - out_pipe (">cmd"): the buffer is written to the shell's stdin.
+ * The shell is executed directly with execl(3) and "-c"; the editor does
+ * not wrap the command in another shell.  Restricted mode returns before
+ * any of this.  After a terminal-mode command the layout
+ * is rebuilt because the window may have been resized meanwhile.
+ */
 static void
 sh_command(char *string)
 {
@@ -4406,6 +4791,22 @@ menu_geometry(struct menu_entries menu_list[], struct menu_geometry *g)
 		g->y_off = 0;
 }
 
+/*
+ * Display and run one menu.
+ *
+ * menu_list[0] is the title; selectable items start at index 1 and the
+ * array ends with a null item_string.  The menu fits itself to the
+ * terminal, letters/digits jump directly to an item, arrows/space/^D/^U
+ * move, Enter selects, and Esc cancels (except for a MENU_WARN menu,
+ * which requires an explicit choice).  The function returns the
+ * selected item index, or 0 when canceled.
+ *
+ * After a selection exactly one callback form is invoked, in this
+ * order: iprocedure(argument) when argument != -1 and iprocedure is
+ * non-null, then procedure(ptr_argument) when both are non-null, then
+ * nprocedure().  A null callback still returns the index, which lets
+ * modes_op() use the menu as a chooser.
+ */
 static int
 menu_op(struct menu_entries menu_list[])
 {
@@ -4720,6 +5121,14 @@ paint_menu_item(struct menu_entries menu_list[], int item, int list_size,
 		wstandend(menu_win);
 }
 
+/*
+ * Draw a menu window.  When there is room, a box frame, a title row and
+ * a cancel hint are drawn; the item rows come from paint_menu_item().
+ * off_start is the first visible item (1-based), vert_size the number of
+ * rows available for items, and selection the currently highlighted
+ * item.  Scrolling indicators ("^^more^^"/"VVmoreVV") take the place of
+ * items outside the window.  All text is clipped to max_width.
+ */
 static void
 paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     int list_size, int top_offset, WINDOW *menu_win, int off_start,
@@ -4815,6 +5224,14 @@ paint_help_hint(int row, int top, int total, int pagesize)
 		wstandend(help_win);
 }
 
+/*
+ * Paged, read-only help overlay.  The content comes from help.c as a
+ * flat sequence of logical lines; this routine paginates it to the
+ * current help_win size, highlights headers, and supports Space/^N for
+ * the next page, ^P for the previous one, and Esc/Enter/q to close.
+ * Resizing rebuilds help_win through resize_check() and resumes at the
+ * same logical line.
+ */
 static void
 help(void)
 {
@@ -4998,6 +5415,12 @@ paint_status_line(void)
 	wrefresh(title_win);
 }
 
+/*
+ * Replace the contextual shortcut bar with items[0..count).  The labels
+ * are borrowed, not copied: callers pass static arrays that outlive the
+ * bar.  The count is clamped to SHORTCUT_MAX so the fixed items[] array
+ * cannot overflow, and negative counts are treated as zero.
+ */
 static void
 set_shortcuts(const char *const *items, int count)
 {
@@ -5012,6 +5435,12 @@ set_shortcuts(const char *const *items, int count)
 	shortcut_bar.count = count;
 }
 
+/*
+ * Restore the shortcut bar appropriate to the active key binding set.
+ * In vi mode the normal-mode labels are shown; in insert mode (and in
+ * the other binding sets) the traditional labels are shown.  Called
+ * after prompts and menus so their temporary labels do not linger.
+ */
 static void
 default_shortcuts(void)
 {
@@ -5031,6 +5460,13 @@ default_shortcuts(void)
 	set_shortcuts(items, count);
 }
 
+/*
+ * Draw the contextual shortcut labels from left to right, stopping at
+ * the first label that would not fit with a two-column gap.  Width is
+ * measured in terminal cells (utf8_strwidth()), not bytes, so labels
+ * containing non-ASCII text are positioned correctly.  The row is
+ * reverse-video unless -h was given.
+ */
 static void
 paint_shortcut_bar(void)
 {
@@ -5067,6 +5503,12 @@ paint_shortcut_bar(void)
 	wrefresh(key_win);
 }
 
+/*
+ * Hide the shortcut bar by rebuilding the layout.  The status bar is
+ * never removed; only key_win is optional.  After the layout change the
+ * text is recentered around the cursor and the prompt line is marked for
+ * clearing, because its row may have moved.
+ */
 static void
 no_info_window(void)
 {
@@ -5078,6 +5520,7 @@ no_info_window(void)
 	clear_com_win = TRUE;
 }
 
+/* Counterpart of no_info_window(): restore the shortcut row and relayout. */
 static void
 create_info_window(void)
 {
@@ -5189,6 +5632,11 @@ shell_op(void)
 	free(string);
 }
 
+/*
+ * Leave the editor.  A modified buffer opens the save/discard/cancel
+ * menu first; an unmodified buffer exits immediately.  quit() itself is
+ * also the path used when moving to the next file on the command line.
+ */
 static void
 leave_op(void)
 {
@@ -5198,6 +5646,11 @@ leave_op(void)
 		quit(TRUE);
 }
 
+/*
+ * Force a full repaint of the text area and the persistent chrome.
+ * clearok() makes ncurses discard its idea of the screen contents,
+ * which is needed after a shell command or a menu has drawn over it.
+ */
 static void
 redraw(void)
 {
@@ -5456,7 +5909,24 @@ prose_width(void)
 	return (w);
 }
 
-/* format the paragraph according to set margins	*/
+/*
+ * Reflow the paragraph containing the cursor.
+ *
+ * The paragraph is bounded by blank lines (Blank_Line() also treats
+ * lines beginning with '.' or '>' as boundaries).  Structured text
+ * (patches, code, tables) is detected first by prose_is_structured()
+ * and left untouched.  Otherwise the lines are merged into one logical
+ * line,
+ * runs of spaces after the first word are collapsed, two spaces are
+ * inserted after a sentence period, and the result is split at word
+ * boundaries to prose_width().
+ *
+ * The operation is performed through the ordinary editing primitives
+ * with automatic formatting and margin observation temporarily off.  The
+ * cursor's word and offset within it, the cut buffers, the search string
+ * and the case flag are saved and restored so formatting is transparent
+ * to the user's editing state.  auto_format is also restored.
+ */
 static void
 Format(void)
 {
@@ -5766,7 +6236,16 @@ Format_All(void)
 
 static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 
-/* check for init file and read it if it exists	*/
+/*
+ * Read the initialization files, in order: the system file, the user's
+ * $HOME/.init.ee (only when HOME is set), and ./.init.ee.  When the
+ * current directory is the home directory, the last two are the same
+ * file and the second read is skipped by comparing (device, inode), not
+ * path strings.  Unknown lines are ignored; recognized lines are matched
+ * with unique_test()/compare(), which accept unique prefixes.  ECHO is
+ * the only line that produces output.  Later files override earlier
+ * ones because the settings are applied as each file is read.
+ */
 static void
 ee_init(void)
 {
@@ -5893,7 +6372,15 @@ ee_init(void)
 }
 
 /*
- |	Save current configuration to .init.ee file in the current directory.
+ * Save the current settings to .init.ee, either in the current
+ * directory or in $HOME.  Restricted mode refuses.  The existing file
+ * is first rotated to .init.ee.old with link(2), so the old inode and
+ * contents survive as the backup until the rewrite succeeds; then all
+ * non-setting lines (comments, ECHO output, unknown text) are copied
+ * from the backup before the current values are written.  A failure at
+ * any point reports a message, and the original is never removed when
+ * the backup could not be created.  fflush(3) and fclose(3) are checked
+ * so a deferred write error is not reported as success.
  */
 
 static void
@@ -6293,6 +6780,12 @@ spell_replace(int start, int len, const char *repl)
 	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
 }
 
+/*
+ * Check the ASCII word at the cursor against the loaded dictionary and
+ * report the result in the prompt line.  Spell checking must be enabled
+ * and the dictionary must load; only ASCII words are examined because
+ * that is what the en_US word list covers.
+ */
 static void
 spell_check_word(void)
 {
@@ -6320,6 +6813,12 @@ spell_check_word(void)
 	spell_message(msg);
 }
 
+/*
+ * Show up to eight suggestions for the ASCII word under the cursor and
+ * ask for a replacement by number or by exact text.  An empty answer or
+ * Esc cancels.  The replacement is performed through the editor's own
+ * insert/delete primitives so the change is tracked and redrawn normally.
+ */
 static void
 spell_suggest_word(void)
 {
@@ -6395,6 +6894,12 @@ spell_toggle(void)
 	spell_message(msg);
 }
 
+/*
+ * Length in bytes of the first word of a line plus the blanks that
+ * follow it, used to decide whether that word fits on the previous line
+ * during Auto_Format().  Returns 0 for a blank line, a troff request, a
+ * quoted line or a line with no word.
+ */
 static int
 first_word_len(struct text *test_line)
 {
@@ -6428,7 +6933,21 @@ first_word_len(struct text *test_line)
 	return (counter);
 }
 
-/* format the paragraph according to set margins	*/
+/*
+ * Incremental counterpart of Format(), invoked while typing when
+ * auto_format is enabled (after a space or a tab expansion).  It fills
+ * the current line from the following line when the next word fits,
+ * moves words past the right margin down, and preserves the cursor's
+ * position within its word.  It reflows incrementally rather than
+ * rebuilding the whole paragraph, does not collapse runs of internal
+ * spaces, and shows no progress message.  Structured text is skipped by
+ * the same test.
+ *
+ * The line-cut buffer (d_line/dlt_line) is saved and restored around the
+ * operation because del_line() may be used internally; the search
+ * state and case flag are also preserved.  formatted is set so the next
+ * space does not retrigger the formatter on already-processed text.
+ */
 static void
 Auto_Format(void)
 {
@@ -6690,6 +7209,12 @@ Auto_Format(void)
 	midscreen(scr_vert, point);
 }
 
+/*
+ * Select a key binding set from the settings submenu.  Any pending vi
+ * operator is dropped and vi returns to normal mode, so switching
+ * bindings cannot leave a half-entered command behind.  The shortcut bar
+ * is repainted immediately if it is visible.
+ */
 static int
 key_binding_op(int mode)
 {
@@ -6701,6 +7226,15 @@ key_binding_op(int mode)
 	return (0);
 }
 
+/*
+ * Settings menu loop.  The generated labels are rebuilt at the top of
+ * every iteration so the current ON/OFF state is always shown; the menu
+ * acts as a chooser and returns the selected index.  Item 6 opens the
+ * key binding submenu, item 7 prompts for a numeric right margin, and
+ * item 8 is the "save configuration" callback.  A cancel (0) ends the
+ * loop.  auto-format implies observed margins, so enabling it also
+ * repairs that state.
+ */
 static void
 modes_op(void)
 {
@@ -6813,7 +7347,14 @@ append_mem(char **buf, size_t *len, size_t *cap, const char *s, size_t n)
  |	The result is dynamically allocated with no fixed size limit; the
  |	original name pointer is returned unchanged when nothing needs to
  |	be expanded.  A failed expansion returns the original name rather
- |	than a truncated one.
+ |	than a truncated one.  Callers must therefore compare the result
+ |	with the argument before freeing it, and must not free an
+ |	unchanged result: it still belongs to the caller or argv.
+ |
+ |	Expansion is textual, not shell-like: "$VAR" and "${VAR}" are
+ |	replaced from the environment, an unknown variable is left as-is,
+ |	and no word splitting or command substitution occurs.  "~" and
+ |	"~user" are resolved through getpwuid(3)/getpwnam(3).
  */
 
 static char *
@@ -6942,6 +7483,15 @@ fail:
 	return (name);
 }
 
+/*
+ * Gate for operations forbidden in restricted mode (invoked as "ree"):
+ * shell escapes, the read and write commands (including reading another
+ * file into the buffer), saving under a name other than the one given on
+ * the command line, and saving the configuration.  When restricted,
+ * display the standard refusal message in the prompt line and return
+ * TRUE; callers treat TRUE as "do nothing".  Returns FALSE in normal
+ * mode without changing the screen.
+ */
 static int
 restrict_mode(void)
 {
@@ -6959,7 +7509,9 @@ restrict_mode(void)
 /*
  |	The following routine tests the input string against the list of
  |	strings, to determine if the string is a unique match with one of the
- |	valid values.
+ |	valid values.  Matching uses compare(), so it is case-insensitive
+ |	and accepts a prefix; the return value is the number of matches
+ |	(0 = unknown, 1 = unique, greater than 1 = ambiguous).
  */
 
 static int
@@ -7022,6 +7574,12 @@ locale_is_configured(void)
 	return (0);
 }
 
+/*
+ * Enforce the policy documented above: honour an explicit locale only if
+ * it yields the UTF-8 codeset, otherwise try the built-in fallbacks and
+ * fail with a clear message if none works.  Only LC_CTYPE is set;
+ * LC_MESSAGES and the numeric/time categories are never consulted.
+ */
 static void
 select_utf8_locale(void)
 {

@@ -4,22 +4,6 @@
  * compiles to nothing on all of them.
  */
 
-/*
- * Copyright (c) 2026 David Uhden Collado <david@uhden.dev>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
 // clang-format off
 #include "bsdcompat.h"
 
@@ -31,8 +15,22 @@
 #include <string.h>
 // clang-format on
 
+/*
+ * The shim is built for non-BSD libcs other than glibc.  glibc is
+ * excluded because its implementation is present and its diagnostics
+ * are part of the host system; the BSDs provide the family natively.
+ */
 #if !OPENUTILS_BSD_LIBC && !defined(__GLIBC__)
 
+/*
+ * Shared implementation of warn(3) and err(3): "<progname>: <fmt>: <errno
+ * text>\n".  The format and its arguments are optional; a nullptr fmt
+ * omits both the message and its separating colon.  The system error
+ * text is produced from the errno value still in effect when
+ * strerror(3) is reached.  This implementation does not save errno
+ * around the stdio calls; callers rely on stdio leaving it unchanged,
+ * whereas the native BSD versions save and restore it explicitly.
+ */
 static void
 vwarn_impl(const char *fmt, va_list ap)
 {
@@ -54,6 +52,10 @@ warn(const char *fmt, ...)
 	va_end(ap);
 }
 
+/*
+ * warnx(3) and errx(3) are the variants without the system error text.
+ * They still prefix the program name and append one newline.
+ */
 void
 warnx(const char *fmt, ...)
 {
@@ -67,6 +69,7 @@ warnx(const char *fmt, ...)
 	fputc('\n', stderr);
 }
 
+/* Report a diagnostic including the system error, then exit(eval). */
 void
 err(int eval, const char *fmt, ...)
 {
@@ -78,6 +81,7 @@ err(int eval, const char *fmt, ...)
 	exit(eval);
 }
 
+/* Report a message without the system error, then exit(eval). */
 void
 errx(int eval, const char *fmt, ...)
 {

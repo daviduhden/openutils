@@ -14,6 +14,15 @@
 // clang-format on
 
 /*
+ * Strict UTF-8 implementation for ee.  The contract lives in utf8.h;
+ * this file keeps all byte-level validation in one place so that the
+ * editor can assume a buffer contains only well-formed scalar values.
+ * There is no normalization, grapheme clustering or Unicode table here:
+ * display width is delegated to wcwidth(3), and the only additional
+ * policy is to report an unclassifiable character as one cell.
+ */
+
+/*
  * The encoder/decoder treat unsigned char as an octet: the lead and
  * continuation byte tests (0x80, 0xC0, 0xE0, 0xF0) and the four-byte
  * output buffer only describe UTF-8 when a byte is eight bits.
@@ -173,6 +182,12 @@ ee_utf8_width(const unsigned char *s)
 	return (ee_wcwidth(cp));
 }
 
+/*
+ * Step back over continuation bytes to the lead byte of the preceding
+ * character.  ptr is assumed to be on a character boundary, so the
+ * backward scan cannot enter the middle of an unrelated sequence.  The
+ * start pointer is returned unchanged when ptr is at or before it.
+ */
 const unsigned char *
 ee_utf8_prev(const unsigned char *start, const unsigned char *ptr)
 {

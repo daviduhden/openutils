@@ -18,6 +18,41 @@
 // clang-format on
 
 /*
+ * doasedit: edit a file with an unprivileged editor and save the result
+ * with doas(1).
+ *
+ * The program is deliberately built around file descriptors and
+ * identity snapshots instead of pathname-based copies:
+ *
+ *   1. The target's parent directory is resolved with realpath(3), and
+ *      the final component is kept separate.  The target itself is never
+ *      resolved through a symlink.
+ *   2. An lstat(2)/stat(2) snapshot records the device, inode, mode,
+ *      owner, group, size and modification time.  It is compared before
+ *      every read and write to detect a swap during editing.
+ *   3. A private mkdtemp(3) directory holds the editable copy and an
+ *      untouched copy used to detect "no changes".  Both files are
+ *      created with O_EXCL and mode 0600.
+ *   4. The editor runs as the invoking user with execvp(3); no shell is
+ *      ever involved, so the editor command is split on whitespace only.
+ *   5. A changed buffer is written back either through the already-open
+ *      descriptor (for a user-writable file, preserving the inode) or
+ *      with "doas install", which replaces the target atomically by
+ *      rename(2) and cannot follow a symlink planted at the target path.
+ *
+ * The doas.conf check runs before the final save: replacing a
+ * configuration file that doas itself would reject is a lockout risk,
+ * so the user must confirm it explicitly.  The editor and doas must be
+ * executed, so the process stays unpledged.
+ *
+ * Most state lives on the stack of main().  The four cleanup globals
+ * below exist so the asynchronous signal handler can terminate the
+ * editor and remove the current temporary files without walking the
+ * whole program state; the editor command vector is kept at file scope
+ * because both run_editor() and the doas.conf prompt need it.
+ */
+
+/*
  * Path of the doas(1) binary.  The absolute path is preferred so that
  * a malicious PATH cannot substitute another program for the
  * privileged one; execvp(3) is used as a fallback for unusual setups.
@@ -61,6 +96,14 @@ help(void)
 	exit(0);
 }
 
+/*
+ * Termination handler for SIGINT, SIGTERM, SIGHUP and SIGQUIT.  It only
+ * uses async-signal-safe calls and the pre-set cleanup pointers: ask the
+ * editor child to stop, remove the current temporary files and exit with
+ * the conventional 128 + signal status.  main() clears the pointers
+ * before freeing their storage so a late signal cannot unlink a
+ * dangling path.
+ */
 static void
 sighandler(int sig)
 {
@@ -70,6 +113,13 @@ sighandler(int sig)
 	_exit(128 + sig);
 }
 
+/*
+ * Remove the temporary files and directory for the file currently being
+ * processed.  Each pointer is left set, so calling this twice simply
+ * retries harmless unlink(2)/rmdir(2) operations.  Errors are ignored:
+ * this runs during normal cleanup as well as from the signal handler,
+ * where reporting is neither possible nor desirable.
+ */
 static void
 cleanup_current(void)
 {
@@ -85,6 +135,14 @@ cleanup_current(void)
  * Resolve the parent directory of a path with realpath(3) and return
  * "<resolved>/<basename>".  Returns nullptr (with a message printed) on
  * failure.
+ *
+ * Only the directory part is canonicalized: resolving the final
+ * component would follow a symlink, which is exactly what the rest of
+ * the program must not do.  Trailing slashes are dropped for the same
+ * reason (a trailing slash asks the kernel to follow a symlink), so
+ * "name/" is treated as "name".  Empty paths and paths consisting only
+ * of slashes are rejected.  The returned string is allocated with
+ * malloc(3) and owned by the caller.
  */
 static char *
 resolve_target(const char *path)
@@ -147,6 +205,15 @@ resolve_target(const char *path)
 	return (ret);
 }
 
+/*
+ * Return 1 for the two paths whose replacement can affect doas(1):
+ * /etc/doas.conf itself and any path below /etc/doas.d/ whose final
+ * component ends in ".conf".  The test is textual by design; the caller
+ * already canonicalized the parent directory, so an alternate spelling
+ * of the same path has already been folded into this form.  Nested
+ * paths are matched conservatively even though doas itself reads only
+ * the immediate children of /etc/doas.d/.
+ */
 static int
 is_doas_conf(const char *path)
 {
@@ -164,7 +231,14 @@ is_doas_conf(const char *path)
 /*
  * Run the editor.  The child process inherits the environment; the
  * editor is started with execvp(3) directly, never through a shell.
- * Returns the editor exit status, or -1 if it could not be started.
+ * Returns the editor exit status, or -1 if it could not be started or
+ * was terminated by a signal.  A "command not found" in the child is
+ * mapped to status 127.
+ *
+ * The argument vector is rebuilt on the heap so the file operand can be
+ * appended to the user-supplied command; it is freed by the parent after
+ * the fork (the child replaces its image or exits).  editor_pid is
+ * published for the signal handler and cleared before returning.
  */
 static int
 run_editor(char *const *editor, const char *file)
@@ -212,7 +286,13 @@ run_editor(char *const *editor, const char *file)
 /*
  * Execute "doas <argv...>", optionally with stdout redirected to
  * outfd and stdin from infd (-1 for no redirection).  Returns the
- * exit status, or 127 when doas could not be executed.
+ * exit status, or -1 on fork/wait failure.  A child that cannot start
+ * doas exits 127; a child that fails to set up the redirection exits
+ * 126, mirroring the shell convention.
+ *
+ * /usr/bin/doas is tried first; the PATH lookup is only a fallback for
+ * systems that install doas elsewhere.  The caller supplies argv[0]
+ * ("doas") separately from the path used for execution.
  */
 static int
 doas_exec(const char *const *argv, int outfd, int infd)
@@ -248,6 +328,14 @@ doas_exec(const char *const *argv, int outfd, int infd)
 	return (-1);
 }
 
+/*
+ * Copy src over the existing file dst.  Both opens use O_NOFOLLOW, and
+ * dst is truncated before writing.  The loop handles short write(2)
+ * results and returns 0 only after the whole source was read and
+ * written; any open, read or write error returns -1.  The copy is not
+ * synchronized to disk: the caller only needs an identical temporary
+ * snapshot for its change comparison.
+ */
 static int
 copy_file(const char *src, const char *dst)
 {
@@ -281,6 +369,12 @@ copy_file(const char *src, const char *dst)
 	return (n == -1 ? -1 : 0);
 }
 
+/*
+ * Compare two files without following symlinks.  Reads both in fixed
+ * blocks and stops at the first difference.  Returns 1 when the contents
+ * are identical, 0 when they differ, and -1 on an open/read error.
+ * Both descriptors are closed on every path.
+ */
 static int
 files_equal(const char *a, const char *b)
 {
@@ -374,6 +468,13 @@ struct snapshot {
 	struct timespec mtim;
 };
 
+/*
+ * Fill *snap from lstat(2), which does not follow a symlink at path.
+ * Directories, devices, FIFOs and sockets are rejected with EINVAL so
+ * that the rest of the program only ever deals with regular files.
+ * Returns 0 on success and -1 on failure, leaving errno from the failing
+ * system call (or EINVAL for a non-regular file).
+ */
 static int
 snapshot_of(const char *path, struct snapshot *snap)
 {
@@ -395,6 +496,12 @@ snapshot_of(const char *path, struct snapshot *snap)
 	return (0);
 }
 
+/*
+ * Compare every field recorded by snapshot_of().  Device and inode
+ * detect replacement; mode, owner and group detect a metadata change;
+ * size and nanosecond mtime detect an in-place rewrite, including the
+ * file system's reuse of a just-freed inode number.
+ */
 static int
 stat_matches_snapshot(const struct stat *st, const struct snapshot *snap)
 {
@@ -405,6 +512,11 @@ stat_matches_snapshot(const struct stat *st, const struct snapshot *snap)
 	    st->st_mtim.tv_nsec == snap->mtim.tv_nsec);
 }
 
+/*
+ * Re-lstat(2) path and compare it with snap.  Returns 1 when the path is
+ * still the same regular file with unchanged metadata, 0 otherwise
+ * (including a missing path).
+ */
 static int
 snapshot_equal(const char *path, const struct snapshot *snap)
 {
@@ -415,7 +527,15 @@ snapshot_equal(const char *path, const struct snapshot *snap)
 	return (stat_matches_snapshot(&st, snap));
 }
 
-/* copy the content of a source fd into an already-open file */
+/*
+ * Copy the content of an already-open source descriptor into an
+ * already-open destination, starting at the current offsets.  Short
+ * writes are retried.  Returns 0 on success and -1 on a read or write
+ * error; neither descriptor is closed and the caller decides whether a
+ * partial copy is acceptable.  On a write error the destination may
+ * already contain part of the input, and this function does not roll
+ * that back.
+ */
 [[nodiscard]] static int
 fd_copy_to(int in, int out)
 {
@@ -435,7 +555,12 @@ fd_copy_to(int in, int out)
 	return (n == -1 ? -1 : 0);
 }
 
-/* write the contents of "src" into the open descriptor "outfd" */
+/*
+ * Open src read-only without following symlinks and copy all of it into
+ * the already-open outfd.  Returns 0 on success and -1 on any open or
+ * copy error.  This is the direct-write path, so outfd is left at its
+ * final offset for the caller's subsequent ftruncate(2).
+ */
 [[nodiscard]] static int
 file_into_fd(const char *src, int outfd)
 {
@@ -452,6 +577,13 @@ file_into_fd(const char *src, int outfd)
 /*
  * Check whether an executable command exists, either as an absolute
  * or relative path, or through the directories listed in PATH.
+ *
+ * A name containing '/' is checked directly with access(2).  Otherwise
+ * each PATH element is tried in order; an empty element means the
+ * current directory, as in the shell.  Candidates that would not fit in
+ * the bounded buffer are skipped rather than truncated.  This is a
+ * pre-flight check for a useful error message, not a security boundary:
+ * the editor is executed later with execvp(3), which repeats the search.
  */
 static int
 command_exists(const char *cmd)
@@ -486,6 +618,15 @@ command_exists(const char *cmd)
 	return (0);
 }
 
+/*
+ * Run "doas -C <tmpfile>" when the target is a doas configuration file.
+ * doas -C parses the named configuration and exits nonzero if it is
+ * invalid, so this exercises the edited file before it can replace a
+ * working configuration.  On failure the user may edit again, overwrite
+ * anyway, or abort; the function returns 0 for "continue with saving"
+ * and 1 for "abort this file".  A read error on stdin is treated as
+ * abort, matching a non-interactive caller that cannot answer.
+ */
 static int
 check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 {
@@ -530,6 +671,19 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 
 static char **editor_cmd;
 
+/*
+ * Program entry point.
+ *
+ * Startup validates the invocation, refuses to run as root, probes that
+ * "doas dd" is permitted, resolves the editor command and creates the
+ * private temporary directory.  The argument loop then processes each
+ * operand in this order: resolve, validate, snapshot, copy in, edit,
+ * compare, write back.  Every failure applies only to the current
+ * operand; the exit status is 0 if at least one file was saved or found
+ * unchanged, and 1 if no operand succeeded.  A later failure does not
+ * turn an earlier success back into failure.  The temporary directory
+ * is shared by all operands and removed after the last one.
+ */
 int
 main(int argc, char *argv[])
 {
@@ -544,6 +698,12 @@ main(int argc, char *argv[])
 
 	/* Stay unpledged: editor and doas execute after this point. */
 
+	/*
+	 * Options are recognized only before the first operand; a later
+	 * "-h" is therefore a file name.  "--" ends option processing
+	 * explicitly so that a file name can begin with '-'.  An empty
+	 * or bare "-" argument is an operand, not an option.
+	 */
 	for (i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "--") == 0) {
 			i++;
@@ -574,12 +734,20 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
+	/*
+	 * Both the real and the effective identity are checked: the
+	 * program must run as the unprivileged user whose editor will be
+	 * started.  Running it through doas would make every identity
+	 * check below compare against root.
+	 */
 	if (getuid() == 0 || geteuid() == 0)
 		errx(1, "using this program as root is not permitted");
 
 	/*
 	 * Check in advance that modifications can actually be saved:
-	 * the same probe as the original implementation.
+	 * the same probe as the original implementation.  "doas dd"
+	 * confirms that the configuration permits the privileged
+	 * operations before the user spends time editing.
 	 */
 	{
 		const char *probe[] = {"doas", "dd", "status=none", "count=0",
@@ -626,16 +794,30 @@ main(int argc, char *argv[])
 			tdir_tmpl[dlen++] = '/';
 		memcpy(tdir_tmpl + dlen, suffix, sizeof(suffix));
 	}
+	/*
+	 * mkdtemp(3) creates the directory with mode 0700 and replaces
+	 * the Xs in the template, so the temporary names inside it are
+	 * not predictable from outside.
+	 */
 	tmpdir = mkdtemp(tdir_tmpl);
 	if (tmpdir == nullptr)
 		err(1, "mkdtemp");
 
+	/* Publish the directory for the handler before installing it. */
 	cur_tmpdir = tmpdir;
 	signal(SIGINT, sighandler);
 	signal(SIGTERM, sighandler);
 	signal(SIGHUP, sighandler);
 	signal(SIGQUIT, sighandler);
 
+	/*
+	 * Process each operand independently.  target is the canonical
+	 * parent plus the unchanged final component; tmpfile is the copy
+	 * handed to the editor and tmpcopy the pristine copy used to
+	 * detect whether the editor changed anything.  Both temporary
+	 * paths become visible to the signal handler as soon as they are
+	 * allocated and are cleared again before being freed at "next".
+	 */
 	for (; i < argc; i++) {
 		const char     *file = argv[i];
 		char	       *target = nullptr;
@@ -728,6 +910,14 @@ main(int argc, char *argv[])
 				}
 				free(dir);
 			}
+		/*
+		 * The target did not exist and its parent directory is not
+		 * user-writable (or could not be examined by the
+		 * unprivileged user).  Saving therefore takes the
+		 * privileged create path, so there is no identity snapshot
+		 * yet.  That path rechecks that the target is still absent
+		 * immediately before install(1).
+		 */
 		create_root_only:
 			exists = 0;
 			memset(&snap, 0, sizeof(snap));
@@ -751,6 +941,15 @@ main(int argc, char *argv[])
 				continue;
 			}
 
+			/*
+			 * The privileged paths exist for files the user
+			 * cannot fully access.  A file that is both readable
+			 * and writable could simply be edited directly, so
+			 * editing it through doas would add privilege for no
+			 * reason; reject it.  A read-only or write-only file
+			 * selects the doas cat copy or the direct-write path
+			 * below.
+			 */
 			readable = open(target, O_RDONLY | O_NOFOLLOW);
 			if (readable != -1) {
 				close(readable);

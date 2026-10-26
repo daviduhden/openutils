@@ -8,22 +8,6 @@
  *
  */
 
-/*
- * Copyright (c) 2026 David Uhden Collado <david@uhden.dev>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
 // clang-format off
 #include "bsdcompat.h"
 
@@ -46,6 +30,13 @@ char openutils_progname_buf[64]; /* zero-initialized */
     (!defined(__GLIBC__) ||                                                    \
 	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38)))
 
+/*
+ * Copy src to dst, truncating to fit dsize bytes including the
+ * terminating NUL.  dst is always NUL-terminated when dsize is nonzero.
+ * Returns strlen(src): a return value of dsize or larger means the copy
+ * was truncated.  The scan of src is required because the return value
+ * is the length of the source, not of the stored copy.
+ */
 size_t
 strlcpy(char *dst, const char *src, size_t dsize)
 {
@@ -67,6 +58,14 @@ strlcpy(char *dst, const char *src, size_t dsize)
 	return ((size_t)(src - osrc) - 1);
 }
 
+/*
+ * Append src to the NUL-terminated string in dst, truncating so that the
+ * result and its terminator fit in dsize bytes.  Returns
+ * strlen(dst) + strlen(src), the length the combined string would have
+ * had; a return value of dsize or larger means truncation (or that dst
+ * was not terminated within dsize).  The destination is not modified
+ * when dsize is zero.
+ */
 size_t
 strlcat(char *dst, const char *src, size_t dsize)
 {
@@ -100,10 +99,21 @@ strlcat(char *dst, const char *src, size_t dsize)
     (!defined(__GLIBC__) ||                                                    \
 	!((__GLIBC__ > 2) || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26)))
 
+/*
+ * reallocarray(3) needs checked multiplication.  <stdckdint.h> is
+ * included only inside this conditional block so that a host that
+ * provides reallocarray(3) natively does not pay for the shim header.
+ */
 // clang-format off
 #include <stdckdint.h>
 // clang-format on
 
+/*
+ * Allocate or resize an array of nmemb elements of size bytes each.
+ * The multiplication is checked: on overflow, errno is set to ENOMEM
+ * and nullptr is returned.  Otherwise the call is delegated to
+ * realloc(3), which sets errno itself when it fails.
+ */
 void *
 reallocarray(void *optr, size_t nmemb, size_t size)
 {

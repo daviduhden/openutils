@@ -25,6 +25,39 @@
 #include <wctype.h>
 // clang-format on
 
+/*
+ * tree: recursive directory listing in text or JSON form.
+ *
+ * The walk is split into two layers.  collect() reads one directory with
+ * readdir(3), attaches lstat(2)/stat(2) data (following a symlink to
+ * classify its target), applies the -d, -P and -I filters, and sorts the
+ * surviving entries.  dirwalk()/jsonentries() then own that array, print
+ * or emit it, and recurse into directories.  freeents() releases the
+ * entry names and targets; the array itself is consumed by the walk.
+ *
+ * The text and JSON walkers are separate because their output shape and
+ * bookkeeping differ, but they share collect(), the sorting rules, the
+ * visited-directory set and the -L/--filelimit/--prune logic.  Visited
+ * directories are recorded by (device, inode), never by path, so
+ * symlink loops are detected without relying on string comparison.
+ *
+ * Display depth is tracked with dirbars[]: one slot per ancestor level
+ * records whether that ancestor was the last sibling, which selects the
+ * vertical line drawn by the text walker.  The array is global and
+ * indexed by depth because the walk is strictly depth-first; keeping it
+ * out of the per-call frame avoids a large array on every recursion
+ * level.
+ *
+ * The interface language and encoding are fixed: LC_CTYPE is set to
+ * en_US.UTF-8 (when available) for multibyte names, all other locale
+ * categories stay in "C", and the program degrades to byte-oriented
+ * ASCII output with a warning when that locale data is missing.
+ *
+ * Output errors and unreadable directories set had_error, which makes
+ * main() return 2.  A failed command-line option returns 1 through
+ * err(3)/errx(3) before the walk starts.
+ */
+
 /* display flags */
 static int	   aflag;     /* -a: include hidden entries */
 static int	   dflag;     /* -d: directories only */
@@ -77,6 +110,11 @@ static struct seen *seen_dirs;
 static size_t	    seen_cnt;
 static size_t	    seen_alloc;
 
+/*
+ * Output encoding capabilities, decided once in main() from the selected
+ * locale: use_unicode selects the UTF-8 box-drawing tables, multibyte
+ * enables wide-character interpretation and iswprint() checks.
+ */
 static int use_unicode;
 static int multibyte;
 
@@ -145,6 +183,13 @@ static void	   addseen(dev_t, ino_t);
 static char	  *joinpath(const char *, const char *);
 static char	  *resolvelink(const char *, const char *);
 
+/*
+ * Match a name against one pattern.  The whole name is tried first; if
+ * it contains path separators, each component after a separator is also
+ * tried, so a pattern such as "*.c" matches the final component of a
+ * path.  fnmatch(3) is used with flags 0 (no FNM_PATHNAME), so '*' can
+ * match '/' as well; this is the historical tree behavior.
+ */
 static int
 patmatch(const char *name, const char *pat)
 {
@@ -163,6 +208,10 @@ patmatch(const char *name, const char *pat)
 	return (0);
 }
 
+/*
+ * Inclusion is an OR over all -P patterns; an empty pattern list means
+ * "include everything" and is handled by the caller.
+ */
 static int
 patinclude(const char *name)
 {
@@ -174,6 +223,11 @@ patinclude(const char *name)
 	return (0);
 }
 
+/*
+ * Exclusion is an OR over all -I patterns.  Exclusion is applied after
+ * inclusion, so -I wins when both match a name; an empty list excludes
+ * nothing.
+ */
 static int
 patignore(const char *name)
 {
@@ -185,6 +239,15 @@ patignore(const char *name)
 	return (0);
 }
 
+/*
+ * Format a size into buf.  Without -h/--si the exact byte count is
+ * printed after a leading space in an 11-character field.  With a human
+ * mode, the value is scaled by 1024 (or 1000 for --si), one decimal
+ * place is kept while the rounded value is below ten units and none
+ * above, and a unit letter is appended to scaled values (plain bytes
+ * have no letter).  The field widths keep columns aligned.  LC_NUMERIC
+ * is always the "C" locale, so the decimal point is always '.'.
+ */
 static int
 psize(char *buf, size_t bufsize, off_t size)
 {
@@ -216,6 +279,14 @@ psize(char *buf, size_t bufsize, off_t size)
 	return (snprintf(buf, bufsize, " %11lld", (long long)size));
 }
 
+/*
+ * Format a timestamp with --timefmt, or with the traditional ls(1)-like
+ * form: month, day and time for dates within the last six months, and
+ * month, day and year for older or future dates.  The buffer is static
+ * and overwritten by the next call, so callers must consume it before
+ * formatting another date.  An out-of-range time yields an empty string;
+ * with --timefmt, a strftime(3) failure also yields an empty string.
+ */
 static const char *
 do_date(time_t t)
 {
@@ -244,6 +315,13 @@ do_date(time_t t)
 	return (buf);
 }
 
+/*
+ * Build the ls(1)-style permission string ("drwxr-xr-x") in a static
+ * 11-byte buffer.  The file type occupies the first column; the setuid,
+ * setgid and sticky bits replace the corresponding execute letters with
+ * lowercase or uppercase s/S/t/T, depending on whether that execute bit
+ * is also set.
+ */
 static const char *
 prot(mode_t mode)
 {
@@ -297,6 +375,13 @@ prot(mode_t mode)
 	return (buf);
 }
 
+/*
+ * Resolve a uid to a user name, or to the decimal uid when no passwd
+ * entry exists.  The result is cached in a static buffer: consecutive
+ * entries usually share an owner, and getpwuid(3) is comparatively
+ * expensive.  The cache makes the return value valid only until the next
+ * call, which is sufficient for the one-field-at-a-time formatter.
+ */
 static const char *
 uidtoname(uid_t uid)
 {
@@ -315,6 +400,11 @@ uidtoname(uid_t uid)
 	return (cbuf);
 }
 
+/*
+ * Resolve a gid to a group name, or to the decimal gid when no group
+ * entry exists.  As with uidtoname(), the static cache is valid only
+ * until the next call.
+ */
 static const char *
 gidtoname(gid_t gid)
 {
@@ -366,6 +456,14 @@ info_append(char *buf, size_t size, size_t *n, const char *fmt, ...)
 		*n += (size_t)written;
 }
 
+/*
+ * Assemble the optional metadata prefix for a text entry, in the fixed
+ * order inode, permissions, user, group, size, date.  Each field is
+ * appended through info_append() so truncation cannot overrun the
+ * static 512-byte buffer.  When at least one field was emitted, the
+ * leading space is replaced by '[' and a closing ']' is appended; the
+ * caller then only has to add the name.
+ */
 static const char *
 fillinfo(const struct stat *st)
 {
@@ -399,6 +497,24 @@ fillinfo(const struct stat *st)
 	return (buf);
 }
 
+/*
+ * Print a file name with the escaping selected by -N, -Q and -q.
+ *
+ *   -N  print the name completely raw; -Q still surrounds it in quotes
+ *       but nothing inside is escaped.
+ *   -Q  surround the name in double quotes and escape '"' and '\\'.
+ *   -q  print characters that are not printable as '?' instead of an
+ *       octal escape.
+ * default: backslash-escape control characters and '\\' with C-style
+ *       or three-digit octal escapes, so the output stays unambiguous
+ *       and line-oriented.  In the byte-oriented fallback a space is
+ *       escaped as "\\ " as well, preserving the historical output.
+ *
+ * In a multibyte locale the input is decoded as UTF-8 and printable
+ * wide characters are emitted unchanged; an invalid sequence falls back
+ * to byte-wise handling for that byte.  The option combinations follow
+ * the reference tree utility's escaping rules.
+ */
 static void
 printname(const char *s)
 {
@@ -574,6 +690,11 @@ json_enc(const char *s)
 	}
 }
 
+/*
+ * Classifier appended by -F: '/' directory, '=' socket, '|' FIFO,
+ * '@' symlink, '*' executable regular file.  Returns 0 when no suffix
+ * applies.
+ */
 static char
 ftype(mode_t mode)
 {
@@ -592,6 +713,7 @@ ftype(mode_t mode)
 	return (0);
 }
 
+/* JSON name for a file type; anything not otherwise classified is "file". */
 static const char *
 jtype(mode_t mode)
 {
@@ -613,6 +735,12 @@ jtype(mode_t mode)
 	}
 }
 
+/*
+ * Return 1 if this (device, inode) pair has already been entered during
+ * the walk.  The table is a simple linear array that grows geometrically
+ * in addseen().  Linear search is deliberate: it avoids a hash function
+ * over inode numbers and keeps the structure small for ordinary trees.
+ */
 static int
 seen(dev_t dev, ino_t ino)
 {
@@ -624,6 +752,11 @@ seen(dev_t dev, ino_t ino)
 	return (0);
 }
 
+/*
+ * Record a directory identity in the visited set, growing the array by
+ * doubling (starting at 64 entries).  reallocarray(3) failure is fatal:
+ * without the set the walk could loop forever on symlinks.
+ */
 static void
 addseen(dev_t dev, ino_t ino)
 {
@@ -639,6 +772,15 @@ addseen(dev_t dev, ino_t ino)
 	seen_cnt++;
 }
 
+/*
+ * qsort(3) comparator for directory entries.  --dirsfirst is a hard
+ * partition and is therefore not reversed by -r; within each partition
+ * the selected key (name, mtime, size or ctime) decides, with a
+ * byte-wise name comparison as the tie-breaker.  Time and size keys put
+ * the largest/newest value first, and -r reverses that ordering as
+ * well.  Names are compared with strcmp(3), never strcoll(3), so the
+ * order cannot change with the locale.
+ */
 static int
 entcmp(const void *va, const void *vb)
 {
@@ -674,6 +816,28 @@ entcmp(const void *va, const void *vb)
 	return (r);
 }
 
+/*
+ * Read and prepare one directory.
+ *
+ * "." and ".." are always skipped; other dot files only without -a.
+ * Each entry gets its full path constructed for lstat(2); a symlink is
+ * read with readlink(2) and stat(2) is used once to learn whether it
+ * points at a directory (a failed stat marks it broken).  An entry that
+ * vanished between readdir(3) and lstat(2)/readlink(2) is skipped
+ * silently, which is preferable to aborting the whole listing.
+ *
+ * Filtering is applied after all metadata is known: -d drops
+ * non-directories, -P keeps only matching files (patterns are also
+ * tried against a symlink's target), and -I drops matches.  Filtered
+ * entries are removed by a stable in-place compaction, preserving the
+ * original order for -U.  Surviving entries are sorted with entcmp()
+ * unless -U was given.
+ *
+ * On success the out array holds *nout entries and each entry owns its
+ * name and optional target; the caller must release both with
+ * freeents().  Returns -1 when opendir(2) fails, in which case the out
+ * array is null and *nout is zero.
+ */
 [[nodiscard]] static int
 collect(const char *path, struct ent **out, size_t *nout)
 {
@@ -805,6 +969,10 @@ collect(const char *path, struct ent **out, size_t *nout)
 	return (0);
 }
 
+/*
+ * Release every name and symlink target in the array, then the array
+ * itself.  Safe with a nullptr array and n == 0.
+ */
 static void
 freeents(struct ent *ents, size_t n)
 {
@@ -817,6 +985,11 @@ freeents(struct ent *ents, size_t n)
 	free(ents);
 }
 
+/*
+ * Join a directory path and an entry name with exactly one '/'; a root
+ * path is handled specially so the result is "/name", not "//name".
+ * Returns a newly allocated string and exits on allocation failure.
+ */
 static char *
 joinpath(const char *path, const char *name)
 {
@@ -835,6 +1008,13 @@ joinpath(const char *path, const char *name)
 	return (p);
 }
 
+/*
+ * Turn a symlink target into a path usable by opendir(2)/lstat(2).  An
+ * absolute target is returned as a copy.  A relative target is joined
+ * to the directory containing the link (path), with root handled as in
+ * joinpath().  The result does not canonicalize ".."; the kernel
+ * resolves it when the path is opened.
+ */
 static char *
 resolvelink(const char *path, const char *target)
 {
@@ -1087,7 +1267,13 @@ jsep(void)
 		fputs(",", outfile);
 }
 
-/* JSON fields for one entry's stat information */
+/*
+ * Append the optional stat fields to the current JSON object, each
+ * preceded by a comma: inode, mode/prot, user, group, size and time.
+ * The fields are only emitted for the corresponding option, so the
+ * object remains valid when none are selected.  String values pass
+ * through json_enc().
+ */
 static void
 json_info(const struct stat *st)
 {
@@ -1119,7 +1305,20 @@ json_info(const struct stat *st)
 }
 
 /*
- * JSON entries of one directory, at indentation level lvl.
+ * Emit the JSON members of one directory's contents at indentation
+ * level lvl.  The caller has already emitted the opening '[' and is
+ * responsible for the closing ']'; this function writes only the
+ * separating commas between members, so the first member has no leading
+ * comma.
+ *
+ * Symlinks are always emitted as "link" objects with a "target" string.
+ * A link to a directory is expanded recursively only when -l applies,
+ * it is not broken, it has not been visited, -x allows it, and the
+ * depth limit has not been reached.  Directories on another file
+ * system under -x are emitted as empty directory objects, matching the
+ * text walker's decision not to descend.
+ *
+ * The collected entry array is consumed here and freed before return.
  */
 static void
 jsonentries(const char *path, int depth, dev_t xdev, int lvl)
@@ -1255,8 +1454,16 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 }
 
 /*
- * JSON directory object at indentation level lvl.  The caller has
- * already positioned the indentation.
+ * Emit one JSON directory object at indentation level lvl.  The caller
+ * has already positioned the indentation.  disp is the name to show
+ * (which may differ from path for a followed symlink).  lstat(2) is
+ * repeated here for the object's own metadata; failure is not fatal,
+ * the missing fields are simply zeroed.
+ *
+ * At the -L boundary, or when a directory cannot be opened, is empty,
+ * or exceeds --filelimit, the object is closed without a "contents"
+ * member.  Only an unreadable directory sets had_error, because a
+ * depth/filelimit stop is expected behavior.
  */
 static void
 jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
@@ -1349,6 +1556,12 @@ closeoutput(void)
 		had_error = 1;
 }
 
+/*
+ * Long-option table entry.  name excludes the leading "--"; hasarg says
+ * whether a value is required (given with '=' or as the next argument);
+ * val is either the equivalent short option character or a private
+ * value in the '1'..'8' range that only setopt() understands.
+ */
 struct lopt {
 	const char *name;
 	int	    hasarg;
@@ -1361,6 +1574,14 @@ static const struct lopt longopts[] = {{"all", 0, 'a'}, {"dirsfirst", 0, '1'},
     {"noreport", 0, '4'}, {"prune", 0, '5'}, {"si", 0, '6'}, {"sort", 1, '7'},
     {"timefmt", 1, '8'}, {nullptr, 0, 0}};
 
+/*
+ * Apply one option.  Short options arrive as their character; the long
+ * table maps each long name to a private value ('1'..'8') so that this
+ * switch is the single place where an option becomes state.  Options
+ * that take an argument check val for nullptr, although the parser
+ * already rejects a missing argument.  -C and -n are accepted only for
+ * command-line compatibility: tree's output is always monochrome.
+ */
 static void
 setopt(int c, const char *val)
 {
@@ -1659,6 +1880,11 @@ main(int argc, char *argv[])
 		break;
 	}
 
+	/*
+	 * No operand means the current directory.  The vector is
+	 * nullptr-terminated, so count it once here; the same count
+	 * drives both the text and JSON root loops.
+	 */
 	if (i >= argc)
 		roots = defroot;
 	else
@@ -1701,6 +1927,14 @@ main(int argc, char *argv[])
 		}
 	}
 
+	/*
+	 * JSON output is a top-level array of root objects followed by an
+	 * optional report object.  A root that cannot be lstat(2)ed is
+	 * represented as a file object and sets had_error.  As in the
+	 * text walk, a symlink root is followed even without -l, because
+	 * the command-line operand itself is what the user asked to list;
+	 * a link to a non-directory is emitted as a plain file object.
+	 */
 	if (Jflag) {
 		int j, first = 1;
 
@@ -1771,6 +2005,13 @@ main(int argc, char *argv[])
 		return (had_error ? 2 : 0);
 	}
 
+	/*
+	 * Text mode processes each root in turn.  A non-directory root
+	 * is printed on one line and counted as a file.  A directory root
+	 * is printed first, then walked; the root's own device is the -x
+	 * boundary for the whole walk.  Errors at the root set
+	 * had_error but do not stop the remaining roots.
+	 */
 	for (i = 0; i < nroots; i++) {
 		struct stat st;
 		struct ent *ents;

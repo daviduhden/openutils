@@ -4,22 +4,6 @@
  *
  */
 
-/*
- * Copyright (c) 2026 David Uhden Collado <david@uhden.dev>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
 // clang-format off
 #include "bsdcompat.h"
 
@@ -29,6 +13,17 @@
 #include <limits.h>
 // clang-format on
 
+/*
+ * Convert the decimal string numstr to a long long in [minval, maxval].
+ * strtoll(3) supplies the base-10 syntax (optional leading whitespace and
+ * sign), but the whole input must be consumed: any trailing character,
+ * including whitespace, makes it invalid.  When errstrp is non-null,
+ * *errstrp is set to nullptr on success, or to "invalid", "too small" or
+ * "too large" on failure (0 is then returned).  errno is restored to its
+ * incoming value on success and set to EINVAL or ERANGE on failure,
+ * matching the OpenBSD contract.  An inverted range (minval > maxval) is
+ * invalid.
+ */
 long long
 strtonum(const char *numstr, long long minval, long long maxval,
     const char **errstrp)
@@ -36,6 +31,12 @@ strtonum(const char *numstr, long long minval, long long maxval,
 	long long ll = 0;
 	int	  error = 0;
 	char	 *ep;
+	/*
+	 * Lookup table indexed by the error code (0 = success).  ev[0]
+	 * carries the saved incoming errno so the success path can restore
+	 * it; the other entries pair the public message with the errno
+	 * value that the caller observes.
+	 */
 	struct errval {
 		const char *errstr;
 		int	    err;
@@ -49,6 +50,7 @@ strtonum(const char *numstr, long long minval, long long maxval,
 	ev[0].err = errno;
 	errno = 0;
 	if (minval > maxval) {
+		/* An impossible range is reported like malformed input. */
 		error = 1;
 	} else {
 		ll = strtoll(numstr, &ep, 10);

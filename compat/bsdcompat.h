@@ -24,22 +24,6 @@
  * environment.
  */
 
-/*
- * Copyright (c) 2026 David Uhden Collado <david@uhden.dev>
- *
- * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
 #ifndef OPENUTILS_BSDCOMPAT_H
 #define OPENUTILS_BSDCOMPAT_H
 
@@ -58,6 +42,12 @@
  * Feature-test macros must be defined before the first system
  * header.  On OpenBSD they must NOT be defined: they would hide the
  * BSD-visible interfaces the project relies on.
+ *
+ * _XOPEN_SOURCE 700 selects the POSIX.1-2008/XSI interface set;
+ * _DEFAULT_SOURCE restores the default (BSD and GNU) declarations that
+ * strict XSI mode would otherwise hide on glibc.  Both are needed for
+ * the programs to see the interfaces they use under -std=c23, which
+ * defines no feature-test macros of its own.
  */
 #ifndef __OpenBSD__
 #define _XOPEN_SOURCE 700
@@ -118,6 +108,11 @@ setprogname(const char *name)
 	const char *base;
 	size_t	    len;
 
+	/*
+	 * Store only the basename: getprogname() is used as a diagnostic
+	 * prefix, and callers pass argv[0], which may contain a path.
+	 * The fixed buffer truncates an unusually long name to 63 bytes.
+	 */
 	base = strrchr(name, '/');
 	base = (base != nullptr) ? base + 1 : name;
 	len = strlen(base);
