@@ -57,12 +57,10 @@ clean:
 
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1 $(DESTDIR)$(DICTDIR)
-	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
-	install -m 644 $(PROG).1 $(DESTDIR)$(MANDIR)1/$(PROG).1
+	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG) && install -m 644 $(PROG).1 $(DESTDIR)$(MANDIR)1/$(PROG).1
 	install -m 644 spell/en_US.aff spell/en_US.dic \
 	    $(DESTDIR)$(DICTDIR)/
-	ln -sf $(PROG) $(DESTDIR)$(BINDIR)/ree
-	ln -sf $(PROG) $(DESTDIR)$(BINDIR)/edit
+	ln -sf $(PROG) $(DESTDIR)$(BINDIR)/ree && ln -sf $(PROG) $(DESTDIR)$(BINDIR)/edit
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG) $(DESTDIR)$(BINDIR)/ree \
@@ -70,16 +68,8 @@ uninstall:
 	    $(DESTDIR)$(DICTDIR)/en_US.aff $(DESTDIR)$(DICTDIR)/en_US.dic
 
 test: $(PROG)
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-spell \
-	    tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS)
-	./tests/test-spell tests/spell-test.aff tests/spell-test.dic
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) \
-	    -o tests/test-dictionary \
-	    tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS)
-	./tests/test-dictionary spell/en_US.aff spell/en_US.dic
-	perl tests/run.pl
-	perl tests/signals.pl
-	perl tests/modern.pl
-	perl tests/features.pl
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-spell tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-spell tests/spell-test.aff tests/spell-test.dic
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-dictionary tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-dictionary spell/en_US.aff spell/en_US.dic
+	perl tests/run.pl && perl tests/signals.pl && perl tests/modern.pl && perl tests/features.pl
 
 .PHONY: all clean install uninstall test debug

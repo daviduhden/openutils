@@ -57,13 +57,7 @@ truncate:
 	$(MAKE_ENV) $(MAKE) -C truncate all
 
 test: all
-	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" sh compat/tests/run.sh
-	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" \
-	    FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK \
-	    sh compat/tests/stdckdint-compile-fail.sh
-	sh tree/tests/run.sh
-	sh truncate/tests/run.sh
-	$(MAKE_ENV) $(MAKE) -C ee test
+	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" sh compat/tests/run.sh && CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK sh compat/tests/stdckdint-compile-fail.sh && sh tree/tests/run.sh && sh truncate/tests/run.sh && $(MAKE_ENV) $(MAKE) -C ee test
 
 # build one utility with -g -O0 and run it under lldb(1)
 debug:
@@ -91,34 +85,10 @@ CHECK_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 EE_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 	-Wstrict-prototypes -Wmissing-prototypes
 check:
-	@for f in doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/spell/*.c \
-		compat/*.c; do \
-	first=$$(grep -m1 '^#include' "$$f"); \
-		if [ "$$first" != '#include "bsdcompat.h"' ]; then \
-			echo "error: $$f must include bsdcompat.h first" \
-			"(got: $$first)" >&2; \
-			exit 1; \
-		fi; \
-	done
-	@if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c \
-		ee/*.c ee/*.h ee/spell/*.c ee/spell/*.h; then \
-		echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; \
-		exit 1; \
-	fi
-	@for d in doasedit tree truncate; do \
-		$(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" \
-		WARNINGS="$(CHECK_WARNINGS)" clean >/dev/null || exit 1; \
-		$(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" \
-		WARNINGS="$(CHECK_WARNINGS)" all || exit 1; \
-	done
-	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" \
-	    WARNINGS="$(EE_WARNINGS)" clean >/dev/null || exit 1
-	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" \
-	    WARNINGS="$(EE_WARNINGS)" all || exit 1
-	@for d in $(SUBDIR); do \
-		$(MAKE_ENV) $(MAKE) -C $$d clean >/dev/null || exit 1; \
-	done
-	@$(MAKE_ENV) $(MAKE) all
+	@for f in doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/spell/*.c compat/*.c; do first=$$(grep -m1 '^#include' "$$f"); if [ "$$first" != '#include "bsdcompat.h"' ]; then echo "error: $$f must include bsdcompat.h first (got: $$first)" >&2; exit 1; fi; done && if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/*.h ee/spell/*.c ee/spell/*.h; then echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; exit 1; fi
+	@for d in doasedit tree truncate; do $(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" clean >/dev/null && $(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" all || exit 1; done
+	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" clean >/dev/null && $(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" all
+	@for d in $(SUBDIR); do $(MAKE_ENV) $(MAKE) -C $$d clean >/dev/null || exit 1; done && $(MAKE_ENV) $(MAKE) all
 
 install: all
 	@for d in $(SUBDIR); do \

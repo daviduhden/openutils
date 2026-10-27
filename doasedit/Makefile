@@ -33,6 +33,9 @@ debug: $(PROG)_debug
 clean:
 	rm -f $(PROG) $(PROG)_debug $(PROG:=.o)
 
+# Building the utility is the available smoke check; this directory has no separate test suite.
+test: all
+
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
@@ -41,4 +44,4 @@ install: $(PROG)
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(PROG) $(DESTDIR)$(MANDIR)1/$(PROG).1
 
-.PHONY: all clean install uninstall debug
+.PHONY: all clean install uninstall debug test
