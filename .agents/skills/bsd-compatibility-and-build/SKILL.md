@@ -124,7 +124,7 @@ implementation. Update it if build procedures, compatibility assumptions,
 flags, configuration, paths or validation commands changed, and add reusable
 findings or correct instructions that proved wrong. Keep examples current and
 omit one-off details. Review the root `AGENTS.md` and other applicable skills;
-run `perl scripts/check-agent-maintenance.pl` and `git diff --check`. Report
+run `python3 scripts/validate-agent-knowledge.py --scope worktree` and `git diff --check`. Report
 the synchronization outcome. A task is incomplete if a relevant instruction
 update or the gate is skipped; automated checks cover structure and references,
 while semantic relevance requires review.

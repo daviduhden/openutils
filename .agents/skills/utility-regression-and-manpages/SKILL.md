@@ -143,7 +143,7 @@ implementation. Update harness conventions, manual-page guidance, paths,
 commands and validation procedures when they change; add reusable findings
 and correct instructions that proved wrong. Keep examples current and omit
 one-off details. Review the root `AGENTS.md` and applicable skills; run
-`perl scripts/check-agent-maintenance.pl` and `git diff --check`. Include
+`python3 scripts/validate-agent-knowledge.py --scope worktree` and `git diff --check`. Include
 the synchronization result in the final report. A task is incomplete if
 relevant instructions or the gate are skipped; automated structure/reference
 checks need a semantic human review as well.
