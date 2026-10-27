@@ -158,3 +158,69 @@ Load the skill that matches the work:
   focused suites, and maintaining mdoc/man(7) pages.
 
 Skill files live under `.agents/skills/<name>/SKILL.md`.
+
+## Continuous Agent & Skills Maintenance
+
+Agent instructions and skills are living repository artifacts.
+
+Every repository modification MUST include an agent/skills synchronization step.
+
+Before completing any task, inspect the applicable AGENTS.md and SKILL.md files, update the affected instructions, and validate their consistency with the implementation.
+
+A code change without the corresponding agent knowledge maintenance is considered incomplete.
+
+Never claim completion when the synchronization step has been skipped or has failed.
+
+This applies to every repository change, including source, tests, dependencies,
+configuration, workflows, documentation, generated project files and changes to
+the agent system itself. Perform one complete review at the end of the task; run
+the validation again only after correcting a validation failure.
+
+### Required procedure
+
+1. Inspect `AGENTS.md` files and the applicable skills under
+   `.agents/skills/**/SKILL.md`, `.github/skills/**/SKILL.md`,
+   `.claude/skills/**/SKILL.md`, plus `.github/agents/*.agent.md` and any
+   tool-specific instruction files present (for example Cursor or Copilot).
+   Use `rg --files --hidden` so hidden instruction directories are included.
+2. Map changed paths and behavior to the instructions' stated scope, triggers,
+   procedures and validation commands. Review both the root guidance and every
+   matching specialized skill/agent; do not edit unrelated instructions.
+3. Update an existing instruction when its behavior, assumptions, paths, tools,
+   commands, checks or reusable implementation knowledge changed. Create a
+   skill only when a recurring, coherent workflow has no suitable existing
+   skill; give it valid Agent Skills frontmatter and link it here when relevant.
+4. Keep specialized agents synchronized with the root policy and their related
+   skills. If no specialized agents exist, record that in the final status;
+   do not create an agent just to satisfy the policy.
+5. Remove stale or contradictory operational knowledge and add only reusable
+   findings. Never make cosmetic, timestamp-only or empty edits to satisfy the
+   rule. If no useful update can be made, explain the reason in the final report
+   and treat the task as incomplete until a relevant instruction is maintained.
+6. Validate changed instruction structure, local references and the full
+   synchronization gate with `perl scripts/check-agent-maintenance.pl`.
+   In CI, compare the PR with its base using
+   `perl scripts/check-agent-maintenance.pl --base origin/<base-branch>`.
+   Also run `git diff --check`. Run build or runtime checks appropriate to the
+   implementation; documentation-only changes do not need builds or tests.
+   The automated gate checks structure and substantive textual changes, not
+   whether an update is semantically useful; a human review must assess that.
+7. If an instruction update or validation cannot be completed, state the exact
+   limitation and report the task as incomplete. Do not silently omit it.
+
+### Mandatory definition of done
+
+- [ ] Repository changes implemented.
+- [ ] Relevant agent instructions reviewed.
+- [ ] Relevant skills reviewed.
+- [ ] Affected AGENTS.md / SKILL.md files updated.
+- [ ] Obsolete knowledge removed.
+- [ ] New reusable knowledge incorporated.
+- [ ] Agent and skill references validated.
+- [ ] Automated maintenance checks passed.
+- [ ] Final synchronization status reported.
+
+Every final task report must include **Agent & Skills Synchronization** and
+identify agents and skills reviewed, instruction files updated, reusable
+knowledge added or corrected, validations actually run, and a `PASS` or `FAIL`
+status. Do not say a check passed unless it was run.

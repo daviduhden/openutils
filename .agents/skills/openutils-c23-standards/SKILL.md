@@ -102,3 +102,15 @@ first-include policy. For build-system and shim details, pair it with
 - `compat/stdckdint.h`
 - Root `README.md`, section "Language standard"
 - `Makefile` (`CSTD`, `CHECK_WARNINGS`, `EE_WARNINGS`, `check` target)
+
+## Maintenance & Continuous Learning
+
+Whenever this skill is used to change the repository, review it after the
+implementation. Update it if source conventions, compiler behavior, flags,
+paths or validation procedures changed; incorporate reusable findings and
+correct instructions that proved wrong. Keep examples current and omit
+execution-specific details. Review the root `AGENTS.md` and other applicable
+skills; run `perl scripts/check-agent-maintenance.pl` and
+`git diff --check`. Report synchronization in the final result. A task is
+incomplete if the relevant instructions or gate were skipped; automation
+checks structure and references, and a person must assess semantic relevance.

@@ -116,3 +116,15 @@ Preserve all of these unless the user explicitly requests a redesign:
 - Root `README.md`, sections "doasedit" and "pledge profiles"
 - `LICENSES/doasedit`
 - `git log --oneline -- doasedit`
+
+## Maintenance & Continuous Learning
+
+Whenever this skill is used to change the repository, review it after the
+implementation. Update threat assumptions, security invariants, procedures,
+paths and validation guidance when the project changes; add reusable findings
+and correct instructions that proved wrong. Keep examples current and omit
+one-off execution details. Review the root `AGENTS.md` and applicable skills;
+run `perl scripts/check-agent-maintenance.pl` and `git diff --check`. Report
+the synchronization result. A task is incomplete if relevant instructions or
+the gate are skipped; automation checks structure and references, while
+semantic relevance requires review.

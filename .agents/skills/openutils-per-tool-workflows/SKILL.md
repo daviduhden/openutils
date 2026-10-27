@@ -161,3 +161,15 @@ drivers default to absolute paths derived from their own location.
   `truncate/README.md`
 - `Makefile` and each tool's `Makefile`
 - `LICENSES/<tool>`
+
+## Maintenance & Continuous Learning
+
+Whenever this skill is used to change the repository, review it after the
+implementation. Update tool locations, invariants, commands and validation
+procedures when they change; capture reusable findings and correct instructions
+that proved wrong. Keep examples current and exclude one-off details. Review
+the root `AGENTS.md` and other applicable skills; run
+`perl scripts/check-agent-maintenance.pl` and `git diff --check`. Include the
+synchronization result in the final report. A task is incomplete if relevant
+instructions or the gate are skipped; automated structure/reference checks do
+not replace semantic review.
