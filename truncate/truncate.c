@@ -69,8 +69,8 @@ static off_t	    sizev;
 static const char  *ref_file;
 
 [[noreturn]] static void usage(void);
-[[nodiscard]] static int parse_size(const char *, off_t *, enum relmode *,
-    int *);
+[[nodiscard]] static int parse_size(
+    const char *, off_t *, enum relmode *, int *);
 
 [[noreturn]] static void
 usage(void)
@@ -521,8 +521,8 @@ main(int argc, char *argv[])
 					} else {
 						int r;
 
-						r = parse_size(
-						    val, &sizev, &rel_mode,
+						r = parse_size(val, &sizev,
+						    &rel_mode,
 						    &last_size_relative);
 						if (r == -2) {
 							warnx("multiple "

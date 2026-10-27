@@ -415,7 +415,7 @@ if [ -n "$GNU" ]; then
 	say "(differential mode against $GNU)"
 else
 	say "(standalone mode; no reference implementation found;" \
-	    "differential checks skipped)"
+		"differential checks skipped)"
 fi
 say "pass: $PASS  fail: $FAIL  skip: $SKIP"
 if [ "$FAIL" -gt 0 ]; then

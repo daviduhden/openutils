@@ -598,7 +598,7 @@ command_exists(const char *cmd)
 		path = "/usr/bin:/bin";
 	for (p = path;;) {
 		const char *end = strchr(p, ':');
-		size_t	    len = end != nullptr ? (size_t)(end - p) : strlen(p);
+		size_t len = end != nullptr ? (size_t)(end - p) : strlen(p);
 
 		if (len == 0) {
 			/* empty PATH element means the current directory */
@@ -1015,8 +1015,8 @@ main(int argc, char *argv[])
 					struct stat fst;
 
 					if (fstat(fd, &fst) == -1 ||
-					    !stat_matches_snapshot(&fst,
-						&snap)) {
+					    !stat_matches_snapshot(
+						&fst, &snap)) {
 						warnx("%s: file changed "
 						      "while reading",
 						    file);

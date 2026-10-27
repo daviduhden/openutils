@@ -288,8 +288,8 @@ sub main {
         CLEANUP => 1
     );
 
-    check( 'vi: $ a append and :wq save',   test_vi_append_and_wq($work) );
-    check( 'vi: dd deletes a line',         test_vi_delete_line($work) );
+    check( 'vi: $ a append and :wq save', test_vi_append_and_wq($work) );
+    check( 'vi: dd deletes a line',       test_vi_delete_line($work) );
     check( 'vi: settings menu round trip',
         test_settings_menu_roundtrip($work) );
     check( 'diff content is not corrupted', test_format_protects_diff($work) );

@@ -907,7 +907,8 @@ collect(const char *path, struct ent **out, size_t *nout)
 			 * or displaying a truncated path would be wrong.
 			 */
 			if ((size_t)len == sizeof(lbuf)) {
-				warnx("%s: symbolic link target too long", join);
+				warnx(
+				    "%s: symbolic link target too long", join);
 				free(e->name);
 				free(join);
 				continue;
@@ -1198,7 +1199,8 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			if (collect(cp, &ch, &nch) == -1)
 				opened = 0;
 
-			if (filelimit > 0 && opened && nch > (size_t)filelimit) {
+			if (filelimit > 0 && opened &&
+			    nch > (size_t)filelimit) {
 				entryline(e, path, depth, bars, last);
 				fprintf(outfile,
 				    "  [%d entries exceeds "
@@ -1916,8 +1918,8 @@ main(int argc, char *argv[])
 		 * O_NOFOLLOW: -o must create or truncate a regular file,
 		 * never write through a symbolic link planted at outpath.
 		 */
-		fd = open(outpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW,
-		    0666);
+		fd = open(
+		    outpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0666);
 		if (fd == -1)
 			err(1, "%s", outpath);
 		outfile = fdopen(fd, "w");

@@ -209,8 +209,7 @@ sub main {
     ok('ee binary exists');
 
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $home =
-      tempdir( 'ee-sig-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $home   = tempdir( 'ee-sig-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
     local $ENV{HOME} = $home;
     my $work = tempdir( 'ee-sig-test.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
     my ( $exited, $restored, $saved ) = sigint_test($work);

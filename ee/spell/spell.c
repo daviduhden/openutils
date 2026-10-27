@@ -226,7 +226,8 @@ build_index(struct ee_spell *sp)
 /* conditions							    */
 /* ---------------------------------------------------------------- */
 
-/* Test one condition token against a byte; non-ASCII bytes never match a set. */
+/* Test one condition token against a byte; non-ASCII bytes never match a set.
+ */
 static int
 tok_match(const struct spell_tok *t, unsigned char c)
 {

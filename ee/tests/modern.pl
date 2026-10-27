@@ -428,8 +428,7 @@ sub main {
     ok('ee binary exists');
 
     my $tmpdir = $ENV{TMPDIR} // '/tmp';
-    my $home =
-      tempdir( 'ee-modern-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
+    my $home = tempdir( 'ee-modern-home.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
     local $ENV{HOME} = $home;
     my $work = tempdir( 'ee-modern.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
@@ -449,7 +448,7 @@ sub main {
     check( 'tiny terminal then grow',   test_tiny_then_grow($work) );
     check( 'control characters are preserved and visible',
         test_control_characters($work) );
-    check( 'resize stress',    test_resize_stress($work) );
+    check( 'resize stress',      test_resize_stress($work) );
     check( 'shell command runs', test_shell_command($work) );
 
     print "\npass: $PASS  fail: $FAIL\n";

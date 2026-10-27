@@ -125,8 +125,7 @@ ee_on_sigint(int)
 static void
 ee_install_sigint(void)
 {
-	static const int clean_signals[] = {
-	    SIGINT, SIGTERM, SIGHUP, SIGQUIT};
+	static const int clean_signals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
 	struct sigaction sa;
 	size_t		 i;
 
@@ -155,8 +154,8 @@ ee_min(int a, int b)
 struct text {
 	unsigned char *line;	    /* UTF-8 text plus a NUL terminator	*/
 	int	       line_number; /* line number			*/
-	int line_length; /* bytes used, including the terminating NUL */
-	int max_length;	 /* bytes allocated for line			*/
+	int line_length;	/* bytes used, including the terminating NUL */
+	int max_length;		/* bytes allocated for line			*/
 	struct text *next_line; /* next line of text		*/
 	struct text *prev_line; /* previous line of text	*/
 };
@@ -4439,14 +4438,15 @@ sh_command(char *string)
 
 				close(pipe_out[0]);
 				line_holder = first_line;
-				while ((line_holder != nullptr) && !pipe_error) {
+				while (
+				    (line_holder != nullptr) && !pipe_error) {
 					const unsigned char *data =
 					    line_holder->line;
 					size_t remaining =
-					    (line_holder->line_length > 0)
-					    ? (size_t)(line_holder->line_length -
-						  1)
-					    : 0;
+					    (line_holder->line_length > 0) ?
+					    (size_t)(line_holder->line_length -
+						1) :
+					    0;
 
 					/*
 					 * write(2) may accept only part of
@@ -4478,13 +4478,12 @@ sh_command(char *string)
 						do {
 							n = write(pipe_out[1],
 							    "\n", 1);
-						} while (
-						    (n < 0) && (errno == EINTR));
+						} while ((n < 0) &&
+						    (errno == EINTR));
 						if (n != 1)
 							pipe_error = TRUE;
 					}
-					line_holder =
-					    line_holder->next_line;
+					line_holder = line_holder->next_line;
 				}
 				if (pipe_error)
 					fprintf(stderr, "ee: write: %s\n",
@@ -4611,7 +4610,8 @@ set_up_term(void)
 	if ((rows < 2) || (cols < 2)) {
 		endwin();
 		fprintf(stderr,
-		    "ee: terminal too small (minimum is 2 rows by 2 columns)\n");
+		    "ee: terminal too small (minimum is 2 rows by 2 "
+		    "columns)\n");
 		exit(1);
 	}
 	if (rows < 1)
@@ -7292,8 +7292,8 @@ modes_op(void)
 			if (string != nullptr) {
 				const char *errstr;
 
-				counter = (int)strtonum(
-				    string, 1, INT_MAX, &errstr);
+				counter =
+				    (int)strtonum(string, 1, INT_MAX, &errstr);
 				if (errstr == nullptr)
 					right_margin = counter;
 				free(string);
