@@ -110,7 +110,7 @@ implementation. Update it if source conventions, compiler behavior, flags,
 paths or validation procedures changed; incorporate reusable findings and
 correct instructions that proved wrong. Keep examples current and omit
 execution-specific details. Review the root `AGENTS.md` and other applicable
-skills; run `python3 scripts/validate-agent-knowledge.py --scope worktree` and
+skills; run `perl scripts/validate-agent-knowledge.pl --scope worktree` and
 `git diff --check`. Report synchronization in the final result. A task is
 incomplete if the relevant instructions or gate were skipped; automation
 checks structure and references, and a person must assess semantic relevance.

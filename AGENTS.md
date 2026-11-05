@@ -198,9 +198,9 @@ the validation again only after correcting a validation failure.
    rule. If no useful update can be made, explain the reason in the final report
    and treat the task as incomplete until a relevant instruction is maintained.
 6. Validate changed instruction structure, local references and the full
-   synchronization gate with `python3 scripts/validate-agent-knowledge.py --scope worktree`.
+   synchronization gate with `perl scripts/validate-agent-knowledge.pl --scope worktree`.
    In CI, compare the PR with its base using
-   `python3 scripts/validate-agent-knowledge.py --scope range --base origin/<base-branch> --head HEAD`
+   `perl scripts/validate-agent-knowledge.pl --scope range --base origin/<base-branch> --head HEAD`
    Also run `git diff --check`. Run build or runtime checks appropriate to the
    implementation; documentation-only changes do not need builds or tests.
    The automated gate checks structure and substantive textual changes, not
@@ -227,10 +227,10 @@ status. Do not say a check passed unless it was run.
 
 ### Shared Agent Knowledge Validation Contract
 
-Use `python3 scripts/validate-agent-knowledge.py --scope worktree` for local
-changes and `python3 -m unittest discover -s tests/agent_knowledge_validator -v`
-for its contract tests. The validator requires Python 3.11+ and Git, uses only
-the Python standard library, and publishes contract version `1.0.0`. All
+Use `perl scripts/validate-agent-knowledge.pl --scope worktree` for local
+changes and `prove tests/agent_knowledge_validator/test_validator.pl`
+for its contract tests. The validator requires Perl 5.14+ (JSON::PP core) and Git, uses only
+core Perl modules, and publishes contract version `1.0.0`. All
 adopting repositories share the same CLI, AK001-AK006 identifiers, output
 schema, and exit codes (`0` pass, `1` policy failure, `2` execution/configuration
 error). For a pull request, pass both revisions with
@@ -240,7 +240,7 @@ Read [Agent Knowledge Validation Contract](docs/agent-knowledge-validation.md)
 for the complete rules, JSON schema, optional repository configuration,
 warning semantics, and extension process. AK004 and AK006 can require human
 review; their warnings do not prove or disprove semantic correctness. Keep the
-canonical script and black-box unittest suite byte-identical across adopting
+canonical script and black-box Perl suite byte-identical across adopting
 repositories. Repository-specific requirements belong in the documented TOML
 configuration or a stable `AKX...` extension, never in a private fork of the
 shared rules. The GitHub PR workflow runs the same tests and range command;
