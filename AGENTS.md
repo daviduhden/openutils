@@ -114,6 +114,33 @@ For documentation-only changes, do not run `make`, `make check` or the
 test suites just to "validate" the documentation. Use static checks and
 state that no build or test was run.
 
+## GitHub Actions pin maintenance
+
+The only workflow is `.github/workflows/agent-knowledge-validation.yml`.
+Third-party actions stay pinned to immutable full-length commit SHAs, never
+floating tags. The trailing comment preserves the reviewed release for human
+comparison:
+
+| Action | Release | Commit SHA |
+| --- | --- | --- |
+| `actions/checkout` | `v7.0.1` | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
+| `actions/upload-artifact` | `v7.0.2` | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
+| `actions/cache` | `v6.1.0` | `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` |
+
+These pins were verified against upstream stable releases on 2026-11-07.
+`upload-artifact` and `cache` are not used yet; keep the map for the next
+workflow that needs them.
+
+- Write each pin as `owner/action@<40-hex-sha> # vX.Y.Z`; never use `@v4`,
+  `@main`, a branch, or a short SHA.
+- Confirm the stable upstream release and its immutable commit before editing.
+  Change the SHA and the trailing version comment together.
+- Do not change triggers, permissions, job names, concurrency, or step
+  behavior while updating a pin, and never add an automatic trigger.
+- Run `actionlint .github/workflows/*.yml`, `yamllint` when a tracked
+  configuration exists, and review `git diff` for the workflow. These are
+  static checks; they do not execute the workflow.
+
 ## Security and test policy
 
 - Never weaken or bypass `doasedit`'s `O_NOFOLLOW`, identity-snapshot,
