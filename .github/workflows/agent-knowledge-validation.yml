@@ -8,10 +8,6 @@ on:
         required: true
         default: origin/main
         type: string
-      profile:
-        description: 'Log timing and peak memory for representative workloads'
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -38,68 +34,3 @@ jobs:
         env:
           VALIDATION_BASE: ${{ inputs.base }}
         run: perl scripts/validate-agent-knowledge.pl --scope range --base "$VALIDATION_BASE" --head HEAD
-
-  linux:
-    runs-on: ubuntu-24.04
-    container: ubuntu:26.04
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [clang, gcc]
-    steps:
-      - name: Install test dependencies
-        run: |
-          apt-get update
-          apt-get install -y ca-certificates clang gcc git libc6-dev make pkg-config libncurses-dev libio-pty-perl locales time
-          locale-gen en_US.UTF-8
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Compile and run regression suites
-        env:
-          TEST_CC: ${{ matrix.compiler }}
-          LC_ALL: en_US.UTF-8
-        run: |
-          "$TEST_CC" --version
-          make check CC="$TEST_CC" CHECK_CC="$TEST_CC"
-          make test CC="$TEST_CC"
-      - name: Measure wide trees and large editor inputs
-        if: inputs.profile && matrix.compiler == 'clang'
-        env:
-          LC_ALL: en_US.UTF-8
-          TERM: xterm
-        run: |
-          set -eu
-          work=$(mktemp -d)
-          trap 'rm -rf "$work"' EXIT
-          mkdir "$work/wide" "$work/home"
-          export HOME="$work/home"
-          i=0
-          while [ "$i" -lt 512 ]; do
-            mkdir "$work/wide/d$i"
-            ln -s "d$i" "$work/wide/z$i"
-            i=$((i + 1))
-          done
-          /usr/bin/time -v ./tree/tree -i -J -l "$work/wide" > "$work/tree.json"
-          perl -e 'print((("word " x 15 . "\n") x 65536), ("x" x 65536), "\n")' > "$work/editor.txt"
-          /usr/bin/time -v perl ee/tests/pty_run.pm "$PWD/ee/ee" -i "$work/editor.txt" -- '\x11' > "$work/editor.log"
-
-  openbsd:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Compile and test with OpenBSD libc and pledge
-        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
-        with:
-          release: '8.0'
-          prepare: pkg_add ncurses p5-IO-Tty
-          run: |
-            set -eu
-            uname -a
-            clang --version
-            make check
-            make test

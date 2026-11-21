@@ -116,7 +116,8 @@ state that no build or test was run.
 
 ## GitHub Actions pin maintenance
 
-The only workflow is `.github/workflows/agent-knowledge-validation.yml`.
+The manual workflows are `.github/workflows/agent-knowledge-validation.yml`
+and `.github/workflows/openutils-tests.yml`.
 Third-party actions stay pinned to immutable full-length commit SHAs, never
 floating tags. The trailing comment preserves the reviewed release for human
 comparison:
@@ -273,9 +274,9 @@ canonical script and black-box Perl suite byte-identical across adopting
 repositories. Repository-specific requirements belong in the documented TOML
 configuration or a stable `AKX...` extension, never in a private fork of the
 shared rules. All workflows are manual-only: start them from the Actions
-tab or with `gh workflow run`. Set the workflow's `base` input to the
-comparison ref. The workflow validates the committed range and runs the
-contract tests, then independent Linux and OpenBSD jobs compile and run
-the ordinary regression suites. Worktree validation still applies before
+tab or with `gh workflow run`. Set the knowledge workflow's `base` input to the
+comparison ref. It validates the committed range and runs the contract
+tests. Dispatch OpenUtils Tests separately for the Linux and OpenBSD
+builds and ordinary regression suites. Worktree validation still applies before
 committing. The jobs require no repository secrets. Privileged doasedit
 write-back still requires a disposable OpenBSD environment and real policy.

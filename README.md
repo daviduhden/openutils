@@ -221,7 +221,8 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 
 Dispatch **Agent Knowledge Validation** on the branch under review and
 provide its comparison base. The workflow validates the committed range
-and runs the validator contract suite on Linux. The Linux build matrix
+and runs the validator contract suite on Linux. Dispatch **OpenUtils
+Tests** separately to compile and run the utility suites. Its Linux build matrix
 uses Clang and GCC in Ubuntu 26.04, and the OpenBSD 8.0 VM runs the base
 Clang toolchain and the runtime suites with native pledge. The jobs log
 their compiler versions. Enable the `profile` input to log timing and
