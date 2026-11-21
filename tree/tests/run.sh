@@ -200,7 +200,7 @@ assert_out "-q replaces non-printables" "with?newline" "$TREE" -q sub
 assert_out "-N prints raw" "with" "$TREE" -N sub
 assert_out "-Q quotes names" '"with space"' "$TREE" -Q sub
 assert_out "-Q escapes embedded quote" 'quote\"name' "$TREE" -Q sub
-assert_out "-Q escapes embedded backslash" 'back\slash' "$TREE" -Q sub
+assert_out "-Q escapes embedded backslash" 'back\\slash' "$TREE" -Q sub
 
 # JSON
 assert_out "-J emits json" '"type":"directory"' "$TREE" -J sub
@@ -208,7 +208,7 @@ assert_out "-J report object" '"type":"report"' "$TREE" -J sub
 assert_out "-J link target" '"target":"../sub/deep"' "$TREE" -J sub
 assert_out "-J escapes newlines" 'with\nnewline' "$TREE" -J sub
 assert_out "-J escapes embedded quote" 'quote\"name' "$TREE" -J sub
-assert_out "-J escapes embedded backslash" 'back\slash' "$TREE" -J sub
+assert_out "-J escapes embedded backslash" 'back\\slash' "$TREE" -J sub
 assert_not_out "JSON --filelimit blocks nested descent" '"name":"afile"' \
 	"$TREE" -J --filelimit 2 sub
 assert_out "JSON --filelimit keeps directory object" '"name":"sub"' \

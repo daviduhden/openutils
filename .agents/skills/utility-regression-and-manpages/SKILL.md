@@ -74,7 +74,9 @@ strict build/source-policy check.
 2. For tree, add cases to `tree/tests/run.sh` using `assert_out`,
    `assert_not_out`, `assert`, or `assert_eq`. Output helpers match literal
    strings and require a successful producer. Capture status and output
-   separately for expected failures. Add fixtures under the existing
+   separately for expected failures. In literal output patterns, count
+   the bytes produced by the formatter: a single filename backslash
+   becomes two backslashes in quoted text and JSON. Add fixtures under the existing
    temporary hierarchy. Use core JSON::PP when available to validate
    whole JSON documents.
 3. For truncate, add direct size/status assertions to
