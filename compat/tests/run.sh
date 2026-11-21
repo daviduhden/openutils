@@ -1,10 +1,5 @@
 #!/bin/sh
-# Self-test for the <stdckdint.h> fallback in compat/stdckdint.h.
-#
-# The fallback is forced with OPENUTILS_STDCKDINT_FORCE_FALLBACK so
-# that it is compiled and executed even when the host already provides
-# a real <stdckdint.h>; otherwise the fallback would never be covered
-# on a development machine.  The test binary is link-only against libc.
+# Run the checked arithmetic corpus with normal and forced header selection.
 
 set -u
 
@@ -21,9 +16,13 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 bin="$work/stdckdint-test"
 
-# shellcheck disable=SC2086  # the options are intentionally split
-"$CC" $CFLAGS $CSTD $WARNINGS -I"$COMPAT_DIR" \
-	-DOPENUTILS_STDCKDINT_FORCE_FALLBACK \
-	-o "$bin" "$TESTS_DIR/stdckdint.c" || exit 1
-
-"$bin"
+for selection in normal fallback; do
+	define=
+	if [ "$selection" = fallback ]; then
+		define=-DOPENUTILS_STDCKDINT_FORCE_FALLBACK
+	fi
+	# shellcheck disable=SC2086  # the options are intentionally split
+	"$CC" $CFLAGS $CSTD $WARNINGS -I"$COMPAT_DIR" $define \
+		-o "$bin" "$TESTS_DIR/stdckdint.c" || exit 1
+	"$bin" || exit 1
+done

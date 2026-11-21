@@ -235,9 +235,9 @@ assert_eq "-o scales by block size" "$(blksize "$work/a")" "$(size "$work/a")" 2
 assert_eq "multiple files sized" "20 20" \
 	"$(size "$work/m1") $(size "$work/m2")"
 
-"$TRUNC" -s 20 "$work/m1" "$work/no-such-dir/x" >/dev/null 2>&1
+"$TRUNC" -s 21 "$work/no-such-dir/x" "$work/m1" >/dev/null 2>&1
 assert_eq "failure in one operand exits 1" 1 $?
-assert_eq "other operands still processed" 20 "$(size "$work/m1")"
+assert_eq "other operands still processed" 21 "$(size "$work/m1")"
 
 # ------------------------------------------------ invalid input
 for bad in 5X "" x 5.5 "5 5" "<+5" "+<5" "/0" "%0" - + 5b 5c 5w 99999999999999999999999999; do
@@ -255,7 +255,7 @@ done
 assert_eq "no options: usage error" 1 $?
 "$TRUNC" -s 5 >/dev/null 2>&1
 assert_eq "missing operand: usage error" 1 $?
-"$TRUNC" -r "$work/ref" -s 100 >/dev/null 2>&1
+"$TRUNC" -r "$work/ref" -s 100 "$work/a" >/dev/null 2>&1
 assert_eq "-r with absolute -s rejected" 1 $?
 "$TRUNC" -o -r "$work/ref" >/dev/null 2>&1
 assert_eq "-o without -s rejected" 1 $?

@@ -518,6 +518,8 @@ load_dic(struct ee_spell *sp, const char *path)
 		char		   *slash;
 		struct spell_entry *e;
 
+		if (memchr(line, 0, (size_t)n) != nullptr)
+			goto failed;
 		spell_rstrip(line);
 		if (first) {
 			first = 0;
@@ -537,14 +539,14 @@ load_dic(struct ee_spell *sp, const char *path)
 		e = reallocarray(sp->ents, (size_t)(sp->nents + 1),
 		    sizeof(struct spell_entry));
 		if (e == nullptr)
-			break;
+			goto failed;
 		sp->ents = e;
 		e = &sp->ents[sp->nents];
 		e->word = spell_strdup(line);
 		e->flags = nullptr;
 		e->nflags = 0;
 		if (e->word == nullptr)
-			break;
+			goto failed;
 		sp->nents++;
 
 		if (slash != nullptr) {
@@ -558,14 +560,20 @@ load_dic(struct ee_spell *sp, const char *path)
 				if (used == 0)
 					break;
 				if (add_flag(e, fl) != 0)
-					break;
+					goto failed;
 				p += used;
 			}
 		}
 	}
+	if (!feof(f) || ferror(f))
+		goto failed;
+	free(line);
+	return (fclose(f));
+
+failed:
 	free(line);
 	fclose(f);
-	return (0);
+	return (-1);
 }
 
 /*
@@ -594,6 +602,8 @@ load_aff(struct ee_spell *sp, const char *path)
 		char		  condf[SPELL_MAX_RULE];
 		int		  got;
 
+		if (memchr(line, 0, (size_t)n) != nullptr)
+			goto failed;
 		spell_rstrip(line);
 		if ((line[0] == '\0') || (line[0] == '#'))
 			continue;
@@ -639,7 +649,7 @@ load_aff(struct ee_spell *sp, const char *path)
 			nr = reallocarray(sp->rep, (size_t)(sp->nrep + 1),
 			    sizeof(struct spell_repl));
 			if (nr == nullptr)
-				break;
+				goto failed;
 			sp->rep = nr;
 			sp->rep[sp->nrep].from = spell_strdup(from);
 			sp->rep[sp->nrep].to = spell_strdup(to);
@@ -647,7 +657,7 @@ load_aff(struct ee_spell *sp, const char *path)
 			    (sp->rep[sp->nrep].to == nullptr)) {
 				free(sp->rep[sp->nrep].from);
 				free(sp->rep[sp->nrep].to);
-				break;
+				goto failed;
 			}
 			sp->nrep++;
 			continue;
@@ -672,14 +682,21 @@ load_aff(struct ee_spell *sp, const char *path)
 			r.add[0] = '\0';
 			r.addlen = 0;
 		}
-		if (strcmp(type, "SFX") == 0)
-			(void)append_rule(&sp->suffix, &sp->nsuffix, &r);
-		else
-			(void)append_rule(&sp->prefix, &sp->nprefix, &r);
+		if (strcmp(type, "SFX") == 0) {
+			if (append_rule(&sp->suffix, &sp->nsuffix, &r) != 0)
+				goto failed;
+		} else if (append_rule(&sp->prefix, &sp->nprefix, &r) != 0)
+			goto failed;
 	}
+	if (!feof(f) || ferror(f))
+		goto failed;
+	free(line);
+	return (fclose(f));
+
+failed:
 	free(line);
 	fclose(f);
-	return (0);
+	return (-1);
 }
 
 /* ---------------------------------------------------------------- */

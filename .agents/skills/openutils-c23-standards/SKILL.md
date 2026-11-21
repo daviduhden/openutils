@@ -68,6 +68,9 @@ first-include policy. For build-system and shim details, pair it with
 
 - Documentation-only changes: `git diff --check`, `git status`, and
   path/link checks. Do not run `make`.
+- For a CI-only runtime request, use syntax-only checks locally and have
+  the manual workflow perform builds and execution. Syntax-only checks
+  do not validate linking, portability branches or OpenBSD promises.
 - C changes: at minimum a per-tool build (`make -C <tool>`), then the
   focused suite. `make check` is the strict-warning and source-policy
   gate; it cleans and rebuilds, so do not run it casually.

@@ -49,6 +49,15 @@ Preserve all of these unless the user explicitly requests a redesign:
 - The privileged write for existing files goes through `doas install`
   (temporary file in the destination directory plus `rename(2)`), which
   replaces a swapped final symlink rather than following it.
+- The parent is canonicalized even for a bare basename. This makes the
+  configuration-path check independent of the spelling used at invocation.
+  Review rules with exact arguments when changing canonicalization.
+- Require a successful editor exit before installation, including
+  configuration re-edits. Repeat target checks before each privileged
+  attempt. Authentication can still intervene before replacement.
+- Termination handlers record a `sig_atomic_t` value. Clean up only
+  after waiting for children. Recovery is opt-in and retains only the
+  edited file under the private temporary directory.
 - The direct-write path is only for a target the user may write but not
   read. It updates the existing inode in place and is not atomic; do not
   describe it as an atomic rename.

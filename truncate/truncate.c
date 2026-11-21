@@ -76,8 +76,8 @@ static const char  *ref_file;
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: truncate [-c] [-o] -s [+|-]<|>|/|%%SIZE[unit] file ...\n"
-	    "       truncate [-c] -r rfile file ...\n");
+	    "usage: truncate [-c] [-o] -s [+|-|<|>|/|%%]SIZE[unit] file ...\n"
+	    "       truncate [-c] -r rfile [-s relative-size] file ...\n");
 	exit(1);
 }
 
@@ -390,6 +390,25 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 	return (0);
 }
 
+static void
+set_size(const char *value, int *last_size_relative)
+{
+	int result = parse_size(value, &sizev, &rel_mode, last_size_relative);
+
+	if (result == -2) {
+		warnx("multiple relative modifiers specified");
+		usage();
+	}
+	if (result == -1) {
+		if (errno == ERANGE)
+			err(1, "Invalid number: '%s'", value);
+		errx(1, "Invalid number: '%s'", value);
+	}
+	if ((rel_mode == RM_RDN || rel_mode == RM_RUP) && sizev == 0)
+		errx(1, "division by zero");
+	got_size = 1;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -464,29 +483,9 @@ main(int argc, char *argv[])
 			case 'r':
 				ref_file = val;
 				break;
-			case 's': {
-				int r;
-
-				r = parse_size(val, &sizev, &rel_mode,
-				    &last_size_relative);
-				if (r == -2) {
-					warnx("multiple relative modifiers "
-					      "specified");
-					usage();
-				}
-				if (r == -1) {
-					if (errno == ERANGE)
-						err(1, "Invalid number: '%s'",
-						    val);
-					errx(1, "Invalid number: '%s'", val);
-				}
-				if ((rel_mode == RM_RDN ||
-					rel_mode == RM_RUP) &&
-				    sizev == 0)
-					errx(1, "division by zero");
-				got_size = 1;
+			case 's':
+				set_size(val, &last_size_relative);
 				break;
-			}
 			}
 			continue;
 		}
@@ -516,41 +515,10 @@ main(int argc, char *argv[])
 						    "missing argument "
 						    "to -%c",
 						    c);
-					if (c == 'r') {
+					if (c == 'r')
 						ref_file = val;
-					} else {
-						int r;
-
-						r = parse_size(val, &sizev,
-						    &rel_mode,
-						    &last_size_relative);
-						if (r == -2) {
-							warnx("multiple "
-							      "relative "
-							      "modifiers "
-							      "specified");
-							usage();
-						}
-						if (r == -1) {
-							if (errno == ERANGE)
-								err(1,
-								    "Invalid "
-								    "number: "
-								    "'%s'",
-								    val);
-							errx(1,
-							    "Invalid "
-							    "number: '%s'",
-							    val);
-						}
-						if ((rel_mode == RM_RDN ||
-							rel_mode == RM_RUP) &&
-						    sizev == 0)
-							errx(1,
-							    "division "
-							    "by zero");
-						got_size = 1;
-					}
+					else
+						set_size(val, &last_size_relative);
 					j = strlen(arg) - 1;
 					break;
 				}

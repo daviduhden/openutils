@@ -208,6 +208,7 @@ int last_col;		   /* last column for text display		*/
 int horiz_offset = 0;	   /* offset from left edge of text	*/
 int clear_com_win;	   /* flag to indicate com_win needs clearing */
 int text_changes = FALSE;  /* indicate changes have been made to text */
+static int file_load_failed;
 int read_only = FALSE;	   /* current file is not writable		*/
 int get_fd;		   /* file descriptor for reading a file	*/
 int info_window = TRUE;	   /* flag to indicate if shortcut bar visible */
@@ -305,7 +306,6 @@ unsigned char *start_at_line =
     nullptr; /* move to this line at start of session*/
 int in;	     /* input character			*/
 
-FILE *temp_fp;	  /* temporary file pointer		*/
 FILE *bit_bucket; /* file pointer to /dev/null		*/
 
 static const char *const table[] = {"^@", "^A", "^B", "^C", "^D", "^E", "^F",
@@ -420,7 +420,7 @@ recount_lines(void)
 
 	total_lines = 0;
 	for (line = first_line; line != nullptr; line = line->next_line)
-		total_lines++;
+		line->line_number = ++total_lines;
 	if (total_lines < 1)
 		total_lines = 1;
 }
@@ -491,9 +491,8 @@ static void goto_line(char *cmd_str);
 static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
 static void check_fp(void);
-static void get_file(char *file_name);
+static int get_file(char *file_name);
 [[nodiscard]] static int read_all(int fd, unsigned char **out, size_t *outlen);
-static void get_line(int length, unsigned char *input, int *append);
 static void draw_screen(void);
 static void finish(void);
 static int  quit(int noverify);
@@ -739,8 +738,6 @@ static const char restricted_msg[] =
     "restricted mode: unable to perform requested operation";
 static const char conf_dump_err_msg[] =
     "unable to open .init.ee for writing, no configuration saved!";
-static const char conf_rotate_err_msg[] =
-    "unable to rotate .init.ee, no configuration saved!";
 static const char conf_not_saved_msg[] = "ee configuration not saved";
 static const char ree_no_file_msg[] = "must specify a file when invoking ree";
 static const char menu_too_lrg_msg[] = "menu too large for window";
@@ -878,7 +875,7 @@ main(int argc, char *argv[])
 		get_options(argc, argv);
 	/* Restricted mode never executes a shell (sh_command checks it). */
 	if (restricted &&
-	    pledge("stdio rpath wpath cpath tty getpw", nullptr) == -1)
+	    pledge("stdio rpath wpath cpath fattr tty getpw", nullptr) == -1)
 		err(1, "pledge");
 	/* Normal editing must remain unpledged to execute shell commands. */
 	set_up_term();
@@ -3101,7 +3098,6 @@ get_options(int numargs, char *arguments[])
 static void
 check_fp(void)
 {
-	int	    line_num;
 	int	    temp;
 	struct stat buf;
 
@@ -3114,45 +3110,58 @@ check_fp(void)
 		    (unsigned char *)(tmp_file = (char *)top_of_stack->name);
 		top_of_stack = top_of_stack->next_name;
 	}
-	temp = stat(tmp_file, &buf);
-	if (temp != -1)
-		buf.st_mode &= (mode_t)~07777;
-	if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
-		wmove(com_win, 0, 0);
-		wclrtoeol(com_win);
-		wprintw(com_win, file_is_dir_msg, tmp_file);
-		wrefresh(com_win);
-		if (input_file) {
-			quit(0);
-			return;
-		} else
-			return;
-	}
-	if ((get_fd = open(tmp_file, O_RDONLY)) == -1) {
-		wmove(com_win, 0, 0);
-		wclrtoeol(com_win);
-		if (input_file)
-			wprintw(com_win, new_file_msg, tmp_file);
+	for (;;) {
+		int failed = FALSE;
+
+		get_fd = open(tmp_file, O_RDONLY | O_NONBLOCK);
+		if (get_fd == -1) {
+			temp = errno;
+			wmove(com_win, 0, 0);
+			wclrtoeol(com_win);
+			if (input_file && temp == ENOENT)
+				wprintw(com_win, new_file_msg, tmp_file);
+			else {
+				wprintw(com_win, cant_open_msg, tmp_file);
+				failed = TRUE;
+			}
+			wrefresh(com_win);
+			if (!failed) {
+				recv_file = input_file = FALSE;
+				return;
+			}
+		} else if (fstat(get_fd, &buf) == -1 || !S_ISREG(buf.st_mode)) {
+			close(get_fd);
+			get_fd = -1;
+			wmove(com_win, 0, 0);
+			wclrtoeol(com_win);
+			wprintw(com_win, file_is_dir_msg, tmp_file);
+			wrefresh(com_win);
+			failed = TRUE;
+		} else if (get_file(tmp_file))
+			break;
 		else
-			wprintw(com_win, cant_open_msg, tmp_file);
-		wrefresh(com_win);
-		wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-		wrefresh(text_win);
-		recv_file = FALSE;
-		input_file = FALSE;
-		return;
-	} else
-		get_file(tmp_file);
+			failed = TRUE;
+
+		if (!input_file) {
+			recv_file = FALSE;
+			return;
+		}
+		file_load_failed = TRUE;
+		if (top_of_stack == nullptr)
+			edit_abort(1);
+		in_file_name =
+		    (unsigned char *)(tmp_file = (char *)top_of_stack->name);
+		top_of_stack = top_of_stack->next_name;
+	}
 
 	recv_file = FALSE;
-	line_num = curr_line->line_number;
 	scr_vert = tmp_vert;
 	scr_horz = tmp_horz;
 	if (input_file)
 		curr_line = first_line;
 	else
 		curr_line = tmp_line;
-	point = curr_line->line;
+	point = curr_line->line + (position - 1);
 	draw_screen();
 	if (input_file) {
 		input_file = FALSE;
@@ -3162,17 +3171,13 @@ check_fp(void)
 
 			start_line = strtonum(
 			    (const char *)start_at_line, 1, INT_MAX, &errstr);
-			if (errstr == nullptr) {
-				line_num = (int)start_line - 1;
-				move_rel('d', line_num);
-			}
-			line_num = 0;
+			if (errstr == nullptr)
+				move_rel('d', (int)start_line - 1);
 			start_at_line = nullptr;
 		}
 	} else {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
-		text_changes = TRUE;
 		if ((tmp_file != nullptr) && (*tmp_file != '\0'))
 			wprintw(com_win, file_read_fin_msg, tmp_file);
 	}
@@ -3225,13 +3230,7 @@ read_all(int fd, unsigned char **out, size_t *outlen)
 			break;
 		len += (size_t)n;
 	}
-	/*
-	 * get_line() peeks one byte past its current chunk to decide
-	 * whether a line continues into the next chunk; at the end of
-	 * the data that byte must be defined.  The buffer is always
-	 * grown so that len < cap, so this terminator is in range.
-	 */
-	buf[len] = '\0';
+
 	*out = buf;
 	*outlen = len;
 	return (0);
@@ -3247,13 +3246,11 @@ read_all(int fd, unsigned char **out, size_t *outlen)
  * valid text and stray bytes, and a failed read leaves the previous
  * contents untouched.
  */
-static void
+static int
 get_file(char *file_name)
 {
-	int	       append;	 /* should text be appended to current line */
 	int	       can_read; /* file has at least one character	*/
 	int	       rc;
-	struct text   *temp_line;
 	char	       ro_flag = FALSE;
 	unsigned char *data = nullptr;
 	size_t	       len = 0;
@@ -3283,7 +3280,7 @@ get_file(char *file_name)
 		wprintw(com_win, cant_open_msg, file_name);
 		wrefresh(com_win);
 		clear_com_win = TRUE;
-		return;
+		return (FALSE);
 	}
 
 	if ((len > 0) && (memchr(data, 0, len) != nullptr)) {
@@ -3293,9 +3290,7 @@ get_file(char *file_name)
 		wrefresh(com_win);
 		clear_com_win = TRUE;
 		free(data);
-		if (input_file)
-			quit(0);
-		return;
+		return (FALSE);
 	}
 
 	bad = ee_utf8_validate(data, len);
@@ -3307,42 +3302,42 @@ get_file(char *file_name)
 		wrefresh(com_win);
 		clear_com_win = TRUE;
 		free(data);
-		if (input_file)
-			quit(0);
-		return;
+		return (FALSE);
 	}
 
 	can_read = (len > 0);
-	if (curr_line->line_length > 1) { /* if current line not blank */
-		insert_line(FALSE);
-		left(FALSE);
-		append = FALSE;
-	} else
-		append = TRUE;
-	{
-		size_t pos = 0;
+	for (size_t pos = 0; pos < len;) {
+		const unsigned char *newline = memchr(data + pos, '\n', len - pos);
+		size_t count = newline == nullptr ? len - pos :
+		    (size_t)(newline - (data + pos));
+		struct text *line = curr_line;
 
-		while (pos < len) {
-			size_t chunk = len - pos;
-
-			if (chunk > 512)
-				chunk = 512;
-			get_line((int)chunk, data + pos, &append);
-			pos += chunk;
+		if (count >= INT_MAX) {
+			free(data);
+			endwin();
+			errx(1, "line too long");
 		}
+		if (pos != 0 || line->line_length > 1) {
+			line = txtalloc();
+			line->next_line = curr_line->next_line;
+			line->prev_line = curr_line;
+			if (line->next_line != nullptr)
+				line->next_line->prev_line = line;
+			curr_line->next_line = line;
+			line->line = xmalloc(count + 1);
+			line->max_length = (int)(count + 1);
+			curr_line = line;
+		} else if ((size_t)line->max_length <= count) {
+			(void)resiz_line((int)(count + 1) - line->max_length, line, 1);
+		}
+		memcpy(line->line, data + pos, count);
+		line->line[count] = '\0';
+		line->line_length = (int)(count + 1);
+		point = line->line + count;
+		pos += count + (newline != nullptr);
 	}
 	free(data);
-
-	if ((can_read) && (curr_line->line_length == 1)) {
-		temp_line = curr_line->prev_line;
-		temp_line->next_line = curr_line->next_line;
-		if (temp_line->next_line != nullptr)
-			temp_line->next_line->prev_line = temp_line;
-		if (curr_line->line != nullptr)
-			free(curr_line->line);
-		free(curr_line);
-		curr_line = temp_line;
-	}
+	recount_lines();
 	if (input_file) { /* if this is the file to be edited display number of
 			     lines	*/
 		read_only = ro_flag;
@@ -3356,86 +3351,10 @@ get_file(char *file_name)
 	} else if (can_read) /* not input_file and file is non-zero size */
 		text_changes = TRUE;
 
-	recount_lines();
-
 	if (recv_file) { /* if reading a file			*/
 		in = EOF;
 	}
-}
-
-/*
- * Split length bytes of input into the buffer's line list.
- *
- * *append is a continuation flag: it is true when the previous chunk
- * ended in the middle of a line, in which case the first piece here is
- * appended to the current line instead of starting a new node.  On
- * return it is set for the next call when this chunk ended without a
- * newline.  get_file() feeds arbitrary 512-byte chunks through this
- * function, so long lines and lines spanning chunks are handled without
- * a second input buffer.  input is already validated UTF-8 and contains
- * no NUL bytes; only '\n' is treated as a line separator.
- */
-static void
-get_line(int length, unsigned char *input, int *append)
-{
-	unsigned char *str1;
-	unsigned char *str2;
-	int	       num;	     /* offset from start of string		*/
-	int	       char_count;   /* length of new line (or added portion	*/
-	int	       temp_counter; /* temporary counter value		*/
-	struct text   *tline;	     /* temporary pointer to new line	*/
-	int first_time; /* if TRUE, the first time through the loop */
-
-	str2 = input;
-	num = 0;
-	first_time = TRUE;
-	while (num < length) {
-		if (!first_time) {
-			if (num < length) {
-				str2++;
-				num++;
-			}
-		} else
-			first_time = FALSE;
-		str1 = str2;
-		char_count = 1;
-		/* find end of line	*/
-		while ((*str2 != '\n') && (num < length)) {
-			str2++;
-			num++;
-			char_count++;
-		}
-		if (!(*append)) { /* if not append to current line, insert new
-				     one */
-			tline = txtalloc(); /* allocate data structure for next
-					       line */
-			tline->line_number = curr_line->line_number + 1;
-			tline->next_line = curr_line->next_line;
-			tline->prev_line = curr_line;
-			curr_line->next_line = tline;
-			if (tline->next_line != nullptr)
-				tline->next_line->prev_line = tline;
-			curr_line = tline;
-			curr_line->line = point =
-			    (unsigned char *)xmalloc((size_t)char_count);
-			curr_line->line_length = char_count;
-			curr_line->max_length = char_count;
-		} else {
-			point = resiz_line(
-			    char_count, curr_line, curr_line->line_length);
-			curr_line->line_length += (char_count - 1);
-		}
-		for (temp_counter = 1; temp_counter < char_count;
-		    temp_counter++) {
-			*point = *str1;
-			point++;
-			str1++;
-		}
-		*point = '\0';
-		*append = FALSE;
-		if ((num == length) && (*str2 != '\n'))
-			*append = TRUE;
-	}
+	return (TRUE);
 }
 
 /*
@@ -3489,7 +3408,7 @@ quit(int)
 		wrefresh(com_win);
 		endwin();
 		putchar('\n');
-		exit(0);
+		exit(file_load_failed ? 1 : 0);
 	} else {
 		delete_text();
 		recv_file = TRUE;
@@ -3600,39 +3519,67 @@ confirm(const char *question)
  * The caller is responsible for updating in_file_name and the modified
  * flag on success.
  */
+static FILE *
+stage_file(const char *path, char **staged)
+{
+	const char *slash = strrchr(path, '/');
+	size_t prefix = slash == nullptr ? 0 : (size_t)(slash - path) + 1;
+	static const char suffix[] = ".ee.XXXXXXXXXX";
+	FILE *stream;
+	int fd;
+
+	*staged = xmalloc(prefix + sizeof(suffix));
+	memcpy(*staged, path, prefix);
+	memcpy(*staged + prefix, suffix, sizeof(suffix));
+	fd = mkstemp(*staged);
+	if (fd != -1) {
+		stream = fdopen(fd, "w");
+		if (stream != nullptr)
+			return (stream);
+		close(fd);
+		unlink(*staged);
+	}
+	free(*staged);
+	*staged = nullptr;
+	return (nullptr);
+}
+
 static int
 write_file(char *file_name, int warn_if_exists)
 {
 	struct text *out_line;
-	int	     lines;
-	int	     write_flag = TRUE;
-	int	     write_ok = TRUE;
-
-	lines = 0;
-	if (warn_if_exists &&
-	    ((in_file_name == nullptr) ||
-		strcmp((char *)in_file_name, file_name))) {
-		if ((temp_fp = fopen(file_name, "r"))) {
-			fclose(temp_fp);
-			if (confirm("File exists.  Overwrite it?") != 1)
-				write_flag = FALSE;
-		}
-	}
+	struct stat original, current;
+	FILE *temp_fp;
+	char *staged;
+	mode_t mode;
+	int fd, exists, lines = 0;
+	int write_ok = TRUE;
 
 	clear_com_win = TRUE;
+	exists = lstat(file_name, &original) == 0;
+	if (!exists && errno != ENOENT)
+		goto failed;
+	if (exists) {
+		if (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
+		    original.st_uid != geteuid() || (original.st_mode & 07000) ||
+		    access(file_name, W_OK) == -1)
+			goto failed;
+		if (warn_if_exists && (in_file_name == nullptr ||
+		    strcmp((char *)in_file_name, file_name) != 0) &&
+		    confirm("File exists.  Overwrite it?") != 1)
+			return (FALSE);
+		mode = original.st_mode & 0777;
+	} else {
+		mode_t mask = umask(0);
 
-	if (!write_flag)
-		return (FALSE);
-
-	if ((temp_fp = fopen(file_name, "w")) == nullptr) {
-		clear_com_win = TRUE;
-		wmove(com_win, 0, 0);
-		wclrtoeol(com_win);
-		wprintw(com_win, "unable to create file \"%s\"", file_name);
-		wrefresh(com_win);
-		clear_com_win = TRUE;
-		return (FALSE);
+		(void)umask(mask);
+		mode = 0666 & ~mask;
 	}
+
+	temp_fp = stage_file(file_name, &staged);
+	if (temp_fp == nullptr)
+		goto failed;
+	fd = fileno(temp_fp);
 
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
@@ -3657,21 +3604,44 @@ write_file(char *file_name, int warn_if_exists)
 	}
 	if (write_ok && (fflush(temp_fp) != 0))
 		write_ok = FALSE;
+	if (write_ok && exists) {
+		if (fstat(fd, &current) == -1 ||
+		    (current.st_gid != original.st_gid &&
+			fchown(fd, (uid_t)-1, original.st_gid) == -1))
+			write_ok = FALSE;
+	}
+	if (write_ok && fchmod(fd, mode) == -1)
+		write_ok = FALSE;
 	if (fclose(temp_fp) != 0)
 		write_ok = FALSE;
-	temp_fp = nullptr;
-
+	if (write_ok && exists) {
+		if (lstat(file_name, &current) == -1 ||
+		    current.st_dev != original.st_dev ||
+		    current.st_ino != original.st_ino ||
+		    current.st_nlink != original.st_nlink ||
+		    current.st_size != original.st_size ||
+		    current.st_ctim.tv_sec != original.st_ctim.tv_sec ||
+		    current.st_ctim.tv_nsec != original.st_ctim.tv_nsec ||
+		    rename(staged, file_name) == -1)
+			write_ok = FALSE;
+	} else if (write_ok && link(staged, file_name) == -1)
+		write_ok = FALSE;
+	unlink(staged);
+	free(staged);
+	if (!write_ok)
+		goto failed;
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	if (!write_ok) {
-		wprintw(com_win, "error writing \"%s\"", file_name);
-		wrefresh(com_win);
-		clear_com_win = TRUE;
-		return (FALSE);
-	}
 	wprintw(com_win, "\"%s\", %d lines written", file_name, lines);
 	wrefresh(com_win);
 	return (TRUE);
+
+failed:
+	wmove(com_win, 0, 0);
+	wclrtoeol(com_win);
+	wprintw(com_win, "unable to save file \"%s\"", file_name);
+	wrefresh(com_win);
+	return (FALSE);
 }
 
 /*
@@ -4298,7 +4268,8 @@ sh_command(char *string)
 	char	    *path;   /* directory path to executable		*/
 	int	     parent; /* zero if child, child's pid if parent	*/
 	int	     value;
-	int	     return_val;
+	int	     return_val, status;
+	int	     command_failed = FALSE;
 	struct text *line_holder;
 
 	if (restrict_mode()) {
@@ -4348,6 +4319,7 @@ sh_command(char *string)
 				(if shell output is |  to be read by editor)
 				*/
 			in_pipe = FALSE;
+			close(pipe_in[0]);
 			/*
 			 |  redirect stdout and stderr to the pipe
 			 */
@@ -4366,12 +4338,11 @@ sh_command(char *string)
 			/*
 			 |  prepare editor to read from the pipe
 			 */
-			signal(SIGCHLD, SIG_IGN);
 			line_holder = curr_line;
 			tmp_vert = scr_vert;
 			close(pipe_in[1]);
 			get_fd = pipe_in[0];
-			get_file("");
+			command_failed = !get_file("");
 			scr_vert = tmp_vert;
 			scr_horz = scr_pos = 0;
 			position = 1;
@@ -4379,12 +4350,11 @@ sh_command(char *string)
 			from_top();
 			point = curr_line->line;
 			out_pipe = FALSE;
-			signal(SIGCHLD, SIG_DFL);
-			/*
-			 |  since flag "in_pipe" is still TRUE, the path which
-			 waits for the child |  process to die will be avoided.
-			 |  (the pipe is closed, no more output can be expected)
-			 */
+			do {
+				return_val = waitpid(parent, &status, 0);
+			} while (return_val == -1 && errno == EINTR);
+			command_failed |= return_val == -1 || !WIFEXITED(status) ||
+			    WEXITSTATUS(status) != 0;
 		}
 	}
 	if (!in_pipe) {
@@ -4405,7 +4375,10 @@ sh_command(char *string)
 			}
 			ee_install_sigint();
 			fprintf(stderr, "ee: fork: %s\n", strerror(errno));
-			return;
+			command_failed = TRUE;
+			if (!shell_fork)
+				_exit(1);
+			goto restore_terminal;
 		}
 		if (!parent) { /* if the child	*/
 			if (shell_fork)
@@ -4485,14 +4458,16 @@ sh_command(char *string)
 					}
 					line_holder = line_holder->next_line;
 				}
-				if (pipe_error)
+				if (pipe_error) {
+					command_failed = TRUE;
 					fprintf(stderr, "ee: write: %s\n",
 					    strerror(errno));
+				}
 				close(pipe_out[1]);
 				out_pipe = FALSE;
 			}
 			for (;;) {
-				return_val = waitpid(parent, nullptr, 0);
+				return_val = waitpid(parent, &status, 0);
 				if ((return_val == parent) ||
 				    (return_val < 0 && errno != EINTR))
 					break;
@@ -4509,18 +4484,21 @@ sh_command(char *string)
 			 will be true, otherwise this is |  the child of the
 			 edit process.
 			 */
+			command_failed |= return_val == -1 || !WIFEXITED(status) ||
+			    WEXITSTATUS(status) != 0;
 			if (!shell_fork)
-				exit(0);
+				_exit(command_failed ? 1 : 0);
 		}
 		ee_install_sigint();
 	}
 	if (shell_fork) {
 		fputs(continue_msg, stdout);
 		fflush(stdout);
-		while ((in = getchar()) != '\n')
+		while ((in = getchar()) != '\n' && in != EOF)
 			;
 	}
 
+restore_terminal:
 	if (!in_pipe) {
 		fixterm();
 		noecho();
@@ -4539,6 +4517,12 @@ sh_command(char *string)
 	}
 
 	redraw();
+	if (command_failed) {
+		werase(com_win);
+		waddstr(com_win, "external command failed");
+		wrefresh(com_win);
+		clear_com_win = TRUE;
+	}
 }
 
 /*
@@ -6392,6 +6376,7 @@ dump_ee_conf(void)
 	const char *home_dir = "~/.init.ee";
 	char	   *resolved = nullptr;
 	char	   *old_name = nullptr;
+	char	   *staged = nullptr;
 	struct stat buf;
 	char	   *line = nullptr;
 	size_t	    linecap = 0;
@@ -6418,52 +6403,23 @@ dump_ee_conf(void)
 			file_name = resolved;
 	}
 
-	/*
-	 |	If a .init.ee file exists, move it to .init.ee.old.
-	 */
+	if (lstat(file_name, &buf) == 0) {
+		size_t length = strlen(file_name) + sizeof(".old");
 
-	if (stat(file_name, &buf) != -1) {
-		auto n = strlen(file_name) + sizeof(".old");
+		if (!S_ISREG(buf.st_mode) || buf.st_uid != geteuid() ||
+		    access(file_name, W_OK) == -1)
+			goto rotate_fail;
+		old_name = xmalloc(length);
+		snprintf(old_name, length, "%s.old", file_name);
+		old_init_file = fopen(file_name, "r");
+		if (old_init_file == nullptr)
+			goto rotate_fail;
+	} else if (errno != ENOENT)
+		goto rotate_fail;
 
-		old_name = xmalloc(n);
-		snprintf(old_name, n, "%s.old", file_name);
-		if ((unlink(old_name) != 0) && (errno != ENOENT)) {
-			waddstr(com_win, conf_rotate_err_msg);
-			wrefresh(com_win);
-			clear_com_win = TRUE;
-			goto rotate_fail;
-		}
-		if (link(file_name, old_name) != 0) {
-			/*
-			 * Never remove the original when the backup could
-			 * not be created; the old configuration stays
-			 * intact.
-			 */
-			waddstr(com_win, conf_rotate_err_msg);
-			wrefresh(com_win);
-			clear_com_win = TRUE;
-			goto rotate_fail;
-		}
-		if (unlink(file_name) != 0) {
-			waddstr(com_win, conf_rotate_err_msg);
-			wrefresh(com_win);
-			clear_com_win = TRUE;
-			goto rotate_fail;
-		}
-		old_init_file = fopen(old_name, "r");
-	}
-
-	init_file = fopen(file_name, "w");
-	if (init_file == nullptr) {
-		waddstr(com_win, conf_dump_err_msg);
-		wrefresh(com_win);
-		if (old_init_file != nullptr)
-			fclose(old_init_file);
-		free(old_name);
-		if ((resolved != nullptr) && (resolved != home_dir))
-			free(resolved);
-		return;
-	}
+	init_file = stage_file(file_name, &staged);
+	if (init_file == nullptr)
+		goto rotate_fail;
 
 	if (old_init_file != nullptr) {
 		/*
@@ -6480,8 +6436,12 @@ dump_ee_conf(void)
 			if (fprintf(init_file, "%s\n", line) < 0)
 				write_ok = FALSE;
 		}
+		if (!feof(old_init_file) || ferror(old_init_file))
+			write_ok = FALSE;
 		free(line);
-		fclose(old_init_file);
+		if (fclose(old_init_file) != 0)
+			write_ok = FALSE;
+		old_init_file = nullptr;
 	}
 
 	if (fprintf(init_file, "%s\n", case_sen ? CASE : NOCASE) < 0)
@@ -6514,23 +6474,41 @@ dump_ee_conf(void)
 
 	if (fflush(init_file) != 0)
 		write_ok = FALSE;
+	if (write_ok && old_name != nullptr &&
+	    fchmod(fileno(init_file), buf.st_mode & 0777) != 0)
+		write_ok = FALSE;
 	if (fclose(init_file) != 0)
 		write_ok = FALSE;
+	if (!write_ok)
+		goto rotate_fail;
+	if (old_name != nullptr) {
+		struct stat current;
 
-	wmove(com_win, 0, 0);
-	wclrtoeol(com_win);
-	if (!write_ok) {
-		waddstr(com_win, conf_dump_err_msg);
-	} else {
-		wprintw(
-		    com_win, "ee configuration saved in file %s", file_name);
-	}
-	wrefresh(com_win);
-	clear_com_win = TRUE;
+		if (lstat(file_name, &current) == -1 ||
+		    current.st_dev != buf.st_dev || current.st_ino != buf.st_ino ||
+		    current.st_ctim.tv_sec != buf.st_ctim.tv_sec ||
+		    current.st_ctim.tv_nsec != buf.st_ctim.tv_nsec ||
+		    (unlink(old_name) != 0 && errno != ENOENT) ||
+		    link(file_name, old_name) != 0 ||
+		    rename(staged, file_name) != 0)
+			goto rotate_fail;
+	} else if (link(staged, file_name) != 0)
+		goto rotate_fail;
+	wprintw(com_win, "ee configuration saved in file %s", file_name);
+	goto cleanup;
 
 rotate_fail:
+	waddstr(com_win, conf_dump_err_msg);
+cleanup:
+	wrefresh(com_win);
+	clear_com_win = TRUE;
+	if (old_init_file != nullptr)
+		fclose(old_init_file);
+	if (staged != nullptr)
+		unlink(staged);
+	free(staged);
 	free(old_name);
-	if ((resolved != nullptr) && (resolved != home_dir))
+	if (resolved != home_dir)
 		free(resolved);
 }
 
@@ -6670,6 +6648,9 @@ static int
 spell_locate(char *aff, size_t affsz, char *dic, size_t dicsz)
 {
 	static const char *const dirs[] = {
+#ifdef EE_DICTDIR
+	    EE_DICTDIR,
+#endif
 	    "/usr/local/share/myspell",
 	    "/usr/share/myspell",
 	    "/usr/local/share/hunspell",
@@ -6767,6 +6748,13 @@ spell_replace(int start, int len, const char *repl)
 {
 	int end = start + len;
 	int i;
+
+	/* The spelling engine operates on ASCII words and affixes. */
+	for (i = 0; repl[i] != '\0'; i++) {
+		if ((unsigned char)repl[i] < 0x20 ||
+		    (unsigned char)repl[i] >= 0x7f)
+			return;
+	}
 
 	while ((position < end) && (position < curr_line->line_length))
 		right(TRUE);

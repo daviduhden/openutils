@@ -69,15 +69,18 @@ drivers default to absolute paths derived from their own location.
 ## tree
 
 - Traversal is split between the text walk (`dirwalk`) and the JSON
-  walk (`jsonentries`/`jsonwalk`). If you change a traversal rule,
-  update both paths.
+  walk (`jsonentries`/`jsonwalk`). The JSON emitter borrows the collected
+  vector. Apply depth and device checks before opening children in
+  either path. Pruning skips readable empty ordinary directories
+  within the descent boundary and retains directory links.
 - The visited `(dev, ino)` set is global to the walk; a symlink to any
   directory already visited is reported as recursive. It is not an
   ancestor-only detector.
 - `-x` applies to ordinary subdirectories and followed symlinks; a
   mount point is printed but not descended.
-- `-o` opens with `O_NOFOLLOW` and output write/close errors set exit
-  status 2.
+- `-o` opens with `O_NOFOLLOW | O_NONBLOCK`, checks for a regular file
+  with `fstat` and only then truncates it. Output write/close errors set
+  exit status 2.
 - `-N` deliberately prints raw names; do not use it when output is
   consumed by a terminal or a strict JSON parser.
 - Tests: `sh tree/tests/run.sh`. Use `TREE=/absolute/path`.
@@ -86,7 +89,10 @@ drivers default to absolute paths derived from their own location.
 
 - The buffer is a doubly linked list of lines. `line_length` includes
   the terminating NUL; `write_file` writes `line_length - 1` bytes plus
-  a newline.
+  a newline. Document writes stage a sibling file and publish after a
+  successful close. Check the owner, links, permissions and original
+  identity at the boundaries. Validate the extra `fattr` operations in
+  `ree` on OpenBSD.
 - Input is validated before it enters the buffer: NUL and malformed
   UTF-8 are rejected. Do not add a byte-oriented mode.
 - The editor is always UTF-8; `LC_CTYPE` must be UTF-8 or ee refuses to

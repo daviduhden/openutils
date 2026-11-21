@@ -298,6 +298,14 @@ Write the text to the named \fIfile\fR.
 .\"
 .\"     prompts
 .\"
+.SS "Saving documents"
+The editor stages output in the destination directory and publishes it
+after successfully writing and closing the staging file.
+Existing destinations must be owned writable regular files with one
+link and ordinary mode bits.
+The destination directory must also be writable.
+The editor preserves owner, group and ordinary permissions.
+File flags, ACLs and extended attributes are outside this contract.
 .SS "Prompts and confirmations"
 When the editor needs input it shows a prompt on the message line and
 changes the shortcut bar to match.  For example, a file-name prompt shows

@@ -126,8 +126,10 @@ comparison:
 | `actions/checkout` | `v7.0.1` | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
 | `actions/upload-artifact` | `v7.0.2` | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` |
 | `actions/cache` | `v6.1.0` | `55cc8345863c7cc4c66a329aec7e433d2d1c52a9` |
+| `vmactions/openbsd-vm` | `v1.4.9` | `f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3` |
 
-These pins were verified against upstream stable releases on 2026-11-07.
+The checkout, upload and cache pins were verified on 2026-11-07.
+The OpenBSD VM action was verified separately against its upstream release.
 `upload-artifact` and `cache` are not used yet; keep the map for the next
 workflow that needs them.
 
@@ -271,5 +273,9 @@ canonical script and black-box Perl suite byte-identical across adopting
 repositories. Repository-specific requirements belong in the documented TOML
 configuration or a stable `AKX...` extension, never in a private fork of the
 shared rules. All workflows are manual-only: start them from the Actions
-tab or with `gh workflow run`; the agent workflow runs the same tests and
-worktree validation and does not edit files or require secrets.
+tab or with `gh workflow run`. Set the workflow's `base` input to the
+comparison ref. The workflow validates the committed range and runs the
+contract tests, then independent Linux and OpenBSD jobs compile and run
+the ordinary regression suites. Worktree validation still applies before
+committing. The jobs require no repository secrets. Privileged doasedit
+write-back still requires a disposable OpenBSD environment and real policy.

@@ -161,8 +161,9 @@ struct ent {
 static void report(void);
 static void dirwalk(const char *, const char *, int, const int *, dev_t,
     struct ent *, size_t, int);
-static void jsonwalk(const char *, const char *, int, dev_t, int);
-static void jsonentries(const char *, int, dev_t, int);
+static void jsonwalk(const char *, const char *, int, dev_t, int,
+    struct ent *, size_t, int);
+static void jsonentries(const char *, int, dev_t, int, struct ent *, size_t);
 [[nodiscard]] static int collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
 static void entryline(const struct ent *, const char *, int, const int *, int);
@@ -845,6 +846,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 	struct dirent *de;
 	struct ent    *ents = nullptr;
 	size_t	       n = 0, alloc = 0, i;
+	int	       scan_failed = 0;
 
 	*out = nullptr;
 	*nout = 0;
@@ -852,11 +854,19 @@ collect(const char *path, struct ent **out, size_t *nout)
 	if ((dirp = opendir(path)) == nullptr)
 		return (-1);
 
-	while ((de = readdir(dirp)) != nullptr) {
+	for (;;) {
 		struct ent *e;
 		char	   *join = nullptr;
 		size_t	    plen, dlen;
 
+		errno = 0;
+		if ((de = readdir(dirp)) == nullptr) {
+			if (errno != 0) {
+				warn("%s", path);
+				scan_failed = 1;
+			}
+			break;
+		}
 		if (strcmp(de->d_name, ".") == 0 ||
 		    strcmp(de->d_name, "..") == 0)
 			continue;
@@ -884,7 +894,10 @@ collect(const char *path, struct ent **out, size_t *nout)
 			err(1, "strdup");
 
 		if (lstat(join, &e->lst) == -1) {
-			/* vanished between readdir(3) and lstat(2) */
+			if (errno != ENOENT) {
+				warn("%s", join);
+				scan_failed = 1;
+			}
 			free(e->name);
 			free(join);
 			continue;
@@ -897,6 +910,10 @@ collect(const char *path, struct ent **out, size_t *nout)
 
 			len = readlink(join, lbuf, sizeof(lbuf));
 			if (len == -1) {
+				if (errno != ENOENT) {
+					warn("%s", join);
+					scan_failed = 1;
+				}
 				free(e->name);
 				free(join);
 				continue;
@@ -909,6 +926,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 			if ((size_t)len == sizeof(lbuf)) {
 				warnx(
 				    "%s: symbolic link target too long", join);
+				scan_failed = 1;
 				free(e->name);
 				free(join);
 				continue;
@@ -931,7 +949,17 @@ collect(const char *path, struct ent **out, size_t *nout)
 		free(join);
 		n++;
 	}
-	closedir(dirp);
+	if (closedir(dirp) == -1) {
+		warn("%s", path);
+		scan_failed = 1;
+	}
+	if (scan_failed) {
+		had_error = 1;
+		if (n == 0) {
+			free(ents);
+			return (-1);
+		}
+	}
 
 	if (n > 0) {
 		size_t j;
@@ -1049,14 +1077,15 @@ entryline(
     const struct ent *e, const char *path, int depth, const int *bars, int last)
 {
 	int j;
+	const char *info = fillinfo(&e->lst);
 
 	if (!iflag) {
 		for (j = 0; j < depth; j++)
 			fputs(VLINE[bars[j]], outfile);
 		fputs(HIER[last], outfile);
 	}
-	fputs(fillinfo(&e->lst), outfile);
-	if (fillinfo(&e->lst)[0] != '\0')
+	fputs(info, outfile);
+	if (info[0] != '\0')
 		fputs("  ", outfile);
 
 	if (fflag) {
@@ -1120,9 +1149,33 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 		return;
 	}
 
-	for (i = 0; i < n; i++) {
+	/* Find the last visible child before drawing branch connectors. */
+	size_t visible_end = n;
+	if (pruneflag && !dflag && (maxdepth == 0 || depth + 1 < maxdepth)) {
+		while (visible_end > 0) {
+			struct ent *entry = &ents[visible_end - 1];
+			struct ent *children;
+			size_t count;
+			char *child;
+			int result;
+
+			if (!entry->isdir || entry->target != nullptr ||
+			    (xflag && entry->lst.st_dev != xdev))
+				break;
+			child = joinpath(path, entry->name);
+			result = collect(child, &children, &count);
+			free(child);
+			if (result == -1)
+				break;
+			freeents(children, count);
+			if (count != 0)
+				break;
+			visible_end--;
+		}
+	}
+	for (i = 0; i < visible_end; i++) {
 		auto	    e = &ents[i];
-		int	    last = (i == n - 1);
+		int	    last = (i == visible_end - 1);
 		int	    d = depth + 1;
 		int	    follow = 0;
 		char	   *cp = nullptr;
@@ -1142,19 +1195,6 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 
 			/* symlink shown but not followed */
 			if (e->target != nullptr && !follow) {
-				if (pruneflag && !dflag && e->isdir &&
-				    !e->broken) {
-					char *cp2 =
-					    resolvelink(path, e->target);
-					struct ent *ch2 = nullptr;
-					size_t	    nch2 = 0;
-
-					if (collect(cp2, &ch2, &nch2) == 0)
-						freeents(ch2, nch2);
-					free(cp2);
-					if (nch2 == 0)
-						continue;
-				}
 				entryline(e, path, depth, bars, last);
 				/*
 				 * The visited set is global to the walk, so
@@ -1211,7 +1251,8 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 				free(cp);
 				continue;
 			}
-			if (pruneflag && !dflag && opened && nch == 0) {
+			if (pruneflag && !dflag && e->target == nullptr && opened &&
+			    nch == 0) {
 				/* nothing printed for pruned dirs */
 				freeents(ch, nch);
 				free(cp);
@@ -1320,30 +1361,17 @@ json_info(const struct stat *st)
  * system under -x are emitted as empty directory objects, matching the
  * text walker's decision not to descend.
  *
- * The collected entry array is consumed here and freed before return.
+ * The caller retains ownership of the collected entries.
  */
 static void
-jsonentries(const char *path, int depth, dev_t xdev, int lvl)
+jsonentries(const char *path, int depth, dev_t xdev, int lvl,
+    struct ent *ents, size_t n)
 {
-	struct ent *ents;
-	size_t	    n, i;
-	int	    emitted = 0;
+	size_t i;
+	int emitted = 0;
 
 	if (depth >= MAX_DEPTH)
 		errx(1, "directory tree too deep");
-
-	if (collect(path, &ents, &n) == -1)
-		return;
-
-	/*
-	 * --filelimit applies to contents reached through a followed
-	 * symbolic link too; jsonwalk() has already handled the
-	 * directories it opens itself.
-	 */
-	if (filelimit > 0 && n > (size_t)filelimit) {
-		freeents(ents, n);
-		return;
-	}
 
 	for (i = 0; i < n; i++) {
 		auto e = &ents[i];
@@ -1372,7 +1400,16 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 				fprintf(outfile, ",\"contents\":[");
 				if (!iflag)
 					fprintf(outfile, "\n");
-				jsonentries(cp, d, xdev, lvl + 1);
+				struct ent *children;
+				size_t count;
+
+				if (collect(cp, &children, &count) == -1)
+					had_error = 1;
+				else {
+					if (filelimit == 0 || count <= (size_t)filelimit)
+						jsonentries(cp, d, xdev, lvl + 1, children, count);
+					freeents(children, count);
+				}
 				if (!iflag) {
 					fprintf(outfile, "\n");
 					jindent(lvl);
@@ -1412,21 +1449,15 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 				continue;
 			}
 
+			struct ent *children = nullptr;
+			size_t count = 0;
+			int opened = 0;
+
 			cp = joinpath(path, e->name);
-
-			if (pruneflag && !dflag) {
-				struct ent *ch = nullptr;
-				size_t	    nch = 0;
-				int copen = (collect(cp, &ch, &nch) == 0);
-
-				if (copen)
-					freeents(ch, nch);
-				/*
-				 * Only an empty, readable directory is
-				 * pruned; an unreadable one falls through
-				 * so that jsonwalk() reports the error.
-				 */
-				if (copen && nch == 0) {
+			if (maxdepth == 0 || d < maxdepth) {
+				opened = collect(cp, &children, &count) == 0 ? 1 : -1;
+				if (pruneflag && !dflag && opened == 1 && count == 0) {
+					freeents(children, count);
 					free(cp);
 					continue;
 				}
@@ -1435,7 +1466,7 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 				jsep();
 			jindent(lvl);
 			addseen(e->st.st_dev, e->st.st_ino);
-			jsonwalk(cp, e->name, d, xdev, lvl);
+			jsonwalk(cp, e->name, d, xdev, lvl, children, count, opened);
 			free(cp);
 			emitted = 1;
 			continue;
@@ -1452,7 +1483,6 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
 		nfiles++;
 		emitted = 1;
 	}
-	freeents(ents, n);
 }
 
 /*
@@ -1468,12 +1498,10 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl)
  * depth/filelimit stop is expected behavior.
  */
 static void
-jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
+jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl,
+    struct ent *ents, size_t n, int opened)
 {
-	struct ent *ents;
-	size_t	    n;
 	struct stat st;
-	int	    opened;
 
 	if (depth >= MAX_DEPTH)
 		errx(1, "directory tree too deep");
@@ -1496,8 +1524,9 @@ jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
 		return;
 	}
 
-	opened = collect(path, &ents, &n) == 0;
-	if (!opened) {
+	if (opened == 0)
+		opened = collect(path, &ents, &n) == 0 ? 1 : -1;
+	if (opened == -1) {
 		fprintf(outfile, "}");
 		had_error = 1;
 		ndirs++;
@@ -1518,7 +1547,7 @@ jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl)
 	fprintf(outfile, ",\"contents\":[");
 	if (!iflag)
 		fprintf(outfile, "\n");
-	jsonentries(path, depth, xdev, lvl + 1);
+	jsonentries(path, depth, xdev, lvl + 1, ents, n);
 	if (!iflag) {
 		fprintf(outfile, "\n");
 		jindent(lvl);
@@ -1912,6 +1941,7 @@ main(int argc, char *argv[])
 	}
 
 	if (outpath != nullptr) {
+		struct stat st;
 		int fd;
 
 		/*
@@ -1919,8 +1949,14 @@ main(int argc, char *argv[])
 		 * never write through a symbolic link planted at outpath.
 		 */
 		fd = open(
-		    outpath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0666);
+		    outpath, O_WRONLY | O_CREAT | O_NONBLOCK | O_NOFOLLOW, 0666);
 		if (fd == -1)
+			err(1, "%s", outpath);
+		if (fstat(fd, &st) == -1)
+			err(1, "%s", outpath);
+		if (!S_ISREG(st.st_mode))
+			errx(1, "%s: output must be a regular file", outpath);
+		if (ftruncate(fd, 0) == -1)
 			err(1, "%s", outpath);
 		outfile = fdopen(fd, "w");
 		if (outfile == nullptr) {
@@ -1984,7 +2020,7 @@ main(int argc, char *argv[])
 			if (!iflag)
 				jindent(1);
 			addseen(st.st_dev, st.st_ino);
-			jsonwalk(roots[j], roots[j], 0, st.st_dev, 1);
+			jsonwalk(roots[j], roots[j], 0, st.st_dev, 1, nullptr, 0, 0);
 		}
 		if (!noreport) {
 			if (iflag)

@@ -33,8 +33,8 @@
  *   3. A private mkdtemp(3) directory holds the editable copy and an
  *      untouched copy used to detect "no changes".  Both files are
  *      created with O_EXCL and mode 0600.
- *   4. The editor runs as the invoking user with execvp(3); no shell is
- *      ever involved, so the editor command is split on whitespace only.
+ *   4. The editor runs as the invoking user with execvp(3) and a separate
+ *      argument vector. The editor command is split on whitespace only.
  *   5. A changed buffer is written back either through the already-open
  *      descriptor (for a user-writable file, preserving the inode) or
  *      with "doas install", which replaces the target atomically by
@@ -45,11 +45,8 @@
  * so the user must confirm it explicitly.  The editor and doas must be
  * executed, so the process stays unpledged.
  *
- * Most state lives on the stack of main().  The four cleanup globals
- * below exist so the asynchronous signal handler can terminate the
- * editor and remove the current temporary files without walking the
- * whole program state; the editor command vector is kept at file scope
- * because both run_editor() and the doas.conf prompt need it.
+ * The termination handler records a signal. Normal control flow handles
+ * child processes and removes temporary files.
  */
 
 /*
@@ -59,11 +56,9 @@
  */
 #define DOAS_PATH "/usr/bin/doas"
 
-/* state used by the signal handler for cleanup */
-static char *cur_tmpfile;
-static char *cur_tmpcopy;
-static char *cur_tmpdir;
-static pid_t editor_pid = -1;
+/* Cancellation requested by the termination handler. */
+static volatile sig_atomic_t interrupted;
+static sigset_t editor_wait_signals;
 
 [[noreturn]] static void usage(void);
 [[nodiscard]] static int doas_exec(
@@ -72,7 +67,6 @@ static pid_t editor_pid = -1;
 [[nodiscard]] static int files_equal(const char *, const char *);
 [[nodiscard]] static int copy_file(const char *, const char *);
 static int		 is_doas_conf(const char *);
-static void		 cleanup_current(void);
 static void		 sighandler(int);
 
 [[noreturn]] static void
@@ -96,39 +90,18 @@ help(void)
 	exit(0);
 }
 
-/*
- * Termination handler for SIGINT, SIGTERM, SIGHUP and SIGQUIT.  It only
- * uses async-signal-safe calls and the pre-set cleanup pointers: ask the
- * editor child to stop, remove the current temporary files and exit with
- * the conventional 128 + signal status.  main() clears the pointers
- * before freeing their storage so a late signal cannot unlink a
- * dangling path.
- */
+/* Cleanup happens in the main control flow, after children have exited. */
 static void
 sighandler(int sig)
 {
-	if (editor_pid > 0)
-		kill(editor_pid, SIGTERM);
-	cleanup_current();
-	_exit(128 + sig);
+	interrupted = sig;
 }
 
-/*
- * Remove the temporary files and directory for the file currently being
- * processed.  Each pointer is left set, so calling this twice simply
- * retries harmless unlink(2)/rmdir(2) operations.  Errors are ignored:
- * this runs during normal cleanup as well as from the signal handler,
- * where reporting is neither possible nor desirable.
- */
+/* Wake the editor's wait loop when its child changes state. */
 static void
-cleanup_current(void)
+child_handler(int sig)
 {
-	if (cur_tmpfile != nullptr)
-		(void)unlink(cur_tmpfile);
-	if (cur_tmpcopy != nullptr)
-		(void)unlink(cur_tmpcopy);
-	if (cur_tmpdir != nullptr)
-		(void)rmdir(cur_tmpdir);
+	(void)sig;
 }
 
 /*
@@ -180,13 +153,11 @@ resolve_target(const char *path)
 
 	blen = (size_t)(end - base);
 
-	if (dlen == 0)
-		rdir = strdup(".");
-	else {
+	{
 		char rbuf[PATH_MAX];
 
-		if (realpath(dir, rbuf) == nullptr) {
-			warn("%s", dirbuf);
+		if (realpath(dlen == 0 ? "." : dir, rbuf) == nullptr) {
+			warn("%s", dlen == 0 ? "." : dir);
 			return (nullptr);
 		}
 		rdir = strdup(rbuf);
@@ -230,20 +201,21 @@ is_doas_conf(const char *path)
 
 /*
  * Run the editor.  The child process inherits the environment; the
- * editor is started with execvp(3) directly, never through a shell.
+ * editor is started with execvp(3) and a separate argument vector.
  * Returns the editor exit status, or -1 if it could not be started or
  * was terminated by a signal.  A "command not found" in the child is
  * mapped to status 127.
  *
  * The argument vector is rebuilt on the heap so the file operand can be
  * appended to the user-supplied command; it is freed by the parent after
- * the fork (the child replaces its image or exits).  editor_pid is
- * published for the signal handler and cleared before returning.
+ * the fork (the child replaces its image or exits).
  */
 static int
 run_editor(char *const *editor, const char *file)
 {
-	pid_t  pid;
+	pid_t  pid, result;
+	sigset_t previous;
+	sigset_t waiting;
 	int    status;
 	char **argv;
 	size_t n = 0;
@@ -257,28 +229,40 @@ run_editor(char *const *editor, const char *file)
 	argv[n] = (char *)file;
 	argv[n + 1] = nullptr;
 
-	pid = fork();
-	switch (pid) {
-	case -1:
+	if (sigprocmask(SIG_BLOCK, &editor_wait_signals, &previous) == -1) {
 		free(argv);
 		return (-1);
-	case 0:
+	}
+	if (interrupted) {
+		(void)sigprocmask(SIG_SETMASK, &previous, nullptr);
+		free(argv);
+		return (-1);
+	}
+	pid = fork();
+	if (pid == 0) {
+		(void)sigprocmask(SIG_SETMASK, &previous, nullptr);
 		execvp(argv[0], argv);
 		warn("%s", argv[0]);
 		_exit(127);
-	default:
-		break;
 	}
-	editor_pid = pid;
 	free(argv);
-	while (waitpid(pid, &status, 0) == -1) {
-		if (errno != EINTR) {
-			editor_pid = -1;
-			return (-1);
+	result = -1;
+	if (pid > 0) {
+		waiting = previous;
+		sigdelset(&waiting, SIGCHLD);
+		for (;;) {
+			if (interrupted)
+				(void)kill(pid, SIGTERM);
+			result = waitpid(pid, &status, WNOHANG);
+			if (result == -1 && errno == EINTR)
+				continue;
+			if (result != 0)
+				break;
+			(void)sigsuspend(&waiting);
 		}
 	}
-	editor_pid = -1;
-	if (WIFEXITED(status))
+	(void)sigprocmask(SIG_SETMASK, &previous, nullptr);
+	if (result == pid && pid > 0 && !interrupted && WIFEXITED(status))
 		return (WEXITSTATUS(status));
 	return (-1);
 }
@@ -300,6 +284,8 @@ doas_exec(const char *const *argv, int outfd, int infd)
 	pid_t pid;
 	int   status;
 
+	if (interrupted)
+		return (-1);
 	pid = fork();
 	switch (pid) {
 	case -1:
@@ -639,10 +625,12 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 
 	for (;;) {
 		status = doas_exec(doas_argv, -1, -1);
+		if (interrupted)
+			return (1);
 		if (status == 0)
 			return (0);
-		printf("doasedit: Replacing '%s' would introduce the "
-		       "above error and break doas.\n",
+		printf("doasedit: Could not validate '%s' "
+		       "with doas -C.\n",
 		    target);
 		printf("(E)dit again, (O)verwrite anyway, (A)bort: "
 		       "[E/o/a]? ");
@@ -660,8 +648,8 @@ check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
 		case 'E':
 		default:
 			rc = run_editor(editor, tmpfile);
-			if (rc == -1 || rc == 127) {
-				warnx("editor could not be started");
+			if (rc != 0) {
+				warnx("editor failed (status %d)", rc);
 				return (1);
 			}
 			break;
@@ -803,22 +791,35 @@ main(int argc, char *argv[])
 	if (tmpdir == nullptr)
 		err(1, "mkdtemp");
 
-	/* Publish the directory for the handler before installing it. */
-	cur_tmpdir = tmpdir;
-	signal(SIGINT, sighandler);
-	signal(SIGTERM, sighandler);
-	signal(SIGHUP, sighandler);
-	signal(SIGQUIT, sighandler);
+	{
+		static const int termination[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
+		struct sigaction action = {.sa_handler = sighandler};
+
+		sigemptyset(&editor_wait_signals);
+		sigemptyset(&action.sa_mask);
+		for (size_t n = 0; n < sizeof(termination) / sizeof(termination[0]); n++) {
+			sigaddset(&editor_wait_signals, termination[n]);
+			if (sigaction(termination[n], &action, nullptr) == -1) {
+				(void)rmdir(tmpdir);
+				err(1, "sigaction");
+			}
+		}
+		sigaddset(&editor_wait_signals, SIGCHLD);
+		action.sa_handler = child_handler;
+		action.sa_flags = SA_NOCLDSTOP;
+		if (sigaction(SIGCHLD, &action, nullptr) == -1) {
+			(void)rmdir(tmpdir);
+			err(1, "sigaction");
+		}
+	}
 
 	/*
 	 * Process each operand independently.  target is the canonical
 	 * parent plus the unchanged final component; tmpfile is the copy
 	 * handed to the editor and tmpcopy the pristine copy used to
-	 * detect whether the editor changed anything.  Both temporary
-	 * paths become visible to the signal handler as soon as they are
-	 * allocated and are cleared again before being freed at "next".
+	 * detect whether the editor changed anything.
 	 */
-	for (; i < argc; i++) {
+	for (; i < argc && !interrupted; i++) {
 		const char     *file = argv[i];
 		char	       *target = nullptr;
 		char	       *tmpfile = nullptr;
@@ -827,9 +828,8 @@ main(int argc, char *argv[])
 		struct snapshot snap;
 		int		exists = 0, readable = 0, writable = 0;
 		int		fd, tmpfd, rc;
+		int		keep_edit = 0;
 		const char     *base;
-
-		cur_tmpfile = cur_tmpcopy = nullptr;
 
 		if (file[0] == '\0') {
 			warnx(": cannot edit directories");
@@ -969,25 +969,17 @@ main(int argc, char *argv[])
 		{
 			auto  tlen = strlen(tmpdir);
 			auto  blen = strlen(base);
-			char *cname;
-
-			cname = malloc(blen + 12);
-			if (cname == nullptr)
-				err(1, "malloc");
-			snprintf(cname, blen + 12, "copy-of-%s", base);
+			const char *cname = strcmp(base, ".original") == 0 ?
+			    ".reference" : ".original";
+			auto clen = strlen(cname);
 
 			tmpfile = malloc(tlen + blen + 2);
-			tmpcopy = malloc(tlen + strlen(cname) + 2);
+			tmpcopy = malloc(tlen + clen + 2);
 			if (tmpfile == nullptr || tmpcopy == nullptr)
 				err(1, "malloc");
 			snprintf(
 			    tmpfile, tlen + blen + 2, "%s/%s", tmpdir, base);
-			snprintf(tmpcopy, tlen + strlen(cname) + 2, "%s/%s",
-			    tmpdir, cname);
-			free(cname);
-
-			cur_tmpfile = tmpfile;
-			cur_tmpcopy = tmpcopy;
+			snprintf(tmpcopy, tlen + clen + 2, "%s/%s", tmpdir, cname);
 		}
 
 		tmpfd = open(tmpfile, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -1097,8 +1089,8 @@ main(int argc, char *argv[])
 
 		/* run the editor */
 		rc = run_editor(editor_cmd, tmpfile);
-		if (rc == -1 || rc == 127) {
-			warnx("invalid editor command: '%s'", editor_cmd[0]);
+		if (rc != 0) {
+			warnx("editor '%s' failed (status %d)", editor_cmd[0], rc);
 			goto next;
 		}
 
@@ -1113,9 +1105,14 @@ main(int argc, char *argv[])
 		}
 		if (rc == 1) {
 			printf("doasedit: %s: unchanged\n", file);
+			keep_edit = 0;
 			exit_code = 0;
 			goto next;
 		}
+
+		keep_edit = 1;
+		if (interrupted)
+			goto next;
 
 		/* write back */
 		if (!exists) {
@@ -1124,22 +1121,17 @@ main(int argc, char *argv[])
 			struct stat nst;
 			int	    tries;
 
-			/* the target must still be absent: install(1)
-			 * would otherwise replace whatever appeared */
-			if (lstat(target, &nst) == 0) {
-				warnx("%s: file appeared during editing, "
-				      "not saving",
-				    file);
-				goto next;
-			}
-			if (errno != ENOENT) {
-				warn("%s", target);
-				goto next;
-			}
-
-			/* like the original: retry after failed password
-			 * attempts, three tries in total */
+			/* Recheck absence before each authentication attempt. */
 			for (tries = 0; tries < 3; tries++) {
+				if (lstat(target, &nst) == 0) {
+					warnx("%s: file appeared during editing, not saving",
+					    file);
+					goto next;
+				}
+				if (errno != ENOENT) {
+					warn("%s", target);
+					goto next;
+				}
 				if (doas_exec(inst_argv, -1, -1) == 0)
 					break;
 				if (tries == 2) {
@@ -1149,6 +1141,7 @@ main(int argc, char *argv[])
 					goto next;
 				}
 			}
+			keep_edit = 0;
 			exit_code = 0;
 			goto next;
 		}
@@ -1190,6 +1183,7 @@ main(int argc, char *argv[])
 				goto next;
 			}
 			close(fd);
+			keep_edit = 0;
 			exit_code = 0;
 			goto next;
 		}
@@ -1216,6 +1210,11 @@ main(int argc, char *argv[])
 			inst_argv[5] = gbuf;
 			inst_argv[7] = mbuf;
 			for (tries = 0; tries < 3; tries++) {
+				if (!snapshot_equal(target, &snap)) {
+					warnx("%s: file changed during editing, not saving",
+					    file);
+					goto next;
+				}
 				if (doas_exec(inst_argv, -1, -1) == 0)
 					break;
 				if (tries == 2) {
@@ -1225,27 +1224,36 @@ main(int argc, char *argv[])
 					goto next;
 				}
 			}
+			keep_edit = 0;
 			exit_code = 0;
 			goto next;
 		}
 	next:
+		if (keep_edit && !interrupted) {
+			const char *keep = getenv("DOASEDIT_KEEP_FAILED");
+
+			if (keep != nullptr && strcmp(keep, "1") == 0 &&
+			    lstat(tmpfile, &lst) == 0 && S_ISREG(lst.st_mode) &&
+			    unlink(tmpcopy) == 0) {
+				/* The private directory becomes the recovery location. */
+				warnx("edited copy retained at %s", tmpfile);
+				free(target);
+				free(tmpfile);
+				free(tmpcopy);
+				free(tdir_tmpl);
+				return (1);
+			}
+		}
 		if (tmpfile != nullptr)
 			(void)unlink(tmpfile);
 		if (tmpcopy != nullptr)
 			(void)unlink(tmpcopy);
-		/*
-		 * Clear the signal-handler pointers before the blocks are
-		 * freed, so a signal arriving in between cannot make the
-		 * handler unlink a dangling path.
-		 */
-		cur_tmpfile = cur_tmpcopy = nullptr;
 		free(target);
 		free(tmpfile);
 		free(tmpcopy);
 	}
 
-	cleanup_current();
-	cur_tmpdir = nullptr;
+	(void)rmdir(tmpdir);
 	free(tdir_tmpl);
-	return (exit_code);
+	return (interrupted ? 128 + interrupted : exit_code);
 }

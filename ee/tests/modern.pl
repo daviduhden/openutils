@@ -417,6 +417,33 @@ sub test_shell_command {
     return ( $exited && read_raw($path) eq "before after\n" ) ? 1 : 0;
 }
 
+sub test_shell_pipes {
+    my ($work) = @_;
+    my $path = "$work/pipe.txt";
+    my $capture = "$work/pipe-output.txt";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+
+    $s->pump(1.5);
+    $s->write_data("\x03");
+    $s->pump(0.4);
+    $s->write_data("<!printf 'from pipe\\n'\n");
+    $s->pump(1.0);
+    $s->write_data("\x03");
+    $s->pump(0.4);
+    $s->write_data(">!cat > '$capture'\n");
+    $s->pump(1.0);
+    $s->write_data("\n");
+    $s->pump(0.6);
+    $s->write_data("\x13");
+    $s->pump(0.6);
+    $s->write_data("\x11");
+    my $exited = $s->wait_exit;
+    $s->close_session;
+
+    return $exited && read_raw($path) eq "from pipe\n"
+      && read_raw($capture) eq "from pipe\n";
+}
+
 # Run the resize, UTF-8, bounds, tiny-terminal and shell-command cases and
 # report the accumulated failure count.
 sub main {
@@ -442,6 +469,7 @@ sub main {
     check( 'wide and combining characters', test_wide_and_combining($work) );
     check( 'backspace removes a multibyte character',
         test_backspace_utf8($work) );
+    check( 'shell pipes preserve buffer bytes', test_shell_pipes($work) );
     check( 'invalid UTF-8 is rejected', test_invalid_utf8_rejected($work) );
     check( 'NUL byte is rejected',      test_nul_rejected($work) );
     check( 'character-code bounds',     test_code_point_bounds($work) );

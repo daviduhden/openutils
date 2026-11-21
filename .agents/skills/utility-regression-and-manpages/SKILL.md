@@ -72,8 +72,11 @@ strict build/source-policy check.
 1. Reproduce the behavior manually in the existing harness style, then
    add the smallest assertion to the suite that owns the component.
 2. For tree, add cases to `tree/tests/run.sh` using `assert_out`,
-   `assert_not_out`, `assert`, or `assert_eq`. Add fixtures under the
-   existing temporary hierarchy.
+   `assert_not_out`, `assert`, or `assert_eq`. Output helpers match literal
+   strings and require a successful producer. Capture status and output
+   separately for expected failures. Add fixtures under the existing
+   temporary hierarchy. Use core JSON::PP when available to validate
+   whole JSON documents.
 3. For truncate, add direct size/status assertions to
    `truncate/tests/run.sh`; use `compare` only for GNU-differential
    behavior. `assert_eq` returns nonzero on failure so a fallback can

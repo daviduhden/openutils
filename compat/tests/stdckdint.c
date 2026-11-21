@@ -35,10 +35,6 @@
 #error "unexpected __STDC_VERSION_STDCKDINT_H__"
 #endif
 
-/* __int128 is the reference arithmetic; silence the -Wpedantic complaint. */
-__extension__ typedef __int128		i128;
-__extension__ typedef unsigned __int128 u128;
-
 static int failures;
 
 #define CHECK(cond, what)                                                      \
@@ -49,6 +45,11 @@ static int failures;
 			failures++;                                            \
 		}                                                              \
 	} while (0)
+
+#if defined(__SIZEOF_INT128__)
+/* __int128 is the reference arithmetic; silence the -Wpedantic complaint. */
+__extension__ typedef __int128		i128;
+__extension__ typedef unsigned __int128 u128;
 
 static uint64_t
 mask_of(unsigned width)
@@ -232,6 +233,8 @@ static const uint64_t vals[] = {
 		}                                                                     \
 	} while (0)
 
+#endif
+
 /* Single-evaluation probes. */
 static unsigned probe_calls;
 
@@ -347,6 +350,7 @@ test_hand_written(void)
 int
 main(void)
 {
+#if defined(__SIZEOF_INT128__)
 	/* signed/signed, unsigned/unsigned, and wider/narrower results. */
 	RUN_CASE(signed char, 1, unsigned char, signed char, 1, unsigned char,
 	    signed char, 1, unsigned char);
@@ -379,6 +383,8 @@ main(void)
 	    unsigned long long, unsigned char, 0, unsigned char);
 	RUN_CASE(unsigned long long, 0, unsigned long long, int, 1,
 	    unsigned int, long long, 1, unsigned long long);
+
+#endif
 
 	test_hand_written();
 

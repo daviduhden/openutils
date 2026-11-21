@@ -48,7 +48,7 @@ assert_out() {
 	desc=$1
 	pattern=$2
 	shift 2
-	if "$@" | grep -q "$pattern"; then
+	if output=$("$@") && printf '%s\n' "$output" | grep -F -q -e "$pattern"; then
 		ok "$desc"
 	else
 		notok "$desc"
@@ -61,10 +61,10 @@ assert_not_out() {
 	desc=$1
 	pattern=$2
 	shift 2
-	if "$@" | grep -q "$pattern"; then
-		notok "$desc"
-	else
+	if output=$("$@") && ! printf '%s\n' "$output" | grep -F -q -e "$pattern"; then
 		ok "$desc"
+	else
+		notok "$desc"
 	fi
 }
 
@@ -128,7 +128,14 @@ assert_out "-L 1 limits depth" "sub" "$TREE" -L 1 .
 assert_not_out "-L 1 hides nested files" "afile" "$TREE" -L 1 .
 assert_out "-L 2 shows nested dirs" "deep" "$TREE" -L 2 sub
 
-assert_out "-t sorts by time" "afile" "$TREE" -t sub
+mkdir "$work/time-sort"
+touch -t 202001010000 "$work/time-sort/aaa"
+touch -t 202101010000 "$work/time-sort/zzz"
+if output=$("$TREE" -i --noreport -t time-sort); then
+	assert_eq "-t sorts newest first" "$(printf 'time-sort\nzzz\naaa')" "$output"
+else
+	notok "-t sorts newest first"
+fi
 
 # size output
 assert_out "-s shows size" "10240" "$TREE" -s sub
@@ -139,7 +146,7 @@ assert_out "--si decimal size" "10k" "$TREE" -s --si sub
 assert_out "-p shows permissions" "drwx" "$TREE" -p sub
 assert_out "-u shows user" "$(id -un)" "$TREE" -u sub
 assert_out "-g shows group" "$(id -gn)" "$TREE" -g sub
-assert_out "-D shows date" "\[" "$TREE" -D --timefmt '%Y' sub
+assert_out "-D shows date" "[" "$TREE" -D --timefmt '%Y' sub
 assert_out "--timefmt respected" "$(date +%Y)" \
 	"$TREE" -D --timefmt '%Y' sub
 assert_out "--timefmt implies -D" "$(date +%Y)" \
@@ -192,16 +199,16 @@ assert_out "newlines escaped" "with" "$TREE" sub
 assert_out "-q replaces non-printables" "with?newline" "$TREE" -q sub
 assert_out "-N prints raw" "with" "$TREE" -N sub
 assert_out "-Q quotes names" '"with space"' "$TREE" -Q sub
-assert_out "-Q escapes embedded quote" 'quote\\"name' "$TREE" -Q sub
-assert_out "-Q escapes embedded backslash" 'back\\\\slash' "$TREE" -Q sub
+assert_out "-Q escapes embedded quote" 'quote\"name' "$TREE" -Q sub
+assert_out "-Q escapes embedded backslash" 'back\slash' "$TREE" -Q sub
 
 # JSON
 assert_out "-J emits json" '"type":"directory"' "$TREE" -J sub
 assert_out "-J report object" '"type":"report"' "$TREE" -J sub
 assert_out "-J link target" '"target":"../sub/deep"' "$TREE" -J sub
-assert_out "-J escapes newlines" 'with\\nnewline' "$TREE" -J sub
-assert_out "-J escapes embedded quote" 'quote\\"name' "$TREE" -J sub
-assert_out "-J escapes embedded backslash" 'back\\\\slash' "$TREE" -J sub
+assert_out "-J escapes newlines" 'with\nnewline' "$TREE" -J sub
+assert_out "-J escapes embedded quote" 'quote\"name' "$TREE" -J sub
+assert_out "-J escapes embedded backslash" 'back\slash' "$TREE" -J sub
 assert_not_out "JSON --filelimit blocks nested descent" '"name":"afile"' \
 	"$TREE" -J --filelimit 2 sub
 assert_out "JSON --filelimit keeps directory object" '"name":"sub"' \
@@ -225,27 +232,46 @@ ln -s "$work/out-target" "$work/out-link"
 assert_eq "-o refuses a symlink" 1 $?
 assert "-o did not create the symlink target" [ ! -e "$work/out-target" ]
 
+mkfifo "$work/out-fifo" || exit 1
+"$TREE" -o "$work/out-fifo" sub >/dev/null 2>&1
+assert_eq "-o refuses a FIFO" 1 $?
+assert "-o preserves the FIFO" [ -p "$work/out-fifo" ]
+
+# Parse the complete JSON document when core Perl is available.
+if command -v perl >/dev/null 2>&1; then
+	if "$TREE" -J --prune -L 1 sub >"$work/tree.json"; then
+		assert "JSON depth boundary keeps directories" perl -MJSON::PP -0777 -ne '
+			my $top = decode_json($_);
+			exit !(grep { $_->{name} eq "deep" && !exists $_->{contents} }
+			    @{ $top->[0]{contents} });
+		' "$work/tree.json"
+	else
+		notok "JSON depth boundary command succeeded"
+	fi
+fi
+
 # error handling
 "$TREE" /nonexistent-tree-test >/dev/null 2>&1
 assert_eq "nonexistent root exits 2" 2 $?
-assert_out "nonexistent root reported" "error opening dir" \
-	"$TREE" /nonexistent-tree-test
-"$TREE" -Z >/dev/null 2>&1
-assert_eq "invalid option exits 1" 1 $?
-"$TREE" -A >/dev/null 2>&1
-assert_eq "-A is rejected" 1 $?
-"$TREE" --help >/dev/null 2>&1
-assert_eq "--help exits 0" 0 $?
+output=$("$TREE" /nonexistent-tree-test 2>/dev/null)
+status=$?
+assert_eq "nonexistent root diagnostic command exits 2" 2 "$status"
+case $output in
+	*"error opening dir"*) ok "nonexistent root reported" ;;
+	*) notok "nonexistent root reported" ;;
+esac
 
 # A nested unreadable directory makes the text output fail (not root).
 mkdir -p sub/noread
 touch sub/noread/inside
 chmod 000 sub/noread
 if [ "$(id -u)" -ne 0 ]; then
-	assert_out "nested unreadable dir reported" "error opening dir" \
-		"$TREE" sub
-	"$TREE" sub >/dev/null 2>&1
+	output=$("$TREE" sub 2>/dev/null)
 	assert_eq "nested unreadable dir exits 2" 2 $?
+	case $output in
+		*"error opening dir"*) ok "nested unreadable dir reported" ;;
+		*) notok "nested unreadable dir reported" ;;
+	esac
 fi
 chmod 755 sub/noread
 

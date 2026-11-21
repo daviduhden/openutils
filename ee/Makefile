@@ -7,6 +7,7 @@
 
 PROG = ee
 SRCS = ee.c utf8.c help.c spell/spell.c
+HEADERS = utf8.h help.h spell/spell.h
 
 CC = clang
 CFLAGS ?= -O2 -pipe
@@ -41,12 +42,12 @@ DICTDIR ?= $(PREFIX)/share/myspell
 
 all: $(PROG)
 
-$(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
+$(PROG): $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
 
 # debug build: unoptimized binary for use with the debugger
-$(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
+$(PROG)_debug: $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
+	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
 
 debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug

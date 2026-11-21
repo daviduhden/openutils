@@ -75,7 +75,7 @@ followed symlinks (writing an attacker-chosen destination as root).
 The fork uses file-descriptor based validation (`open(2)` with
 `O_NOFOLLOW`, `fstat(2)` identity snapshots), an atomic, rename-based
 write-back through `install(1)` that cannot follow a swapped symlink,
-a private `mkdtemp(3)` directory and no shell invocation anywhere.
+a private `mkdtemp(3)` directory and fixed argument vectors for privileged commands.
 It stays unpledged because it must execute the editor and doas.
 
 ### tree
@@ -187,7 +187,7 @@ and tested elsewhere.
   parsed options.
 - `truncate`: `stdio wpath`, plus `cpath` unless `-c` and `rpath`
   only with `-r` — likewise chosen from the parsed options.
-- `ee`: restricted mode uses `stdio rpath wpath cpath tty getpw`;
+- `ee`: restricted mode uses `stdio rpath wpath cpath fattr tty getpw`;
   normal mode stays unpledged because it executes shell commands.
   `unveil(2)` is not used where an editor must reach arbitrary files.
 
@@ -201,7 +201,7 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
 ## Requirements
 
 - OpenBSD base system (`doas(1)`, `install(1)`, libc).  All components
-  need a C23 compiler: `-std=c23` and standard attributes (GCC 14+ or a
+  need a C23 compiler: `-std=c23` and standard attributes (GCC 15+ or a
   recent Clang, including the Clang in current OpenBSD).  The libc may
   lack `<stdckdint.h>`; the shim in `compat/` supplies it from the
   compiler's overflow builtins.  `ee` needs the wide-character ncurses
@@ -209,12 +209,28 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   (devel/ncurses).  `pkg-config` is used when available to locate it,
   otherwise the build falls back to `-lncursesw`.
 - For doasedit, a `doas.conf` that permits `dd`, `cat` and `install`
-  (e.g. `permit persist :wheel`).
+  for an account already trusted to administer the machine. See the
+  [authorization and write-back notes](doasedit/README.md).
 - Perl 5 with the IO::Pty module for the ee behavioural test suite
   (`make test`); install it on OpenBSD with `doas pkg_add p5-IO-Tty`
   (devel/p5-IO-TTY).  The compat, tree and truncate suites are POSIX
   shell scripts and need `mktemp(1)` plus `stat(1)` in either its GNU
   (`-c`) or BSD (`-f`) option form; they need no extra packages.
+
+## Manual continuous integration
+
+Dispatch **Agent Knowledge Validation** on the branch under review and
+provide its comparison base. The workflow validates the committed range
+and runs the validator contract suite on Linux. The Linux build matrix
+uses Clang and GCC in Ubuntu 26.04, and the OpenBSD 8.0 VM runs the base
+Clang toolchain and the runtime suites with native pledge. The jobs log
+their compiler versions. Enable the `profile` input to log timing and
+peak resident memory for a wide tree with links and a multi-megabyte
+editor input. Compare runs with the same image and compiler. PTY timing
+includes the fixed startup and drain periods. The VM job compiles doasedit. Real privileged
+write-back validation requires the disposable setup in
+[doasedit/README.md](doasedit/README.md).
+
 
 ## Known differences from the reference utilities
 

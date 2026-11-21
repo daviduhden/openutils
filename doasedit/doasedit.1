@@ -21,8 +21,7 @@ Once the editor exits, if the temporary file has been modified, the
 changes are written back to the original file with the least amount
 of privilege possible.
 Doas is used only through the fixed command invocations listed under
-.Sx "DOAS PERMISSIONS" ,
-never through a shell.
+.Sx "DOAS PERMISSIONS" .
 .Pp
 An initial
 .Nm doas Cm dd
@@ -92,10 +91,10 @@ so it must be trusted.
 .El
 .Pp
 The editor command may contain arguments, separated by whitespace.
-It is executed directly with
-.Xr execvp 3 ;
-no shell is involved, so shell quoting, globbing and redirections are
-not interpreted.
+The arguments are passed to
+.Xr execvp 3
+without interpreting shell quoting, globbing or redirections.
+That interface may invoke a shell for a script without an interpreter line.
 If the editor starts an existing instance and returns immediately
 .Pq typical of some graphical editors ,
 .Nm
@@ -130,6 +129,15 @@ treats them as configuration for this check, but does not verify that
 .Nm doas
 uses them.
 .El
+.Pp
+The target is checked before each privileged install attempt.
+Authentication and the replacement occur after this check.
+A successful editor exit is required before attempting write-back.
+With
+.Ev DOASEDIT_KEEP_FAILED
+set to
+.Ql 1 ,
+a write-back failure stops processing and reports a private recovery path.
 .Sh EXIT STATUS
 .Nm
 exits 0 if help was requested, or if at least one file was edited

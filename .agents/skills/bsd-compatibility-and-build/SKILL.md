@@ -49,6 +49,13 @@ style, pair it with `openutils-c23-standards`.
   `EE_WARNINGS` sets. It checks the first-include and `_XOPEN_SOURCE`
   rules, then cleans and rebuilds. It is not `make test`, and it does
   not use `-Werror`.
+- The manual workflow uses Clang and GCC on Linux and the base Clang
+  on OpenBSD. GCC 15 is the first GCC whose `-std=c23` advertises the
+  finalized C23 language revision required by `bsdcompat.h`. Use the
+  workflow's optional `profile` input for comparable workload samples.
+  The ee PTY sample includes harness wait time.
+- Declare local header prerequisites in both ee build rules. Pass the
+  runtime `DICTDIR` to the compiler without the staging root in `DESTDIR`.
 - `make test` runs compat, tree, truncate and ee. It does not cover
   doasedit. ee's Perl suites require `IO::Pty`.
 - `make install` honors `PREFIX` (default `/usr/local`), `BINDIR`,

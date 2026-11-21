@@ -40,13 +40,14 @@ COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
 
 ## Tests
 
-The self-test in [tests/](tests/) forces the `<stdckdint.h>` fallback
+The self-test in [tests/](tests/) runs with normal header selection and
+then forces the `<stdckdint.h>` fallback
 with `OPENUTILS_STDCKDINT_FORCE_FALLBACK`, so it is covered even on a
 host whose libc already ships a real `<stdckdint.h>`.
 
 | File | Purpose |
 | --- | --- |
-| [tests/run.sh](tests/run.sh) | Builds and runs the fallback conformance test. |
+| [tests/run.sh](tests/run.sh) | Builds and runs conformance tests with normal and forced header selection. |
 | [tests/stdckdint.c](tests/stdckdint.c) | Checks `ckd_add`/`ckd_sub`/`ckd_mul` against an independent `__int128` oracle over a boundary grid (flag and stored value), plus the C23 evaluation rules. |
 | [tests/stdckdint-compile-fail.sh](tests/stdckdint-compile-fail.sh) | Negative-compilation tests for the invalid operand and destination types C23 forbids. |
 

@@ -67,6 +67,27 @@ backslash escapes interpreted; it is not a setting.  The settings menu
 can save the current configuration with **save editor configuration**,
 except in restricted mode.
 
+The current directory is a configuration source. Open files from a
+trusted working directory when local settings such as `printcommand`
+matter. Configuration saves finish the new file before replacing the
+current one and retain the previous version as `.init.ee.old`.
+
+Document saves stage a file in the destination directory and publish it
+after a successful write and close. Saving an existing file requires a
+writable directory and an owned, writable regular file with one link and
+ordinary permissions. Symbolic links, hard-linked files, and files owned
+by another user are refused. Existing owner, group and permission bits
+are preserved. File flags, ACLs and extended attributes are outside
+this preservation contract. An existing destination is checked just
+before publication. Changes earlier in the editing session and durability
+after a system crash are outside this check.
+
+At runtime `EE_DICTIONARY` takes precedence over the build-time `DICTDIR`.
+Rebuild when changing `DICTDIR`. Cursor movement uses Unicode code points
+and terminal column widths. Some combining sequences can require more
+than one editing operation.
+
+
 ## Formatting and spelling
 
 Paragraph formatting targets 72 columns for ordinary prose (the

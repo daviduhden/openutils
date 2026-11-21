@@ -261,6 +261,15 @@ sub main {
     assert_eq( 'mode preserved',
         '640', sprintf( '%o', ( stat $path )[2] & oct(777) ) );
 
+    my $alias = "$work/symlink.txt";
+    symlink $path, $alias or Carp::croak "symlink $alias: $!";
+    my $denied = run( [ $EE, '-i', $alias ], [ 'blocked', "\x13" ],
+        { TERM => 'xterm' } );
+    assert_eq( 'linked destination left unchanged', 'xxoriginal',
+        read_text($path) );
+    assert_eq( 'linked destination save reports failure', 1,
+        index( $denied, 'unable to save file' ) >= 0 ? 1 : 0 );
+
     # new file created with normal umask
     $path = "$work/newfile.txt";
     run(
@@ -270,18 +279,24 @@ sub main {
     );
     assert_eq( 'new file content', 'data', read_text($path) );
 
-    # long lines (longer than the internal 512-byte read chunks)
-    # survive a load/save round trip
-    open my $long, '>', $path or Carp::croak "open $path: $!";
-    my $content = ( 'x' x 3000 ) . "\n" . "short\n";
-    print {$long} $content;
-    close $long;
-    run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
-    open my $in, '<', $path or Carp::croak "open $path: $!";
-    my $first = <$in> // q{};
-    close $in;
-    $first =~ s/\n\z//x;
-    assert_eq( 'long line preserved', 'x' x 3000, $first );
+    # Compare every byte, including empty lines and chunk boundaries.
+    for my $content (
+        "\n",
+        "\n\n",
+        map { ('x' x $_) . "\nshort\n\n" } ( 511, 512, 513, 3000 )
+      )
+    {
+        open my $long, '>:raw', $path or Carp::croak "open $path: $!";
+        print {$long} $content;
+        close $long;
+        run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
+        open my $in, '<:raw', $path or Carp::croak "open $path: $!";
+        local $/;
+        my $saved = <$in> // q{};
+        close $in;
+        assert_eq( 'all input lines preserved (' . length($content) . ')',
+            $content, $saved );
+    }
 
     # file without a final newline
     open my $noeol, '>', $path or Carp::croak "open $path: $!";
