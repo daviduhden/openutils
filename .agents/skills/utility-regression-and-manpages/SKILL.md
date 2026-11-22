@@ -79,6 +79,9 @@ strict build/source-policy check.
    becomes two backslashes in quoted text and JSON. Add fixtures under the existing
    temporary hierarchy. Use core JSON::PP when available to validate
    whole JSON documents.
+   Keep inline Perl programs single-quoted so the shell passes Perl
+   variables literally. If ShellCheck flags SC2016, explain the quoting
+   and suppress the diagnostic on that invocation only.
 3. For truncate, add direct size/status assertions to
    `truncate/tests/run.sh`; use `compare` only for GNU-differential
    behavior. `assert_eq` returns nonzero on failure so a fallback can

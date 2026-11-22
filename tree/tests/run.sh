@@ -240,6 +240,8 @@ assert "-o preserves the FIFO" [ -p "$work/out-fifo" ]
 # Parse the complete JSON document when core Perl is available.
 if command -v perl >/dev/null 2>&1; then
 	if "$TREE" -J --prune -L 1 sub >"$work/tree.json"; then
+		# The dollar-prefixed variables belong to Perl.
+		# shellcheck disable=SC2016
 		assert "JSON depth boundary keeps directories" perl -MJSON::PP -0777 -ne '
 			my $top = decode_json($_);
 			exit !(grep { $_->{name} eq "deep" && !exists $_->{contents} }
@@ -257,8 +259,8 @@ output=$("$TREE" /nonexistent-tree-test 2>/dev/null)
 status=$?
 assert_eq "nonexistent root diagnostic command exits 2" 2 "$status"
 case $output in
-	*"error opening dir"*) ok "nonexistent root reported" ;;
-	*) notok "nonexistent root reported" ;;
+*"error opening dir"*) ok "nonexistent root reported" ;;
+*) notok "nonexistent root reported" ;;
 esac
 
 # A nested unreadable directory makes the text output fail (not root).
@@ -269,8 +271,8 @@ if [ "$(id -u)" -ne 0 ]; then
 	output=$("$TREE" sub 2>/dev/null)
 	assert_eq "nested unreadable dir exits 2" 2 $?
 	case $output in
-		*"error opening dir"*) ok "nested unreadable dir reported" ;;
-		*) notok "nested unreadable dir reported" ;;
+	*"error opening dir"*) ok "nested unreadable dir reported" ;;
+	*) notok "nested unreadable dir reported" ;;
 	esac
 fi
 chmod 755 sub/noread
