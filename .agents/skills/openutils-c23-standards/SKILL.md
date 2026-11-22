@@ -68,6 +68,10 @@ first-include policy. For build-system and shim details, pair it with
 
 - Documentation-only changes: `git diff --check`, `git status`, and
   path/link checks. Do not run `make`.
+- For C formatting changes, review wrapped literals for identical text
+  and keep layout changes in a separate commit from logic changes.
+  A whitespace-insensitive diff still shows changes where a literal
+  becomes adjacent string tokens.
 - For a CI-only runtime request, use syntax-only checks locally and have
   the manual workflow perform builds and execution. Syntax-only checks
   do not validate linking, portability branches or OpenBSD promises.

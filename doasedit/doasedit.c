@@ -58,7 +58,7 @@
 
 /* Cancellation requested by the termination handler. */
 static volatile sig_atomic_t interrupted;
-static sigset_t editor_wait_signals;
+static sigset_t		     editor_wait_signals;
 
 [[noreturn]] static void usage(void);
 [[nodiscard]] static int doas_exec(
@@ -213,12 +213,12 @@ is_doas_conf(const char *path)
 static int
 run_editor(char *const *editor, const char *file)
 {
-	pid_t  pid, result;
+	pid_t	 pid, result;
 	sigset_t previous;
 	sigset_t waiting;
-	int    status;
-	char **argv;
-	size_t n = 0;
+	int	 status;
+	char   **argv;
+	size_t	 n = 0;
 
 	while (editor[n] != nullptr)
 		n++;
@@ -792,12 +792,14 @@ main(int argc, char *argv[])
 		err(1, "mkdtemp");
 
 	{
-		static const int termination[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT};
+		static const int termination[] = {
+		    SIGINT, SIGTERM, SIGHUP, SIGQUIT};
 		struct sigaction action = {.sa_handler = sighandler};
 
 		sigemptyset(&editor_wait_signals);
 		sigemptyset(&action.sa_mask);
-		for (size_t n = 0; n < sizeof(termination) / sizeof(termination[0]); n++) {
+		for (size_t n = 0;
+		    n < sizeof(termination) / sizeof(termination[0]); n++) {
 			sigaddset(&editor_wait_signals, termination[n]);
 			if (sigaction(termination[n], &action, nullptr) == -1) {
 				(void)rmdir(tmpdir);
@@ -967,11 +969,12 @@ main(int argc, char *argv[])
 
 		/* create the private temporary files */
 		{
-			auto  tlen = strlen(tmpdir);
-			auto  blen = strlen(base);
+			auto	    tlen = strlen(tmpdir);
+			auto	    blen = strlen(base);
 			const char *cname = strcmp(base, ".original") == 0 ?
-			    ".reference" : ".original";
-			auto clen = strlen(cname);
+			    ".reference" :
+			    ".original";
+			auto	    clen = strlen(cname);
 
 			tmpfile = malloc(tlen + blen + 2);
 			tmpcopy = malloc(tlen + clen + 2);
@@ -979,7 +982,8 @@ main(int argc, char *argv[])
 				err(1, "malloc");
 			snprintf(
 			    tmpfile, tlen + blen + 2, "%s/%s", tmpdir, base);
-			snprintf(tmpcopy, tlen + clen + 2, "%s/%s", tmpdir, cname);
+			snprintf(
+			    tmpcopy, tlen + clen + 2, "%s/%s", tmpdir, cname);
 		}
 
 		tmpfd = open(tmpfile, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -1090,7 +1094,8 @@ main(int argc, char *argv[])
 		/* run the editor */
 		rc = run_editor(editor_cmd, tmpfile);
 		if (rc != 0) {
-			warnx("editor '%s' failed (status %d)", editor_cmd[0], rc);
+			warnx("editor '%s' failed (status %d)", editor_cmd[0],
+			    rc);
 			goto next;
 		}
 
@@ -1121,10 +1126,12 @@ main(int argc, char *argv[])
 			struct stat nst;
 			int	    tries;
 
-			/* Recheck absence before each authentication attempt. */
+			/* Recheck absence before each authentication attempt.
+			 */
 			for (tries = 0; tries < 3; tries++) {
 				if (lstat(target, &nst) == 0) {
-					warnx("%s: file appeared during editing, not saving",
+					warnx("%s: file appeared during "
+					      "editing, not saving",
 					    file);
 					goto next;
 				}
@@ -1211,7 +1218,8 @@ main(int argc, char *argv[])
 			inst_argv[7] = mbuf;
 			for (tries = 0; tries < 3; tries++) {
 				if (!snapshot_equal(target, &snap)) {
-					warnx("%s: file changed during editing, not saving",
+					warnx("%s: file changed during "
+					      "editing, not saving",
 					    file);
 					goto next;
 				}
@@ -1235,7 +1243,8 @@ main(int argc, char *argv[])
 			if (keep != nullptr && strcmp(keep, "1") == 0 &&
 			    lstat(tmpfile, &lst) == 0 && S_ISREG(lst.st_mode) &&
 			    unlink(tmpcopy) == 0) {
-				/* The private directory becomes the recovery location. */
+				/* The private directory becomes the recovery
+				 * location. */
 				warnx("edited copy retained at %s", tmpfile);
 				free(target);
 				free(tmpfile);

@@ -161,8 +161,8 @@ struct ent {
 static void report(void);
 static void dirwalk(const char *, const char *, int, const int *, dev_t,
     struct ent *, size_t, int);
-static void jsonwalk(const char *, const char *, int, dev_t, int,
-    struct ent *, size_t, int);
+static void jsonwalk(
+    const char *, const char *, int, dev_t, int, struct ent *, size_t, int);
 static void jsonentries(const char *, int, dev_t, int, struct ent *, size_t);
 [[nodiscard]] static int collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
@@ -1076,7 +1076,7 @@ static void
 entryline(
     const struct ent *e, const char *path, int depth, const int *bars, int last)
 {
-	int j;
+	int	    j;
 	const char *info = fillinfo(&e->lst);
 
 	if (!iflag) {
@@ -1155,9 +1155,9 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 		while (visible_end > 0) {
 			struct ent *entry = &ents[visible_end - 1];
 			struct ent *children;
-			size_t count;
-			char *child;
-			int result;
+			size_t	    count;
+			char	   *child;
+			int	    result;
 
 			if (!entry->isdir || entry->target != nullptr ||
 			    (xflag && entry->lst.st_dev != xdev))
@@ -1251,8 +1251,8 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 				free(cp);
 				continue;
 			}
-			if (pruneflag && !dflag && e->target == nullptr && opened &&
-			    nch == 0) {
+			if (pruneflag && !dflag && e->target == nullptr &&
+			    opened && nch == 0) {
 				/* nothing printed for pruned dirs */
 				freeents(ch, nch);
 				free(cp);
@@ -1364,11 +1364,11 @@ json_info(const struct stat *st)
  * The caller retains ownership of the collected entries.
  */
 static void
-jsonentries(const char *path, int depth, dev_t xdev, int lvl,
-    struct ent *ents, size_t n)
+jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
+    size_t n)
 {
 	size_t i;
-	int emitted = 0;
+	int    emitted = 0;
 
 	if (depth >= MAX_DEPTH)
 		errx(1, "directory tree too deep");
@@ -1401,13 +1401,15 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl,
 				if (!iflag)
 					fprintf(outfile, "\n");
 				struct ent *children;
-				size_t count;
+				size_t	    count;
 
 				if (collect(cp, &children, &count) == -1)
 					had_error = 1;
 				else {
-					if (filelimit == 0 || count <= (size_t)filelimit)
-						jsonentries(cp, d, xdev, lvl + 1, children, count);
+					if (filelimit == 0 ||
+					    count <= (size_t)filelimit)
+						jsonentries(cp, d, xdev,
+						    lvl + 1, children, count);
 					freeents(children, count);
 				}
 				if (!iflag) {
@@ -1450,13 +1452,16 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl,
 			}
 
 			struct ent *children = nullptr;
-			size_t count = 0;
-			int opened = 0;
+			size_t	    count = 0;
+			int	    opened = 0;
 
 			cp = joinpath(path, e->name);
 			if (maxdepth == 0 || d < maxdepth) {
-				opened = collect(cp, &children, &count) == 0 ? 1 : -1;
-				if (pruneflag && !dflag && opened == 1 && count == 0) {
+				opened = collect(cp, &children, &count) == 0 ?
+				    1 :
+				    -1;
+				if (pruneflag && !dflag && opened == 1 &&
+				    count == 0) {
 					freeents(children, count);
 					free(cp);
 					continue;
@@ -1466,7 +1471,8 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl,
 				jsep();
 			jindent(lvl);
 			addseen(e->st.st_dev, e->st.st_ino);
-			jsonwalk(cp, e->name, d, xdev, lvl, children, count, opened);
+			jsonwalk(
+			    cp, e->name, d, xdev, lvl, children, count, opened);
 			free(cp);
 			emitted = 1;
 			continue;
@@ -1942,14 +1948,14 @@ main(int argc, char *argv[])
 
 	if (outpath != nullptr) {
 		struct stat st;
-		int fd;
+		int	    fd;
 
 		/*
 		 * O_NOFOLLOW: -o must create or truncate a regular file,
 		 * never write through a symbolic link planted at outpath.
 		 */
-		fd = open(
-		    outpath, O_WRONLY | O_CREAT | O_NONBLOCK | O_NOFOLLOW, 0666);
+		fd = open(outpath, O_WRONLY | O_CREAT | O_NONBLOCK | O_NOFOLLOW,
+		    0666);
 		if (fd == -1)
 			err(1, "%s", outpath);
 		if (fstat(fd, &st) == -1)
@@ -2020,7 +2026,8 @@ main(int argc, char *argv[])
 			if (!iflag)
 				jindent(1);
 			addseen(st.st_dev, st.st_ino);
-			jsonwalk(roots[j], roots[j], 0, st.st_dev, 1, nullptr, 0, 0);
+			jsonwalk(
+			    roots[j], roots[j], 0, st.st_dev, 1, nullptr, 0, 0);
 		}
 		if (!noreport) {
 			if (iflag)

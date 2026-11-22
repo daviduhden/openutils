@@ -518,7 +518,8 @@ main(int argc, char *argv[])
 					if (c == 'r')
 						ref_file = val;
 					else
-						set_size(val, &last_size_relative);
+						set_size(
+						    val, &last_size_relative);
 					j = strlen(arg) - 1;
 					break;
 				}

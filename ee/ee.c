@@ -191,43 +191,43 @@ struct files *top_of_stack = nullptr;
  * right() move by whole UTF-8 sequences so that point never lands in
  * the middle of a multibyte character.
  */
-int d_wrd_len;	  /* length of deleted word		*/
-int position;	  /* byte offset (1-based) in line	*/
-int scr_pos;	  /* horizontal position			*/
-int scr_vert;	  /* vertical position on screen		*/
-int scr_horz;	  /* horizontal position on screen	*/
-int absolute_lin; /* number of lines from top		*/
-int tmp_vert, tmp_horz;
-int input_file;		   /* indicate to read input file		*/
-int recv_file;		   /* indicate reading a file		*/
-int edit;		   /* continue executing while true	*/
-int gold;		   /* 'gold' function key pressed		*/
-int case_sen;		   /* case sensitive search flag		*/
-int last_line;		   /* last line for text display		*/
-int last_col;		   /* last column for text display		*/
-int horiz_offset = 0;	   /* offset from left edge of text	*/
-int clear_com_win;	   /* flag to indicate com_win needs clearing */
-int text_changes = FALSE;  /* indicate changes have been made to text */
+int	   d_wrd_len;	 /* length of deleted word		*/
+int	   position;	 /* byte offset (1-based) in line	*/
+int	   scr_pos;	 /* horizontal position			*/
+int	   scr_vert;	 /* vertical position on screen		*/
+int	   scr_horz;	 /* horizontal position on screen	*/
+int	   absolute_lin; /* number of lines from top		*/
+int	   tmp_vert, tmp_horz;
+int	   input_file;		 /* indicate to read input file		*/
+int	   recv_file;		 /* indicate reading a file		*/
+int	   edit;		 /* continue executing while true	*/
+int	   gold;		 /* 'gold' function key pressed		*/
+int	   case_sen;		 /* case sensitive search flag		*/
+int	   last_line;		 /* last line for text display		*/
+int	   last_col;		 /* last column for text display		*/
+int	   horiz_offset = 0;	 /* offset from left edge of text	*/
+int	   clear_com_win;	 /* flag to indicate com_win needs clearing */
+int	   text_changes = FALSE; /* indicate changes have been made to text */
 static int file_load_failed;
-int read_only = FALSE;	   /* current file is not writable		*/
-int get_fd;		   /* file descriptor for reading a file	*/
-int info_window = TRUE;	   /* flag to indicate if shortcut bar visible */
-int expand_tabs = TRUE;	   /* flag for expanding tabs		*/
-int right_margin = 0;	   /* the right margin 			*/
-int observ_margins = TRUE; /* flag for whether margins are observed */
-int shell_fork;
-int pipe_out[2];		 /* pipe file desc for output		*/
-int pipe_in[2];			 /* pipe file descriptors for input	*/
-int out_pipe;			 /* flag that info is piped out		*/
-int in_pipe;			 /* flag that info is piped in		*/
-int formatted = FALSE;		 /* flag indicating paragraph formatted	*/
-int auto_format = FALSE;	 /* flag for auto_format mode		*/
-int formatting_document = FALSE; /* whole-buffer format in progress	*/
-int restricted = FALSE;		 /* flag to indicate restricted mode	*/
-int nohighlight = FALSE;	 /* turns off highlighting		*/
-int local_LINES = 0;		 /* copy of LINES, to detect when win resizes */
-int local_COLS = 0;		 /* copy of COLS, to detect when win resizes  */
-int curses_initialized = FALSE;	 /* flag indicating if curses has been started*/
+int	   read_only = FALSE;	  /* current file is not writable		*/
+int	   get_fd;		  /* file descriptor for reading a file	*/
+int	   info_window = TRUE;	  /* flag to indicate if shortcut bar visible */
+int	   expand_tabs = TRUE;	  /* flag for expanding tabs		*/
+int	   right_margin = 0;	  /* the right margin 			*/
+int	   observ_margins = TRUE; /* flag for whether margins are observed */
+int	   shell_fork;
+int	   pipe_out[2];		/* pipe file desc for output		*/
+int	   pipe_in[2];		/* pipe file descriptors for input	*/
+int	   out_pipe;		/* flag that info is piped out		*/
+int	   in_pipe;		/* flag that info is piped in		*/
+int	   formatted = FALSE;	/* flag indicating paragraph formatted	*/
+int	   auto_format = FALSE; /* flag for auto_format mode		*/
+int	   formatting_document = FALSE; /* whole-buffer format in progress	*/
+int	   restricted = FALSE;		/* flag to indicate restricted mode	*/
+int	   nohighlight = FALSE;		/* turns off highlighting		*/
+int	   local_LINES = 0;	/* copy of LINES, to detect when win resizes */
+int	   local_COLS = 0;	/* copy of COLS, to detect when win resizes  */
+int curses_initialized = FALSE; /* flag indicating if curses has been started*/
 int box_unicode = TRUE; /* terminal and locale can render Unicode boxes */
 
 /*
@@ -491,11 +491,11 @@ static void goto_line(char *cmd_str);
 static void midscreen(int line, unsigned char *pnt);
 static void get_options(int numargs, char *arguments[]);
 static void check_fp(void);
-static int get_file(char *file_name);
+static int  get_file(char *file_name);
 [[nodiscard]] static int read_all(int fd, unsigned char **out, size_t *outlen);
-static void draw_screen(void);
-static void finish(void);
-static int  quit(int noverify);
+static void		 draw_screen(void);
+static void		 finish(void);
+static int		 quit(int noverify);
 [[noreturn]] static void edit_abort(int);
 static void		 delete_text(void);
 static int		 write_file(char *file_name, int warn_if_exists);
@@ -3307,8 +3307,10 @@ get_file(char *file_name)
 
 	can_read = (len > 0);
 	for (size_t pos = 0; pos < len;) {
-		const unsigned char *newline = memchr(data + pos, '\n', len - pos);
-		size_t count = newline == nullptr ? len - pos :
+		const unsigned char *newline =
+		    memchr(data + pos, '\n', len - pos);
+		size_t	     count = newline == nullptr ?
+		    len - pos :
 		    (size_t)(newline - (data + pos));
 		struct text *line = curr_line;
 
@@ -3328,7 +3330,8 @@ get_file(char *file_name)
 			line->max_length = (int)(count + 1);
 			curr_line = line;
 		} else if ((size_t)line->max_length <= count) {
-			(void)resiz_line((int)(count + 1) - line->max_length, line, 1);
+			(void)resiz_line(
+			    (int)(count + 1) - line->max_length, line, 1);
 		}
 		memcpy(line->line, data + pos, count);
 		line->line[count] = '\0';
@@ -3523,10 +3526,10 @@ static FILE *
 stage_file(const char *path, char **staged)
 {
 	const char *slash = strrchr(path, '/');
-	size_t prefix = slash == nullptr ? 0 : (size_t)(slash - path) + 1;
+	size_t	    prefix = slash == nullptr ? 0 : (size_t)(slash - path) + 1;
 	static const char suffix[] = ".ee.XXXXXXXXXX";
-	FILE *stream;
-	int fd;
+	FILE		 *stream;
+	int		  fd;
 
 	*staged = xmalloc(prefix + sizeof(suffix));
 	memcpy(*staged, path, prefix);
@@ -3548,12 +3551,12 @@ static int
 write_file(char *file_name, int warn_if_exists)
 {
 	struct text *out_line;
-	struct stat original, current;
-	FILE *temp_fp;
-	char *staged;
-	mode_t mode;
-	int fd, exists, lines = 0;
-	int write_ok = TRUE;
+	struct stat  original, current;
+	FILE	    *temp_fp;
+	char	    *staged;
+	mode_t	     mode;
+	int	     fd, exists, lines = 0;
+	int	     write_ok = TRUE;
 
 	clear_com_win = TRUE;
 	exists = lstat(file_name, &original) == 0;
@@ -3561,11 +3564,12 @@ write_file(char *file_name, int warn_if_exists)
 		goto failed;
 	if (exists) {
 		if (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
-		    original.st_uid != geteuid() || (original.st_mode & 07000) ||
-		    access(file_name, W_OK) == -1)
+		    original.st_uid != geteuid() ||
+		    (original.st_mode & 07000) || access(file_name, W_OK) == -1)
 			goto failed;
-		if (warn_if_exists && (in_file_name == nullptr ||
-		    strcmp((char *)in_file_name, file_name) != 0) &&
+		if (warn_if_exists &&
+		    (in_file_name == nullptr ||
+			strcmp((char *)in_file_name, file_name) != 0) &&
 		    confirm("File exists.  Overwrite it?") != 1)
 			return (FALSE);
 		mode = original.st_mode & 0777;
@@ -4353,8 +4357,8 @@ sh_command(char *string)
 			do {
 				return_val = waitpid(parent, &status, 0);
 			} while (return_val == -1 && errno == EINTR);
-			command_failed |= return_val == -1 || !WIFEXITED(status) ||
-			    WEXITSTATUS(status) != 0;
+			command_failed |= return_val == -1 ||
+			    !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 		}
 	}
 	if (!in_pipe) {
@@ -4484,8 +4488,8 @@ sh_command(char *string)
 			 will be true, otherwise this is |  the child of the
 			 edit process.
 			 */
-			command_failed |= return_val == -1 || !WIFEXITED(status) ||
-			    WEXITSTATUS(status) != 0;
+			command_failed |= return_val == -1 ||
+			    !WIFEXITED(status) || WEXITSTATUS(status) != 0;
 			if (!shell_fork)
 				_exit(command_failed ? 1 : 0);
 		}
@@ -6485,7 +6489,8 @@ dump_ee_conf(void)
 		struct stat current;
 
 		if (lstat(file_name, &current) == -1 ||
-		    current.st_dev != buf.st_dev || current.st_ino != buf.st_ino ||
+		    current.st_dev != buf.st_dev ||
+		    current.st_ino != buf.st_ino ||
 		    current.st_ctim.tv_sec != buf.st_ctim.tv_sec ||
 		    current.st_ctim.tv_nsec != buf.st_ctim.tv_nsec ||
 		    (unlink(old_name) != 0 && errno != ENOENT) ||
