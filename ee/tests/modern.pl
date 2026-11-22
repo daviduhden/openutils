@@ -418,10 +418,10 @@ sub test_shell_command {
 }
 
 sub test_shell_pipes {
-    my ($work) = @_;
-    my $path = "$work/pipe.txt";
+    my ($work)  = @_;
+    my $path    = "$work/pipe.txt";
     my $capture = "$work/pipe-output.txt";
-    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    my $s       = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
 
     $s->pump(1.5);
     $s->write_data("\x03");
@@ -440,7 +440,9 @@ sub test_shell_pipes {
     my $exited = $s->wait_exit;
     $s->close_session;
 
-    return $exited && read_raw($path) eq "from pipe\n"
+    return
+         $exited
+      && read_raw($path) eq "from pipe\n"
       && read_raw($capture) eq "from pipe\n";
 }
 

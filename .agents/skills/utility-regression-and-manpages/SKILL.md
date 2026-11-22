@@ -126,6 +126,11 @@ strict build/source-policy check.
 - Test syntax only where it does not run the suite: `sh -n` for shell
   drivers or `perl -c` for Perl files if those interpreters are
   available. Do not claim this is a test run.
+- If `validate-perl` is available, use `validate-perl --check --strict .`
+  to check formatting, syntax, and Perl::Critic without accepting skips.
+  Set `PERL5LIB` for an existing local `IO::Pty` installation if needed.
+  `validate-perl --format` may return status 2 after rewriting files.
+  Review its diff and log before running the read-only check again.
 - Focused runtime suite for behavior changes; `make test` only when the
   change spans components and the prerequisites are present.
 - If a prerequisite is missing (IO::Pty, GNU truncate, UTF-8 locale),

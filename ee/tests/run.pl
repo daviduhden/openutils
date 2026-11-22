@@ -263,12 +263,12 @@ sub main {
 
     my $alias = "$work/symlink.txt";
     symlink $path, $alias or Carp::croak "symlink $alias: $!";
-    my $denied = run( [ $EE, '-i', $alias ], [ 'blocked', "\x13" ],
-        { TERM => 'xterm' } );
-    assert_eq( 'linked destination left unchanged', 'xxoriginal',
-        read_text($path) );
-    assert_eq( 'linked destination save reports failure', 1,
-        index( $denied, 'unable to save file' ) >= 0 ? 1 : 0 );
+    my $denied =
+      run( [ $EE, '-i', $alias ], [ 'blocked', "\x13" ], { TERM => 'xterm' } );
+    assert_eq( 'linked destination left unchanged',
+        'xxoriginal', read_text($path) );
+    assert_eq( 'linked destination save reports failure',
+        1, index( $denied, 'unable to save file' ) >= 0 ? 1 : 0 );
 
     # new file created with normal umask
     $path = "$work/newfile.txt";
@@ -280,11 +280,8 @@ sub main {
     assert_eq( 'new file content', 'data', read_text($path) );
 
     # Compare every byte, including empty lines and chunk boundaries.
-    for my $content (
-        "\n",
-        "\n\n",
-        map { ('x' x $_) . "\nshort\n\n" } ( 511, 512, 513, 3000 )
-      )
+    for my $content ( "\n", "\n\n",
+        map { ( 'x' x $_ ) . "\nshort\n\n" } ( 511, 512, 513, 3000 ) )
     {
         open my $long, '>:raw', $path or Carp::croak "open $path: $!";
         print {$long} $content;
