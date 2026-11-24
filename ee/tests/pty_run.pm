@@ -45,6 +45,7 @@ sub new {
         open STDERR, '>&', $slave or POSIX::_exit(127);
         local %ENV = ( %ENV, $env ? %$env : () );
         local $ENV{TERM} = 'xterm' unless defined $ENV{TERM};
+        $SIG{PIPE} = 'DEFAULT';
         exec { $argv->[0] } @$argv or POSIX::_exit(127);
     }
     $pty->close_slave;
@@ -99,25 +100,16 @@ sub close_session {
 
 # Wait for the child to exit, draining the pty as we go so a child
 # writing its terminal-restoration output can never block on a full tty
-# buffer.  The child counts as gone when it is reaped or when the pty
-# reaches end-of-file (the slave side is closed on process exit).  The
-# EOF test matters because pump() returns immediately at EOF: polling
-# only waitpid() with no minimum delay can exhaust every retry before a
-# just-exited child becomes reapable and wrongly report a timeout.
+# buffer. PTY EOF can precede waitpid, so keep polling for the actual exit.
 sub wait_exit {
     my ( $self, $tries ) = @_;
 
     $tries //= 25;
     for ( 1 .. $tries ) {
         my $reaped = waitpid( $self->{pid}, POSIX::WNOHANG() );
-        return 1 if $reaped != 0;
-        unless ( $self->pump(0.1) ) {
-
-            # EOF: the child closed the slave and is exiting.  Reap it
-            # if it is already reapable so the caller can inspect $?.
-            waitpid( $self->{pid}, POSIX::WNOHANG() );
-            return 1;
-        }
+        return 1 if $reaped == $self->{pid};
+        return 0 if $reaped == -1;
+        select undef, undef, undef, 0.1 unless $self->pump(0.1);
     }
     return 0;
 }

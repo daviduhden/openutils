@@ -79,3 +79,8 @@ resolved in the wrong place; use an absolute path:
 ```
 TREE=/absolute/path/to/tree sh tree/tests/run.sh
 ```
+
+
+JSON emits valid UTF-8. Filename or symlink target bytes outside a valid
+UTF-8 sequence are rendered as individual `\u00xx` escapes. The decoded
+JSON string may therefore differ from the original byte sequence.

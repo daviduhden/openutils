@@ -136,6 +136,11 @@ strict build/source-policy check.
 - If a prerequisite is missing (IO::Pty, GNU truncate, UTF-8 locale),
   report it; do not silently treat the suite as fully passing.
 
+For ee PTY cases, reset SIGPIPE for the editor child and use the wait status
+when asserting normal exit. Compare file bytes for newline tests. For GNU
+truncate comparisons, check setup and measurement independently of the two
+commands being compared.
+
 ## Common problems
 
 - Adding an assertion for behavior the code does not implement. Read

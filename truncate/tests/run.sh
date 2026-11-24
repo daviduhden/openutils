@@ -96,15 +96,24 @@ compare() {
 		return 0
 	fi
 
-	"$TRUNC" -s "$init" "$work/a" 2>/dev/null
+	if ! "$TRUNC" -s "$init" "$work/a" 2>/dev/null ||
+	    ! "$GNU" -s "$init" "$work/b" 2>/dev/null; then
+		notok "$desc (setup)"
+		return 1
+	fi
 	"$TRUNC" -s "$sarg" "$work/a" 2>/dev/null
 	ra=$?
-	sa=$(size "$work/a")
+	if ! sa=$(size "$work/a"); then
+		notok "$desc (measure local result)"
+		return 1
+	fi
 
-	"$GNU" -s "$init" "$work/b" 2>/dev/null
 	"$GNU" -s "$sarg" "$work/b" 2>/dev/null
 	rb=$?
-	sb=$(size "$work/b")
+	if ! sb=$(size "$work/b"); then
+		notok "$desc (measure reference result)"
+		return 1
+	fi
 	if [ "$ra:$sa" != "$rb:$sb" ]; then
 		notok "$desc"
 		printf '# %s -s %s: ref=(%s,%s) ours=(%s,%s)\n' \
@@ -296,9 +305,21 @@ assert_eq "--reference=N works" 7 "$(size "$work/l1")"
 "$TRUNC" --reference "$work/ref" "$work/l1"
 assert_eq "--reference N works" 7 "$(size "$work/l1")"
 "$TRUNC" --io-blocks --size=1 "$work/l1"
-assert_eq "--io-blocks works" "$(blksize "$work/l1")" "$(size "$work/l1")" 2>/dev/null ||
-	assert_eq "--io-blocks produces non-zero size" "1" \
+if block_size=$(blksize "$work/l1"); then
+	assert_eq "--io-blocks works" "$block_size" "$(size "$work/l1")"
+else
+	assert_eq "--io-blocks produces non-zero size" 1 \
 		"$([ "$(size "$work/l1")" -gt 0 ] && echo 1 || echo 0)"
+fi
+
+mkfifo "$work/ref-fifo" || exit 1
+"$TRUNC" -s 7 "$work/l1" "$work/a" || exit 1
+"$TRUNC" -r "$work/ref-fifo" "$work/l1" "$work/a" >/dev/null 2>&1
+assert_eq "FIFO reference rejected" 1 $?
+assert_eq "invalid reference leaves first operand intact" 7 "$(size "$work/l1")"
+assert_eq "invalid reference leaves second operand intact" 7 "$(size "$work/a")"
+"$TRUNC" -r "$work" "$work/l1" >/dev/null 2>&1
+assert_eq "directory reference rejected" 1 $?
 
 "$TRUNC" --help >/dev/null 2>&1
 assert_eq "--help exits 0" 0 $?

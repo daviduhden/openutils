@@ -69,7 +69,7 @@ except in restricted mode.
 
 The current directory is a configuration source. Open files from a
 trusted working directory when local settings such as `printcommand`
-matter. Configuration saves finish the new file before replacing the
+matter. Configuration sources must resolve to regular files. Configuration saves finish the new file before replacing the
 current one and retain the previous version as `.init.ee.old`.
 
 Document saves stage a file in the destination directory and publish it
@@ -78,12 +78,15 @@ writable directory and an owned, writable regular file with one link and
 ordinary permissions. Symbolic links, hard-linked files, and files owned
 by another user are refused. Existing owner, group and permission bits
 are preserved. File flags, ACLs and extended attributes are outside
-this preservation contract. An existing destination is checked just
-before publication. Changes earlier in the editing session and durability
-after a system crash are outside this check.
+this preservation contract. Saving over the opened file checks for changes
+since it was read, then checks the destination again before publication.
+If the file changed on disk, use the write command to save the buffer under
+another name. Crash durability is outside this contract. Saving normalizes
+the file to end with a newline.
 
 At runtime `EE_DICTIONARY` takes precedence over the build-time `DICTDIR`.
-Rebuild when changing `DICTDIR`. Cursor movement uses Unicode code points
+Changing `DICTDIR` triggers a rebuild. Existing MySpell and Hunspell
+directories remain available as runtime fallbacks. Cursor movement uses Unicode code points
 and terminal column widths. Some combining sequences can require more
 than one editing operation.
 
@@ -102,7 +105,7 @@ Spelling is checked by ee's own small affix checker in
 dictionary is bundled in [spell/](spell/README.md) as
 [en_US.aff](spell/en_US.aff) and [en_US.dic](spell/en_US.dic), dedicated
 to the public domain under CC0-1.0, and installed to `$(DICTDIR)`
-(`/usr/local/share/myspell` by default).  The miscellaneous menu can
+(`/usr/local/share/openutils/ee` by default).  The miscellaneous menu can
 check the word at the cursor, offer suggestions and toggle spell
 checking, but only ASCII words are checked; non-ASCII text is not
 examined.  The spell engine accepts and ignores a `SET` directive in

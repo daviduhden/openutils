@@ -29,6 +29,15 @@ and `HEAD_REF` with `HEAD_REF`. For committed comparisons, fetch sufficient
 history and pass the base and head commit SHAs; the validator resolves their
 common ancestor itself.
 
+
+Run range validation from a clean checkout of the requested head revision,
+as the manual workflow does. The version 1.0.0 validator reads instructions,
+configuration and local references from the checkout. Two contract cases
+should be reviewed upstream before changing this behavior: a requested head
+different from the checkout and worktree edits that cancel an index-only
+change in the net diff against HEAD. Coordinate any corresponding validator
+and contract-suite update across adopting repositories.
+
 Exit codes are consistent across repositories: `0` means no policy errors,
 `1` means a policy violation, and `2` means invalid arguments, configuration,
 Git state, or execution. Warnings do not change a successful exit code.

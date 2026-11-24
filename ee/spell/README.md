@@ -87,7 +87,7 @@ spell checker.
 ### Where ee finds the dictionary
 
 `make install` installs the two files into `$(DICTDIR)`
-(`$(PREFIX)/share/myspell`, which is `/usr/local/share/myspell` by
+(`$(PREFIX)/share/openutils/ee`, which is `/usr/local/share/openutils/ee` by
 default), one of the standard data directories ee searches (see
 [`ee(1)`](../ee.1)).  The `EE_DICTIONARY`
 environment variable overrides this and may name a `.dic` file, an `.aff`

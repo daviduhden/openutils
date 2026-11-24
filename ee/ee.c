@@ -293,6 +293,10 @@ unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
 unsigned char *srch_1;	   /* pointer to start of suspect string	*/
 unsigned char *srch_2;	   /* pointer to next character of string	*/
 unsigned char *srch_3;
+static struct stat loaded_version;
+static int loaded_version_known;
+static int loaded_file_exists;
+
 unsigned char *in_file_name = nullptr; /* name of input file		*/
 char	      *tmp_file;	       /* temporary file name			*/
 unsigned char  d_char[5];	       /* deleted character			*/
@@ -3106,6 +3110,7 @@ check_fp(void)
 	tmp_horz = scr_horz;
 	tmp_line = curr_line;
 	if (input_file) {
+		loaded_version_known = FALSE;
 		in_file_name =
 		    (unsigned char *)(tmp_file = (char *)top_of_stack->name);
 		top_of_stack = top_of_stack->next_name;
@@ -3126,6 +3131,8 @@ check_fp(void)
 			}
 			wrefresh(com_win);
 			if (!failed) {
+				loaded_version_known = TRUE;
+				loaded_file_exists = FALSE;
 				recv_file = input_file = FALSE;
 				return;
 			}
@@ -3137,9 +3144,13 @@ check_fp(void)
 			wprintw(com_win, file_is_dir_msg, tmp_file);
 			wrefresh(com_win);
 			failed = TRUE;
-		} else if (get_file(tmp_file))
+		} else if (get_file(tmp_file)) {
+			if (input_file) {
+				loaded_version = buf;
+				loaded_version_known = loaded_file_exists = TRUE;
+			}
 			break;
-		else
+		} else
 			failed = TRUE;
 
 		if (!input_file) {
@@ -3548,6 +3559,15 @@ stage_file(const char *path, char **staged)
 }
 
 static int
+same_file_version(const struct stat *a, const struct stat *b)
+{
+	return (a->st_dev == b->st_dev && a->st_ino == b->st_ino &&
+	    a->st_nlink == b->st_nlink && a->st_size == b->st_size &&
+	    a->st_ctim.tv_sec == b->st_ctim.tv_sec &&
+	    a->st_ctim.tv_nsec == b->st_ctim.tv_nsec);
+}
+
+static int
 write_file(char *file_name, int warn_if_exists)
 {
 	struct text *out_line;
@@ -3562,6 +3582,16 @@ write_file(char *file_name, int warn_if_exists)
 	exists = lstat(file_name, &original) == 0;
 	if (!exists && errno != ENOENT)
 		goto failed;
+	if (loaded_version_known && in_file_name != nullptr &&
+	    strcmp((char *)in_file_name, file_name) == 0 &&
+	    (exists != loaded_file_exists ||
+		(exists && !same_file_version(&original, &loaded_version)))) {
+		wmove(com_win, 0, 0);
+		wclrtoeol(com_win);
+		waddstr(com_win, "file changed on disk; save under a different name");
+		wrefresh(com_win);
+		return (FALSE);
+	}
 	if (exists) {
 		if (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
 		    original.st_uid != geteuid() ||
@@ -3620,12 +3650,7 @@ write_file(char *file_name, int warn_if_exists)
 		write_ok = FALSE;
 	if (write_ok && exists) {
 		if (lstat(file_name, &current) == -1 ||
-		    current.st_dev != original.st_dev ||
-		    current.st_ino != original.st_ino ||
-		    current.st_nlink != original.st_nlink ||
-		    current.st_size != original.st_size ||
-		    current.st_ctim.tv_sec != original.st_ctim.tv_sec ||
-		    current.st_ctim.tv_nsec != original.st_ctim.tv_nsec ||
+		    !same_file_version(&current, &original) ||
 		    rename(staged, file_name) == -1)
 			write_ok = FALSE;
 	} else if (write_ok && link(staged, file_name) == -1)
@@ -3634,6 +3659,11 @@ write_file(char *file_name, int warn_if_exists)
 	free(staged);
 	if (!write_ok)
 		goto failed;
+	if (in_file_name != nullptr &&
+	    strcmp((char *)in_file_name, file_name) == 0) {
+		loaded_version_known = lstat(file_name, &loaded_version) == 0;
+		loaded_file_exists = TRUE;
+	}
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
 	wprintw(com_win, "\"%s\", %d lines written", file_name, lines);
@@ -4366,6 +4396,11 @@ sh_command(char *string)
 		if (out_pipe && (pipe(pipe_out) != 0)) {
 			out_pipe = FALSE;
 			fprintf(stderr, "ee: pipe: %s\n", strerror(errno));
+			command_failed = TRUE;
+			ee_install_sigint();
+			if (!shell_fork)
+				_exit(1);
+			goto restore_terminal;
 		}
 		/*
 		 |  fork process which will exec command
@@ -4411,7 +4446,14 @@ sh_command(char *string)
 				 pipe (to be read by the |  process forked and
 				 exec'd above as stdin)
 				 */
-				int pipe_error = FALSE;
+				struct sigaction ignore = {.sa_handler = SIG_IGN};
+				struct sigaction previous;
+				int pipe_error, restore_sigpipe;
+
+				sigemptyset(&ignore.sa_mask);
+				restore_sigpipe =
+				    sigaction(SIGPIPE, &ignore, &previous) == 0;
+				pipe_error = !restore_sigpipe;
 
 				close(pipe_out[0]);
 				line_holder = first_line;
@@ -4443,6 +4485,7 @@ sh_command(char *string)
 							break;
 						}
 						if (n == 0) {
+							errno = EIO;
 							pipe_error = TRUE;
 							break;
 						}
@@ -4468,6 +4511,8 @@ sh_command(char *string)
 					    strerror(errno));
 				}
 				close(pipe_out[1]);
+				if (restore_sigpipe)
+					(void)sigaction(SIGPIPE, &previous, nullptr);
 				out_pipe = FALSE;
 			}
 			for (;;) {
@@ -5560,6 +5605,10 @@ save_op(void)
 		}
 	}
 	if (write_file(string, 1)) {
+		if (!have_name) {
+			loaded_version_known = lstat(string, &loaded_version) == 0;
+			loaded_file_exists = TRUE;
+		}
 		in_file_name = (unsigned char *)string;
 		text_changes = FALSE;
 		read_only = FALSE;
@@ -6278,11 +6327,16 @@ ee_init(void)
 		}
 		if (init_name[counter] == nullptr)
 			continue;
-		if (access(init_name[counter], R_OK) != 0)
+		struct stat st;
+		int fd = open(init_name[counter], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+
+		if (fd == -1)
 			continue;
-		init_file = fopen(init_name[counter], "r");
-		if (init_file == nullptr)
+		if (fstat(fd, &st) == -1 || !S_ISREG(st.st_mode) ||
+		    (init_file = fdopen(fd, "r")) == nullptr) {
+			close(fd);
 			continue;
+		}
 		while ((linelen = getline(&line, &linecap, init_file)) != -1) {
 			if ((linelen > 0) && (line[linelen - 1] == '\n'))
 				line[--linelen] = '\0';

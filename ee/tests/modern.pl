@@ -446,6 +446,46 @@ sub test_shell_pipes {
       && read_raw($capture) eq "from pipe\n";
 }
 
+sub test_closed_pipe {
+    my ($work) = @_;
+    my $path = "$work/closed-pipe.txt";
+    open my $input, '>:raw', $path or Carp::croak "open $path: $!";
+    print {$input} "buffer contents\n" x 16384;
+    close $input or Carp::croak "close $path: $!";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    $s->pump(1.5);
+    $s->write_data("\x03");
+    $s->pump(0.4);
+    $s->write_data(">!exit 0\n");
+    $s->pump(0.8);
+    $s->write_data("\n");
+    $s->pump(0.6);
+    $s->write_data("\x11");
+    my $exited = $s->wait_exit;
+    my $status = $?;
+    my $output = $s->buf;
+    $s->close_session;
+    return $exited && $status == 0 && $output =~ /external command failed/;
+}
+
+sub test_external_change {
+    my ($work) = @_;
+    my $path = "$work/conflict.txt";
+    open my $input, '>:raw', $path or Carp::croak "open $path: $!";
+    print {$input} "original\n";
+    close $input or Carp::croak "close $path: $!";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    $s->pump(1.5);
+    open my $external, '>:raw', $path or Carp::croak "open $path: $!";
+    print {$external} "external update\n";
+    close $external or Carp::croak "close $path: $!";
+    $s->write_data("edited\x13");
+    $s->pump(0.8);
+    my $output = $s->buf;
+    $s->close_session;
+    return read_raw($path) eq "external update\n" && $output =~ /file changed on disk/;
+}
+
 # Run the resize, UTF-8, bounds, tiny-terminal and shell-command cases and
 # report the accumulated failure count.
 sub main {
@@ -461,6 +501,8 @@ sub main {
     local $ENV{HOME} = $home;
     my $work = tempdir( 'ee-modern.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
+    check( 'closed command pipe preserves the editor session', test_closed_pipe($work) );
+    check( 'saving refuses a file changed since opening', test_external_change($work) );
     check( 'resize inside the menu',       test_resize_in_menu($work) );
     check( 'resize inside a prompt',       test_resize_in_prompt($work) );
     check( 'resize inside a confirmation', test_resize_in_confirm($work) );

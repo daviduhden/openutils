@@ -38,7 +38,7 @@
  *   5. A changed buffer is written back either through the already-open
  *      descriptor (for a user-writable file, preserving the inode) or
  *      with "doas install", which replaces the target atomically by
- *      rename(2) and cannot follow a symlink planted at the target path.
+ *      rename(2) for a stable regular destination.
  *
  * The doas.conf check runs before the final save: replacing a
  * configuration file that doas itself would reject is a lockout risk,
@@ -182,8 +182,8 @@ resolve_target(const char *path)
  * component ends in ".conf".  The test is textual by design; the caller
  * already canonicalized the parent directory, so an alternate spelling
  * of the same path has already been folded into this form.  Nested
- * paths are matched conservatively even though doas itself reads only
- * the immediate children of /etc/doas.d/.
+ * paths are matched conservatively for implementations that support
+ * configuration fragments. OpenBSD base loads /etc/doas.conf.
  */
 static int
 is_doas_conf(const char *path)
@@ -314,6 +314,49 @@ doas_exec(const char *const *argv, int outfd, int infd)
 	return (-1);
 }
 
+[[nodiscard]] static int fd_copy_to(int, int);
+
+static int
+open_regular(const char *path)
+{
+	struct stat st;
+	int fd, saved_errno;
+
+	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+	if (fd == -1)
+		return (-1);
+	if (fstat(fd, &st) == 0) {
+		if (S_ISREG(st.st_mode))
+			return (fd);
+		errno = EINVAL;
+	}
+	saved_errno = errno;
+	close(fd);
+	errno = saved_errno;
+	return (-1);
+}
+
+/* Fill a block or stop at EOF. Independent short reads can then be compared. */
+static ssize_t
+read_block(int fd, char *buf, size_t length)
+{
+	size_t offset = 0;
+
+	while (offset < length) {
+		ssize_t n = read(fd, buf + offset, length - offset);
+
+		if (n == 0)
+			break;
+		if (n == -1) {
+			if (errno == EINTR)
+				continue;
+			return (-1);
+		}
+		offset += (size_t)n;
+	}
+	return ((ssize_t)offset);
+}
+
 /*
  * Copy src over the existing file dst.  Both opens use O_NOFOLLOW, and
  * dst is truncated before writing.  The loop handles short write(2)
@@ -325,34 +368,21 @@ doas_exec(const char *const *argv, int outfd, int infd)
 static int
 copy_file(const char *src, const char *dst)
 {
-	char	buf[65536];
-	ssize_t n, off;
-	int	in, out;
+	int in, out, rc, saved_errno;
 
-	in = open(src, O_RDONLY | O_NOFOLLOW);
+	in = open_regular(src);
 	if (in == -1)
 		return (-1);
 	out = open(dst, O_WRONLY | O_TRUNC | O_NOFOLLOW);
-	if (out == -1) {
-		close(in);
-		return (-1);
-	}
-	while ((n = read(in, buf, sizeof(buf))) > 0) {
-		off = 0;
-		while (off < n) {
-			ssize_t w = write(out, buf + off, (size_t)(n - off));
-
-			if (w == -1) {
-				close(in);
-				close(out);
-				return (-1);
-			}
-			off += w;
-		}
+	rc = out == -1 ? -1 : fd_copy_to(in, out);
+	saved_errno = errno;
+	if (out != -1 && close(out) == -1 && rc == 0) {
+		rc = -1;
+		saved_errno = errno;
 	}
 	close(in);
-	close(out);
-	return (n == -1 ? -1 : 0);
+	errno = saved_errno;
+	return (rc);
 }
 
 /*
@@ -368,21 +398,21 @@ files_equal(const char *a, const char *b)
 	ssize_t na, nb;
 	int	fa, fb, rc = 1;
 
-	fa = open(a, O_RDONLY | O_NOFOLLOW);
+	fa = open_regular(a);
 	if (fa == -1)
 		return (-1);
-	fb = open(b, O_RDONLY | O_NOFOLLOW);
+	fb = open_regular(b);
 	if (fb == -1) {
 		close(fa);
 		return (-1);
 	}
 	for (;;) {
-		na = read(fa, ba, sizeof(ba));
+		na = read_block(fa, ba, sizeof(ba));
 		if (na == -1) {
 			rc = -1;
 			break;
 		}
-		nb = read(fb, bb, sizeof(bb));
+		nb = read_block(fb, bb, sizeof(bb));
 		if (nb == -1) {
 			rc = -1;
 			break;
@@ -528,13 +558,18 @@ fd_copy_to(int in, int out)
 	char	buf[65536];
 	ssize_t n, off;
 
-	while ((n = read(in, buf, sizeof(buf))) > 0) {
+	while ((n = read_block(in, buf, sizeof(buf))) > 0) {
 		off = 0;
 		while (off < n) {
 			ssize_t w = write(out, buf + off, (size_t)(n - off));
 
-			if (w == -1)
+			if (w == -1 && errno == EINTR)
+				continue;
+			if (w <= 0) {
+				if (w == 0)
+					errno = EIO;
 				return (-1);
+			}
 			off += w;
 		}
 	}
@@ -552,7 +587,7 @@ file_into_fd(const char *src, int outfd)
 {
 	int in, rc;
 
-	in = open(src, O_RDONLY | O_NOFOLLOW);
+	in = open_regular(src);
 	if (in == -1)
 		return (-1);
 	rc = fd_copy_to(in, outfd);
@@ -826,6 +861,7 @@ main(int argc, char *argv[])
 		char	       *target = nullptr;
 		char	       *tmpfile = nullptr;
 		char	       *tmpcopy = nullptr;
+		char	       *editdir = nullptr;
 		struct stat	lst;
 		struct snapshot snap;
 		int		exists = 0, readable = 0, writable = 0;
@@ -967,9 +1003,17 @@ main(int argc, char *argv[])
 			}
 		}
 
-		/* create the private temporary files */
+		/* Give editor-created files a separate directory for each operand. */
+		if (asprintf(&editdir, "%s/edit.XXXXXXXXXX", tmpdir) == -1)
+			err(1, "asprintf");
+		if (mkdtemp(editdir) == nullptr) {
+			warn("%s", editdir);
+			free(editdir);
+			editdir = nullptr;
+			goto next;
+		}
 		{
-			auto	    tlen = strlen(tmpdir);
+			auto	    tlen = strlen(editdir);
 			auto	    blen = strlen(base);
 			const char *cname = strcmp(base, ".original") == 0 ?
 			    ".reference" :
@@ -981,9 +1025,9 @@ main(int argc, char *argv[])
 			if (tmpfile == nullptr || tmpcopy == nullptr)
 				err(1, "malloc");
 			snprintf(
-			    tmpfile, tlen + blen + 2, "%s/%s", tmpdir, base);
+			    tmpfile, tlen + blen + 2, "%s/%s", editdir, base);
 			snprintf(
-			    tmpcopy, tlen + clen + 2, "%s/%s", tmpdir, cname);
+			    tmpcopy, tlen + clen + 2, "%s/%s", editdir, cname);
 		}
 
 		tmpfd = open(tmpfile, O_RDWR | O_CREAT | O_EXCL, 0600);
@@ -1189,7 +1233,10 @@ main(int argc, char *argv[])
 				close(fd);
 				goto next;
 			}
-			close(fd);
+			if (close(fd) == -1) {
+				warn("failed to close %s", target);
+				goto next;
+			}
 			keep_edit = 0;
 			exit_code = 0;
 			goto next;
@@ -1199,8 +1246,8 @@ main(int argc, char *argv[])
 		 * Privileged write: doas install(1) copies the
 		 * temporary file into place atomically (mkstemp(3) in
 		 * the destination directory plus rename(2)), which is
-		 * immune to symlink replacement of the target and
-		 * preserves the target's owner, group and mode.
+		 * intended for a stable regular target and preserves owner, group
+		 * and mode. install resolves its operands again after authentication.
 		 */
 		{
 			const char *inst_argv[] = {"doas", "install", "-o",
@@ -1249,6 +1296,7 @@ main(int argc, char *argv[])
 				free(target);
 				free(tmpfile);
 				free(tmpcopy);
+				free(editdir);
 				free(tdir_tmpl);
 				return (1);
 			}
@@ -1260,9 +1308,13 @@ main(int argc, char *argv[])
 		free(target);
 		free(tmpfile);
 		free(tmpcopy);
+		if (editdir != nullptr && rmdir(editdir) == -1)
+			warn("temporary files remain in %s", editdir);
+		free(editdir);
 	}
 
-	(void)rmdir(tmpdir);
+	if (rmdir(tmpdir) == -1 && errno != ENOTEMPTY && errno != EEXIST)
+		warn("%s", tmpdir);
 	free(tdir_tmpl);
 	return (interrupted ? 128 + interrupted : exit_code);
 }

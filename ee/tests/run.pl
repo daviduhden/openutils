@@ -300,11 +300,10 @@ sub main {
     print {$noeol} 'no trailing newline';
     close $noeol;
     run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
-    assert_eq(
-        'file without final newline kept',
-        'no trailing newline',
-        read_text($path)
-    );
+    open my $normalized, '<:raw', $path or Carp::croak "open $path: $!";
+    my $saved = do { local $/; <$normalized> };
+    close $normalized;
+    assert_eq( 'saving normalizes the final newline', "no trailing newline\n", $saved );
 
     # "no save" path leaves the file untouched
     open my $keep, '>', $path or Carp::croak "open $path: $!";

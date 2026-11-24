@@ -64,6 +64,10 @@ first-include policy. For build-system and shim details, pair it with
 7. Run the relevant static checks and, for code changes, the narrowest
    build/test that covers the file. Do not run privileged tests.
 
+For file writes, preserve the error across descriptor cleanup and treat a
+zero-progress write as an I/O error. Reuse the descriptor copy loop where
+callers have different open and publication rules.
+
 ## Validation
 
 - Documentation-only changes: `git diff --check`, `git status`, and

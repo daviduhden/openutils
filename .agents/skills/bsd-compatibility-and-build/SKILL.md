@@ -60,12 +60,18 @@ style, pair it with `openutils-c23-standards`.
 - `make test` runs compat, tree, truncate and ee. It does not cover
   doasedit. ee's Perl suites require `IO::Pty`.
 - `make install` honors `PREFIX` (default `/usr/local`), `BINDIR`,
-  `MANDIR`, `DICTDIR` (default `$(PREFIX)/share/myspell`) and
+  `MANDIR`, `DICTDIR` (default `$(PREFIX)/share/openutils/ee`) and
   `DESTDIR`. ee installs `ree` and `edit` symlinks and the en_US
   dictionary files.
 - GNU make 4.0 or later is needed if GNU make is used, because
   `ee/Makefile` uses the `!=` shell-assignment operator. OpenBSD make
   works with the native syntax.
+
+- Keep mandatory include paths in `PROJECT_CPPFLAGS` so command-line
+  `CPPFLAGS` remains additive. The ee `.dictdir` prerequisite tracks
+  the compiled dictionary location independently of `DESTDIR`.
+- Stage installations under a temporary root when checking package paths.
+  The legacy MySpell locations are a search fallback for ee.
 
 ## Procedure
 

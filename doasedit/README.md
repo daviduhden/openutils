@@ -12,7 +12,8 @@ This implementation uses file-descriptor based validation (`open(2)`
 with `O_NOFOLLOW`, `fstat(2)` identity snapshots), a private
 `mkdtemp(3)` directory, and fixed arguments for privileged commands. Privileged
 write-back of an existing file uses `doas install`, which renames a new
-file into place (atomic) and cannot follow a swapped final symlink.
+file into place for a stable regular destination. The path must remain
+trusted across authentication and publication.
 A file the user may write but not read is updated in place through the
 existing inode; that direct-write path is not atomic. It stays
 unpledged because it executes the editor and doas.
@@ -42,9 +43,9 @@ selects the directory for the private temporary files (default
 
 ## Security limitations
 
-The real trust boundary is `doas.conf`: `doas.d` matters only if the
-local doas implementation reads it, and broad or blanket doas rules
-widen what can be done. The `install` write-back reopens its temporary
+The authorization boundary is `doas.conf`. OpenBSD base reads
+`/etc/doas.conf`. Configuration fragments are relevant only where the
+local doas implementation supports them. Broad rules widen privileged access. The `install` write-back reopens its temporary
 source by pathname, so `TMPDIR` must be trusted; it is used as supplied
 and is not validated by doasedit. The target identity check is made
 before each install attempt. The check and replacement are separate
@@ -59,11 +60,20 @@ after retrieving the edit, particularly if the contents are sensitive.
 By default temporary copies are discarded.
 
 For privileged validation, boot a disposable OpenBSD VM and use a
-dedicated non-root account with a reviewed policy. Verify a normal edit,
-an editor failure, a changed destination before confirmation, and an
-interruption using disposable targets. Verify configuration parsing only
-against the disposable VM's configuration. Keep that validation separate
-from the ordinary CI suites.
+dedicated non-root account with a reviewed policy and disposable targets.
+
+- Verify a regular edit publishes the intended bytes and preserves the
+  documented owner, group and mode. Verify a write-only file retains its inode.
+- Verify an editor failure, a detected destination change or an interruption
+  before publication leaves the destination untouched.
+- Verify a failed save reports the retained edit with
+  `DOASEDIT_KEEP_FAILED=1`. Check that editor-created residual files are
+  reported and that another operand receives a separate temporary directory.
+- Check configuration syntax only against the VM's disposable configuration
+  and separately verify its intended authorization rules.
+
+See [the privilege-boundary design review](../docs/doasedit-privilege-boundary.md)
+for the assumptions and the open design decision.
 
 ## Building
 

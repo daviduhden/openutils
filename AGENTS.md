@@ -144,6 +144,12 @@ workflow that needs them.
   configuration exists, and review `git diff` for the workflow. These are
   static checks; they do not execute the workflow.
 
+## Audit regression coverage
+
+The manual utility workflow verifies staged dictionary ownership, reference
+file types, editor save conflicts and pipe failures. The optional profile
+runs noninteractive sanitizer coverage and takes repeated workload samples.
+
 ## Security and test policy
 
 - Never weaken or bypass `doasedit`'s `O_NOFOLLOW`, identity-snapshot,

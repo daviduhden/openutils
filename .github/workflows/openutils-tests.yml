@@ -29,7 +29,7 @@ jobs:
       - name: Install test dependencies
         run: |
           apt-get update
-          apt-get install -y ca-certificates clang gcc git libc6-dev make pkg-config libncurses-dev libio-pty-perl locales time
+          apt-get install -y ca-certificates clang gcc git libc6-dev make pkg-config libncurses-dev libio-pty-perl locales time libclang-rt-dev
           locale-gen en_US.UTF-8
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,9 +39,35 @@ jobs:
           TEST_CC: ${{ matrix.compiler }}
           LC_ALL: en_US.UTF-8
         run: |
+          cat /etc/os-release
+          dpkg-query -W clang gcc libc6-dev make libncurses-dev libio-pty-perl
           "$TEST_CC" --version
           make check CC="$TEST_CC" CHECK_CC="$TEST_CC"
           make test CC="$TEST_CC"
+      - name: Verify staged dictionary installation
+        env:
+          TEST_CC: ${{ matrix.compiler }}
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          mkdir -p "$work/opt/openutils/share/myspell"
+          printf '%s\n' third-party > "$work/opt/openutils/share/myspell/en_US.dic"
+          make -C ee CC="$TEST_CC" CPPFLAGS=-DOPENUTILS_CI=1 PREFIX=/opt/openutils DESTDIR="$work" install
+          cmp ee/spell/en_US.dic "$work/opt/openutils/share/openutils/ee/en_US.dic"
+          make -C ee PREFIX=/opt/openutils DESTDIR="$work" uninstall
+          test ! -e "$work/opt/openutils/share/openutils/ee/en_US.dic"
+          test "$(cat "$work/opt/openutils/share/myspell/en_US.dic")" = third-party
+      - name: Check noninteractive utilities with sanitizers
+        if: inputs.profile && matrix.compiler == 'clang'
+        env:
+          LC_ALL: en_US.UTF-8
+        run: |
+          set -eu
+          make -C tree clean
+          make -C truncate clean
+          make -C tree test CFLAGS="-O1 -g -fsanitize=address,undefined"
+          make -C truncate test CFLAGS="-O1 -g -fsanitize=address,undefined"
       - name: Measure wide trees and large editor inputs
         if: inputs.profile && matrix.compiler == 'clang'
         env:
@@ -59,9 +85,16 @@ jobs:
             ln -s "d$i" "$work/wide/z$i"
             i=$((i + 1))
           done
-          /usr/bin/time -v ./tree/tree -i -J -l "$work/wide" > "$work/tree.json"
+          make -C tree clean
+          make -C tree
+          make -C ee
           perl -e 'print((("word " x 15 . "\n") x 65536), ("x" x 65536), "\n")' > "$work/editor.txt"
-          /usr/bin/time -v perl ee/tests/pty_run.pm "$PWD/ee/ee" -i "$work/editor.txt" -- '\x11' > "$work/editor.log"
+          for sample in 1 2 3; do
+            echo "Profile sample $sample"
+            /usr/bin/time -v ./tree/tree -i -J -l "$work/wide" > "$work/tree.json"
+            /usr/bin/time -v ./tree/tree -i -J --filelimit 32 "$work/wide" > "$work/limited.json"
+            /usr/bin/time -v perl ee/tests/pty_run.pm "$PWD/ee/ee" -i "$work/editor.txt" -- '\x11' > "$work/editor.log"
+          done
 
   openbsd:
     runs-on: ubuntu-24.04
@@ -79,5 +112,6 @@ jobs:
             set -eu
             uname -a
             clang --version
+            pkg_info -a
             make check
             make test

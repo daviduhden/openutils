@@ -74,7 +74,7 @@ TOCTOU/symlink race at every step, and the final `doas dd` write
 followed symlinks (writing an attacker-chosen destination as root).
 The fork uses file-descriptor based validation (`open(2)` with
 `O_NOFOLLOW`, `fstat(2)` identity snapshots), an atomic, rename-based
-write-back through `install(1)` that cannot follow a swapped symlink,
+write-back through `install(1)` for stable regular destinations,
 a private `mkdtemp(3)` directory and fixed argument vectors for privileged commands.
 It stays unpledged because it must execute the editor and doas.
 
@@ -171,7 +171,7 @@ in `CSTD` so a `CFLAGS` override cannot drop it.  `make test` runs the
 compat, tree, truncate and ee suites; doasedit has no automated suite.  `make install` installs the four binaries, their
 manual pages, the `ree`/`edit` links for ee, and the `en_US.aff` /
 `en_US.dic` dictionary files under `DICTDIR` (default
-`$(PREFIX)/share/myspell`).  `PREFIX` and `DESTDIR` are honoured
+`$(PREFIX)/share/openutils/ee`).  `PREFIX` and `DESTDIR` are honoured
 throughout the install and uninstall targets.  On non-OpenBSD systems
 the shims in `compat/` are linked in automatically; `bsdcompat.h` is
 used everywhere and `stdckdint.h` supplies `<stdckdint.h>` wherever the
@@ -216,6 +216,10 @@ CPPFLAGS="-I$(pwd)/compat"` or equivalent.  On OpenBSD itself a plain
   (devel/p5-IO-TTY).  The compat, tree and truncate suites are POSIX
   shell scripts and need `mktemp(1)` plus `stat(1)` in either its GNU
   (`-c`) or BSD (`-f`) option form; they need no extra packages.
+
+OpenBSD and Linux with glibc are the CI targets. Other libcs and BSDs
+need separate validation. The checked-arithmetic test oracle requires compiler
+and target support for `__int128`.
 
 ## Manual continuous integration
 
@@ -268,8 +272,8 @@ write-back validation requires the disposable setup in
   hard links are preserved and the write is not atomic.  Otherwise —
   the privileged path, which also covers creating a new file — the
   write-back goes through `doas install` (temporary file in the
-  destination directory plus `rename(2)`).  That path is atomic and
-  cannot follow a swapped symlink, but it replaces the inode, breaks
+  destination directory plus `rename(2)` for a stable regular target).
+  Publication replaces the inode, breaks
   hard links and does not carry over file flags; for an existing target
   owner/group/mode are preserved.  The install path's trade-off is the
   one `sudoedit` makes.

@@ -4,8 +4,8 @@
 # extensions are used.
 #
 # Build variables are propagated to the per-utility Makefiles through
-# the environment so that the per-utility Makefiles can extend them with
-# += as usual.  CC and CSTD have fixed defaults; override them on the
+# the environment. Utility-specific include paths are passed separately
+# from CPPFLAGS. CC and CSTD have fixed defaults; override them on the
 # make command line (for example, make CC=gcc).
 
 CC = clang
@@ -24,7 +24,7 @@ DEBUG_CFLAGS ?= -O0 -g
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 MANDIR ?= $(PREFIX)/man/man
-DICTDIR ?= $(PREFIX)/share/myspell
+DICTDIR ?= $(PREFIX)/share/openutils/ee
 DESTDIR ?=
 
 SUBDIR = doasedit tree ee truncate
@@ -85,7 +85,7 @@ CHECK_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 EE_WARNINGS = -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 -Wundef \
 	-Wstrict-prototypes -Wmissing-prototypes
 check:
-	@for f in doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/spell/*.c compat/*.c; do first=$$(grep -m1 '^#include' "$$f"); if [ "$$first" != '#include "bsdcompat.h"' ]; then echo "error: $$f must include bsdcompat.h first (got: $$first)" >&2; exit 1; fi; done && if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/*.h ee/spell/*.c ee/spell/*.h; then echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; exit 1; fi
+	@for f in doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/spell/*.c compat/*.c; do first=$$(grep -m1 '^#include' "$$f"); if [ "$$first" != '#include "bsdcompat.h"' ]; then echo "error: $$f must include bsdcompat.h first (got: $$first)" >&2; exit 1; fi; done && if grep -rq "_XOPEN_SOURCE" doasedit/*.c tree/*.c truncate/*.c ee/*.c ee/*.h ee/spell/*.c ee/spell/*.h compat/*.c compat/stdckdint.h; then echo "error: _XOPEN_SOURCE must only be set in compat/bsdcompat.h" >&2; exit 1; fi
 	@for d in doasedit tree truncate; do $(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" clean >/dev/null && $(MAKE_ENV) $(MAKE) -C $$d CC="$(CHECK_CC)" WARNINGS="$(CHECK_WARNINGS)" all || exit 1; done
 	@$(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" clean >/dev/null && $(MAKE_ENV) $(MAKE) -C ee CC="$(CHECK_CC)" WARNINGS="$(EE_WARNINGS)" all
 	@for d in $(SUBDIR); do $(MAKE_ENV) $(MAKE) -C $$d clean >/dev/null || exit 1; done && $(MAKE_ENV) $(MAKE) all

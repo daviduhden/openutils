@@ -7,7 +7,7 @@ CC = clang
 CFLAGS ?= -O2 -pipe
 WARNINGS ?= -Wall -Wextra -Wpedantic
 CSTD ?= -std=c23
-CPPFLAGS += -I../compat
+PROJECT_CPPFLAGS = -I../compat
 DEBUGGER ?= lldb
 DEBUG_CFLAGS ?= -O0 -g
 
@@ -21,11 +21,11 @@ MANDIR ?= $(PREFIX)/man/man
 all: $(PROG)
 
 $(PROG): $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 # debug build: unoptimized binary for use with the debugger
 $(PROG)_debug: $(SRCS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
+	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o $@ $(SRCS) $(COMPAT_SRCS) $(LDFLAGS)
 
 debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug

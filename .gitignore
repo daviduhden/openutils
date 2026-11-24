@@ -13,3 +13,4 @@ ee/tests/test-dictionary
 *.o
 core
 core.*
+/ee/.dictdir

@@ -162,7 +162,7 @@ static void report(void);
 static void dirwalk(const char *, const char *, int, const int *, dev_t,
     struct ent *, size_t, int);
 static void jsonwalk(
-    const char *, const char *, int, dev_t, int, struct ent *, size_t, int);
+    const char *, const char *, int, dev_t, int, const struct stat *, ino_t, struct ent *, size_t, int);
 static void jsonentries(const char *, int, dev_t, int, struct ent *, size_t);
 [[nodiscard]] static int collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
@@ -761,6 +761,8 @@ seen(dev_t dev, ino_t ino)
 static void
 addseen(dev_t dev, ino_t ino)
 {
+	if (!lflag || dflag)
+		return;
 	if (seen_cnt == seen_alloc) {
 		seen_alloc = seen_alloc ? seen_alloc * 2 : 64;
 		seen_dirs =
@@ -771,6 +773,14 @@ addseen(dev_t dev, ino_t ino)
 	seen_dirs[seen_cnt].dev = dev;
 	seen_dirs[seen_cnt].ino = ino;
 	seen_cnt++;
+}
+
+static int
+follow_directory_link(const struct ent *e, dev_t xdev)
+{
+	return (e->target != nullptr && e->isdir && lflag && !dflag &&
+	    !e->broken && !seen(e->st.st_dev, e->st.st_ino) &&
+	    (!xflag || e->st.st_dev == xdev));
 }
 
 /*
@@ -845,7 +855,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 	DIR	      *dirp;
 	struct dirent *de;
 	struct ent    *ents = nullptr;
-	size_t	       n = 0, alloc = 0, i;
+	size_t	       n = 0, alloc = 0, scanned = 0;
 	int	       scan_failed = 0;
 
 	*out = nullptr;
@@ -855,7 +865,7 @@ collect(const char *path, struct ent **out, size_t *nout)
 		return (-1);
 
 	for (;;) {
-		struct ent *e;
+		struct ent entry = {0}, *e = &entry;
 		char	   *join = nullptr;
 		size_t	    plen, dlen;
 
@@ -881,24 +891,13 @@ collect(const char *path, struct ent **out, size_t *nout)
 		snprintf(join, plen + dlen + 2, "%s%s%s", path,
 		    plen != 0 && path[plen - 1] == '/' ? "" : "/", de->d_name);
 
-		if (n == alloc) {
-			alloc = alloc ? alloc * 2 : 32;
-			ents = reallocarray(ents, alloc, sizeof(*ents));
-			if (ents == nullptr)
-				err(1, "reallocarray");
-		}
-		e = &ents[n];
-		memset(e, 0, sizeof(*e));
-		e->name = strdup(de->d_name);
-		if (e->name == nullptr)
-			err(1, "strdup");
+		e->name = de->d_name;
 
 		if (lstat(join, &e->lst) == -1) {
 			if (errno != ENOENT) {
 				warn("%s", join);
 				scan_failed = 1;
 			}
-			free(e->name);
 			free(join);
 			continue;
 		}
@@ -914,7 +913,6 @@ collect(const char *path, struct ent **out, size_t *nout)
 					warn("%s", join);
 					scan_failed = 1;
 				}
-				free(e->name);
 				free(join);
 				continue;
 			}
@@ -927,7 +925,6 @@ collect(const char *path, struct ent **out, size_t *nout)
 				warnx(
 				    "%s: symbolic link target too long", join);
 				scan_failed = 1;
-				free(e->name);
 				free(join);
 				continue;
 			}
@@ -947,7 +944,34 @@ collect(const char *path, struct ent **out, size_t *nout)
 		}
 
 		free(join);
+		scanned++;
+		if ((dflag && !e->isdir) ||
+		    (!e->isdir && npatterns > 0 && !patinclude(e->name) &&
+			!(e->target != nullptr && patinclude(e->target))) ||
+		    (nipatterns > 0 && (patignore(e->name) ||
+			(e->target != nullptr && patignore(e->target))))) {
+			free(e->target);
+			continue;
+		}
 		n++;
+		if (filelimit > 0 && n > (size_t)filelimit) {
+			if (ents != nullptr) {
+				freeents(ents, n - 1);
+				ents = nullptr;
+			}
+			free(e->target);
+			continue;
+		}
+		if (n > alloc) {
+			alloc = alloc ? alloc * 2 : 32;
+			ents = reallocarray(ents, alloc, sizeof(*ents));
+			if (ents == nullptr)
+				err(1, "reallocarray");
+		}
+		e->name = strdup(de->d_name);
+		if (e->name == nullptr)
+			err(1, "strdup");
+		ents[n - 1] = *e;
 	}
 	if (closedir(dirp) == -1) {
 		warn("%s", path);
@@ -955,42 +979,12 @@ collect(const char *path, struct ent **out, size_t *nout)
 	}
 	if (scan_failed) {
 		had_error = 1;
-		if (n == 0) {
+		if (scanned == 0) {
 			free(ents);
 			return (-1);
 		}
 	}
-
-	if (n > 0) {
-		size_t j;
-
-		for (i = j = 0; i < n; i++) {
-			auto e = &ents[i];
-			int  drop = 0;
-
-			if (dflag && !e->isdir)
-				drop = 1;
-			if (!drop && !e->isdir && npatterns > 0 &&
-			    !patinclude(e->name) &&
-			    !(e->target != nullptr && patinclude(e->target)))
-				drop = 1;
-			if (!drop && nipatterns > 0 &&
-			    (patignore(e->name) ||
-				(e->target != nullptr && patignore(e->target))))
-				drop = 1;
-			if (drop) {
-				free(e->name);
-				free(e->target);
-				continue;
-			}
-			if (j != i)
-				ents[j] = ents[i];
-			j++;
-		}
-		n = j;
-	}
-
-	if (n > 0 && !Uflag)
+	if (ents != nullptr && !Uflag)
 		qsort(ents, n, sizeof(*ents), entcmp);
 
 	*out = ents;
@@ -1007,6 +1001,8 @@ freeents(struct ent *ents, size_t n)
 {
 	size_t i;
 
+	if (ents == nullptr)
+		return;
 	for (i = 0; i < n; i++) {
 		free(ents[i].name);
 		free(ents[i].target);
@@ -1150,7 +1146,10 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 	}
 
 	/* Find the last visible child before drawing branch connectors. */
-	size_t visible_end = n;
+	size_t visible_end = n, cached_count = 0;
+	struct ent *cached_children = nullptr;
+	int cached_match = 0;
+
 	if (pruneflag && !dflag && (maxdepth == 0 || depth + 1 < maxdepth)) {
 		while (visible_end > 0) {
 			struct ent *entry = &ents[visible_end - 1];
@@ -1165,11 +1164,17 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			child = joinpath(path, entry->name);
 			result = collect(child, &children, &count);
 			free(child);
-			if (result == -1)
+			if (result == -1) {
+				cached_match = -1;
 				break;
+			}
+			if (count != 0) {
+				cached_children = children;
+				cached_count = count;
+				cached_match = 1;
+				break;
+			}
 			freeents(children, count);
-			if (count != 0)
-				break;
 			visible_end--;
 		}
 	}
@@ -1188,10 +1193,7 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			continue;
 
 		if (e->isdir) {
-			follow = (e->target != nullptr && lflag && !dflag &&
-			    !e->broken &&
-			    seen(e->st.st_dev, e->st.st_ino) == 0 &&
-			    (!xflag || e->st.st_dev == xdev));
+			follow = follow_directory_link(e, xdev);
 
 			/* symlink shown but not followed */
 			if (e->target != nullptr && !follow) {
@@ -1236,7 +1238,11 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 			cp = e->target != nullptr ?
 			    resolvelink(path, e->target) :
 			    joinpath(path, e->name);
-			if (collect(cp, &ch, &nch) == -1)
+			if (last && cached_match != 0) {
+				ch = cached_children;
+				nch = cached_count;
+				opened = cached_match == 1;
+			} else if (collect(cp, &ch, &nch) == -1)
 				opened = 0;
 
 			if (filelimit > 0 && opened &&
@@ -1389,14 +1395,11 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
 			fprintf(outfile, "\"");
 			json_info(&e->lst);
 
-			follow = e->isdir && lflag && !dflag && !e->broken &&
-			    seen(e->st.st_dev, e->st.st_ino) == 0 &&
-			    (!xflag || e->st.st_dev == xdev) &&
+			follow = follow_directory_link(e, xdev) &&
 			    !(maxdepth > 0 && d >= maxdepth);
 			if (follow) {
 				char *cp = resolvelink(path, e->target);
 
-				addseen(e->st.st_dev, e->st.st_ino);
 				fprintf(outfile, ",\"contents\":[");
 				if (!iflag)
 					fprintf(outfile, "\n");
@@ -1470,9 +1473,8 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
 			if (emitted)
 				jsep();
 			jindent(lvl);
-			addseen(e->st.st_dev, e->st.st_ino);
-			jsonwalk(
-			    cp, e->name, d, xdev, lvl, children, count, opened);
+			jsonwalk(cp, e->name, d, xdev, lvl, &e->lst, e->st.st_ino,
+			    children, count, opened);
 			free(cp);
 			emitted = 1;
 			continue;
@@ -1505,19 +1507,15 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
  */
 static void
 jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl,
-    struct ent *ents, size_t n, int opened)
+    const struct stat *st, ino_t inode, struct ent *ents, size_t n, int opened)
 {
-	struct stat st;
-
 	if (depth >= MAX_DEPTH)
 		errx(1, "directory tree too deep");
 
 	fprintf(outfile, "{\"type\":\"directory\",\"name\":\"");
 	json_enc(disp);
 	fprintf(outfile, "\"");
-	if (lstat(path, &st) == -1)
-		memset(&st, 0, sizeof(st));
-	json_info(&st);
+	json_info(st);
 
 	/*
 	 * -L: at the display boundary the directory object is emitted
@@ -1538,6 +1536,8 @@ jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl,
 		ndirs++;
 		return;
 	}
+	if (filelimit == 0 || n <= (size_t)filelimit)
+		addseen(depth == 0 ? xdev : st->st_dev, inode);
 	if (n == 0) {
 		fprintf(outfile, "}");
 		freeents(ents, n);
@@ -1986,7 +1986,7 @@ main(int argc, char *argv[])
 		if (!iflag)
 			fputs("\n", outfile);
 		for (j = 0; j < nroots; j++) {
-			struct stat st;
+			struct stat st, root;
 
 			if (!first) {
 				if (iflag)
@@ -2004,6 +2004,7 @@ main(int argc, char *argv[])
 				had_error = 1;
 				continue;
 			}
+			root = st;
 			if (S_ISLNK(st.st_mode)) {
 				if (stat(roots[j], &st) == -1 ||
 				    !S_ISDIR(st.st_mode)) {
@@ -2011,7 +2012,9 @@ main(int argc, char *argv[])
 					    "{\"type\":\"file\","
 					    "\"name\":\"");
 					json_enc(roots[j]);
-					fprintf(outfile, "\"}");
+					fprintf(outfile, "\"");
+					json_info(&root);
+					fprintf(outfile, "}");
 					nfiles++;
 					continue;
 				}
@@ -2019,15 +2022,16 @@ main(int argc, char *argv[])
 				fprintf(
 				    outfile, "{\"type\":\"file\",\"name\":\"");
 				json_enc(roots[j]);
-				fprintf(outfile, "\"}");
+				fprintf(outfile, "\"");
+				json_info(&root);
+				fprintf(outfile, "}");
 				nfiles++;
 				continue;
 			}
 			if (!iflag)
 				jindent(1);
-			addseen(st.st_dev, st.st_ino);
-			jsonwalk(
-			    roots[j], roots[j], 0, st.st_dev, 1, nullptr, 0, 0);
+			jsonwalk(roots[j], roots[j], 0, st.st_dev, 1, &root,
+			    st.st_ino, nullptr, 0, 0);
 		}
 		if (!noreport) {
 			if (iflag)

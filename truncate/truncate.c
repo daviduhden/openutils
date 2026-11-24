@@ -574,27 +574,10 @@ main(int argc, char *argv[])
 	if (ref_file != nullptr) {
 		if (stat(ref_file, &sb) != 0)
 			err(1, "cannot stat '%s'", ref_file);
-		/*
-		 * A negative st_size is not a usable length.  Do not trust
-		 * it: fall back to SEEK_END, as for the target file, and
-		 * fail if that does not yield a length either.
-		 */
-		if (sb.st_size < 0) {
-			int   ref_fd;
-			off_t file_end;
-
-			ref_fd = open(ref_file, O_RDONLY | O_NONBLOCK);
-			if (ref_fd >= 0) {
-				file_end = lseek(ref_fd, 0, SEEK_END);
-				close(ref_fd);
-				if (file_end >= 0)
-					file_size = file_end;
-			}
-		} else {
-			file_size = sb.st_size;
-		}
-		if (file_size < 0)
-			err(1, "cannot get the size of '%s'", ref_file);
+		if (!S_ISREG(sb.st_mode) || sb.st_size < 0)
+			errx(1, "%s: reference must be a regular file with a valid size",
+			    ref_file);
+		file_size = sb.st_size;
 		if (!got_size)
 			sizev = file_size;
 		else

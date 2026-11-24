@@ -69,6 +69,13 @@ Preserve all of these unless the user explicitly requests a redesign:
 - `doas -C` is a syntax check of an edited configuration, not a proof
   that the resulting rules are safe or still permit the user.
 
+- Each operand has private scratch space of its own. Clean up the known
+  files and report residual editor-created files instead of removing them
+  indiscriminately.
+- A regular destination must stay trusted across authentication. OpenBSD
+  install reinterprets the paths in its own process. See the
+  [privilege-boundary design review](../../../docs/doasedit-privilege-boundary.md).
+
 ## Procedure for a change
 
 1. Read `doasedit/README.md`, `doasedit/doasedit.1` and the whole

@@ -214,9 +214,12 @@ the target changed, the write is refused.
 .Pp
 On the
 .Nm doas Cm install
-path, the target is replaced by a rename in its directory, so a
-symbolic link swapped in for the final component is replaced rather
-than followed.
+path, a stable regular target is replaced by a rename in its directory.
+The source and destination paths must remain trusted across authentication
+and publication.
+An intervening change can affect how
+.Nm install
+interprets the destination.
 This preserves ownership, group and permission bits, including
 setuid and setgid bits, but timestamps, ACLs, extended attributes and
 file flags may be lost, and hard links are broken.

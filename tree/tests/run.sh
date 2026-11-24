@@ -222,6 +222,11 @@ assert_out "JSON -l shows followed link" '"name":"link"' \
 assert_not_out "JSON --filelimit limits followed symlink contents" \
 	'"name":"w1"' "$TREE" -J -l --filelimit 2 fl
 
+assert_out "text filelimit counts filtered entries" "3 entries exceeds filelimit" \
+	"$TREE" --filelimit 2 sub/wide
+assert_out "JSON emits metadata for a file operand" '"size":' \
+	"$TREE" -Js sub/afile
+
 # -o output file
 "$TREE" -o "$work/out.txt" sub 2>/dev/null
 assert "output file written" [ -s "$work/out.txt" ]

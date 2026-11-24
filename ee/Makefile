@@ -26,7 +26,7 @@ NCURSES_CFLAGS != $(PKG_CONFIG) --cflags-only-I ncursesw 2>/dev/null || \
     echo -I/usr/local/include/ncursesw -I/usr/include/ncursesw
 NCURSES_LIBS != $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw
 
-CPPFLAGS += -I. -I../compat $(NCURSES_CFLAGS)
+PROJECT_CPPFLAGS = -I. -I../compat $(NCURSES_CFLAGS)
 LDLIBS = $(NCURSES_LIBS)
 
 # compat shims for non-OpenBSD hosts (they compile to nothing there)
@@ -38,22 +38,28 @@ MANDIR ?= $(PREFIX)/man/man
 
 # One of the standard data directories ee searches (see ee.1).  It is
 # named after the .aff/.dic convention that the files follow.
-DICTDIR ?= $(PREFIX)/share/myspell
+DICTDIR ?= $(PREFIX)/share/openutils/ee
 
 all: $(PROG)
 
-$(PROG): $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
+# Rebuild if the configured dictionary path changes, including for staged installs.
+.dictdir: FORCE
+	@printf '%s\n' '$(DICTDIR)' | cmp -s - $@ || printf '%s\n' '$(DICTDIR)' > $@
+
+FORCE:
+
+$(PROG): .dictdir $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
 
 # debug build: unoptimized binary for use with the debugger
-$(PROG)_debug: $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
-	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
+$(PROG)_debug: .dictdir $(SRCS) $(HEADERS) $(COMPAT_SRCS) ../compat/bsdcompat.h ../compat/stdckdint.h Makefile ../Makefile
+	$(CC) $(DEBUG_CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -DEE_DICTDIR='"$(DICTDIR)"' -o $@ $(SRCS) $(COMPAT_SRCS) $(LDLIBS) $(LDFLAGS)
 
 debug: $(PROG)_debug
 	$(DEBUGGER) ./$(PROG)_debug
 
 clean:
-	rm -f $(PROG) $(PROG)_debug ee.o utf8.o help.o spell/spell.o \
+	rm -f $(PROG) $(PROG)_debug .dictdir ee.o utf8.o help.o spell/spell.o \
 	    tests/test-spell tests/test-dictionary
 
 install: $(PROG)
@@ -69,8 +75,8 @@ uninstall:
 	    $(DESTDIR)$(DICTDIR)/en_US.aff $(DESTDIR)$(DICTDIR)/en_US.dic
 
 test: $(PROG)
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-spell tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-spell tests/spell-test.aff tests/spell-test.dic
-	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(CPPFLAGS) -o tests/test-dictionary tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-dictionary spell/en_US.aff spell/en_US.dic
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o tests/test-spell tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-spell tests/spell-test.aff tests/spell-test.dic
+	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o tests/test-dictionary tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-dictionary spell/en_US.aff spell/en_US.dic
 	perl tests/run.pl && perl tests/signals.pl && perl tests/modern.pl && perl tests/features.pl
 
-.PHONY: all clean install uninstall test debug
+.PHONY: FORCE all clean install uninstall test debug

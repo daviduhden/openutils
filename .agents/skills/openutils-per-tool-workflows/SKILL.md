@@ -168,6 +168,14 @@ drivers default to absolute paths derived from their own location.
 - `Makefile` and each tool's `Makefile`
 - `LICENSES/<tool>`
 
+- `truncate -r` requires a regular reference and rejects invalid references
+  before opening any operand.
+- In ee, save checks the version recorded at load and rechecks the path at
+  publication. The write command can save the buffer elsewhere after a
+  conflict. The document serializer normalizes the final newline.
+- In tree, traversal records accepted descents for link following. A directory
+  over the file limit retains a filtered count with no entries to render.
+
 ## Maintenance & Continuous Learning
 
 Whenever this skill is used to change the repository, review it after the

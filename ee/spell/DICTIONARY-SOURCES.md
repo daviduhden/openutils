@@ -13,7 +13,7 @@ Mozilla, OpenOffice, Ispell, Aspell or any other dictionary project.
 
 - **Project:** 12dicts, by Alan Beale
 - **Upstream:** <https://wordlist.aspell.net/12dicts/>
-- **Download:** <http://downloads.sourceforge.net/wordlist/12dicts-6.0.2.zip>
+- **Download:** <https://downloads.sourceforge.net/wordlist/12dicts-6.0.2.zip>
 - **Version:** 6.0.2 (the archived `2of12.txt` is dated 2016-04-02)
 - **Retrieved:** 2026-10-06
 - **SHA-256:**
@@ -127,3 +127,13 @@ The compilation, the affix rules and the generator are dedicated to the
 public domain under CC0-1.0:
 
 See [`LICENSES/spell`](../../LICENSES/spell).
+
+
+Verify the downloaded archives and extracted inputs against the SHA-256
+values in Sources before running the generator. Compare the generated file
+byte for byte with the bundled dictionary using `cmp`.
+
+Bundled SHA-256 values:
+
+- `en_US.aff` — `c9afd75f4ec9377998f67d68b8c2b20722822a0b39b7541c685972ad91048593`
+- `en_US.dic` — `8a947d9ab1203560e36fe751f1963ff6f85d7bd9e6e65529d8c3bc305a4e5023`

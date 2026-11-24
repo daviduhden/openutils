@@ -42,8 +42,9 @@ and is not valid with
 .Fl r
 alone.
 .It Fl r Ar rfile , Fl Fl reference Ns = Ns Ar rfile
-Truncate files to the length of the file
+Truncate files to the length of the regular file
 .Ar rfile .
+An invalid reference is rejected before opening any file operand.
 .It Fl s Ar size , Fl Fl size Ns = Ns Ar size
 Set or adjust the file size by
 .Ar size
