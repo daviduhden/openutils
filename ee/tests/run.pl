@@ -303,7 +303,8 @@ sub main {
     open my $normalized, '<:raw', $path or Carp::croak "open $path: $!";
     my $saved = do { local $/; <$normalized> };
     close $normalized;
-    assert_eq( 'saving normalizes the final newline', "no trailing newline\n", $saved );
+    assert_eq( 'saving normalizes the final newline',
+        "no trailing newline\n", $saved );
 
     # "no save" path leaves the file untouched
     open my $keep, '>', $path or Carp::croak "open $path: $!";

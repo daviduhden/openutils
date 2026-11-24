@@ -483,7 +483,8 @@ sub test_external_change {
     $s->pump(0.8);
     my $output = $s->buf;
     $s->close_session;
-    return read_raw($path) eq "external update\n" && $output =~ /file changed on disk/;
+    return read_raw($path) eq "external update\n"
+      && $output =~ /file changed on disk/;
 }
 
 # Run the resize, UTF-8, bounds, tiny-terminal and shell-command cases and
@@ -501,8 +502,10 @@ sub main {
     local $ENV{HOME} = $home;
     my $work = tempdir( 'ee-modern.XXXXXX', DIR => $tmpdir, CLEANUP => 1 );
 
-    check( 'closed command pipe preserves the editor session', test_closed_pipe($work) );
-    check( 'saving refuses a file changed since opening', test_external_change($work) );
+    check( 'closed command pipe preserves the editor session',
+        test_closed_pipe($work) );
+    check( 'saving refuses a file changed since opening',
+        test_external_change($work) );
     check( 'resize inside the menu',       test_resize_in_menu($work) );
     check( 'resize inside a prompt',       test_resize_in_prompt($work) );
     check( 'resize inside a confirmation', test_resize_in_confirm($work) );
