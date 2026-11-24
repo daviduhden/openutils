@@ -97,7 +97,7 @@ compare() {
 	fi
 
 	if ! "$TRUNC" -s "$init" "$work/a" 2>/dev/null ||
-	    ! "$GNU" -s "$init" "$work/b" 2>/dev/null; then
+		! "$GNU" -s "$init" "$work/b" 2>/dev/null; then
 		notok "$desc (setup)"
 		return 1
 	fi
