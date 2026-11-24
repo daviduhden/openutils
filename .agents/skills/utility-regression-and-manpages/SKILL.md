@@ -137,7 +137,9 @@ strict build/source-policy check.
   report it; do not silently treat the suite as fully passing.
 
 For ee PTY cases, reset SIGPIPE for the editor child and use the wait status
-when asserting normal exit. Force a save before comparing file bytes in
+when asserting normal exit. If the PTY reports EOF before the child can be
+reaped, use `Time::HiRes::sleep` between polls to preserve the timeout.
+Force a save before comparing file bytes in
 newline and round-trip tests, since quitting an unmodified buffer can skip
 serialization. For GNU
 truncate comparisons, check setup and measurement independently of the two

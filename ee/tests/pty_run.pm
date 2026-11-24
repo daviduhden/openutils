@@ -109,7 +109,7 @@ sub wait_exit {
         my $reaped = waitpid( $self->{pid}, POSIX::WNOHANG() );
         return 1 if $reaped == $self->{pid};
         return 0 if $reaped == -1;
-        select undef, undef, undef, 0.1 unless $self->pump(0.1);
+        Time::HiRes::sleep(0.1) unless $self->pump(0.1);
     }
     return 0;
 }
