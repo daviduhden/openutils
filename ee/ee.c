@@ -3582,6 +3582,10 @@ write_file(char *file_name, int warn_if_exists)
 	exists = lstat(file_name, &original) == 0;
 	if (!exists && errno != ENOENT)
 		goto failed;
+	if (exists && (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
+		original.st_uid != geteuid() || (original.st_mode & 07000) ||
+		access(file_name, W_OK) == -1))
+		goto failed;
 	if (loaded_version_known && in_file_name != nullptr &&
 	    strcmp((char *)in_file_name, file_name) == 0 &&
 	    (exists != loaded_file_exists ||
@@ -3592,12 +3596,7 @@ write_file(char *file_name, int warn_if_exists)
 		wrefresh(com_win);
 		return (FALSE);
 	}
-	if (exists) {
-		if (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
-		    original.st_uid != geteuid() ||
-		    (original.st_mode & 07000) || access(file_name, W_OK) == -1)
-			goto failed;
-		if (warn_if_exists &&
+	if (exists) {		if (warn_if_exists &&
 		    (in_file_name == nullptr ||
 			strcmp((char *)in_file_name, file_name) != 0) &&
 		    confirm("File exists.  Overwrite it?") != 1)

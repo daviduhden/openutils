@@ -286,7 +286,7 @@ sub main {
         open my $long, '>:raw', $path or Carp::croak "open $path: $!";
         print {$long} $content;
         close $long;
-        run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
+        run( [ $EE, '-i', $path ], [ "\x13", "\x11" ], { TERM => 'xterm' } );
         open my $in, '<:raw', $path or Carp::croak "open $path: $!";
         local $/;
         my $saved = <$in> // q{};
@@ -299,7 +299,7 @@ sub main {
     open my $noeol, '>', $path or Carp::croak "open $path: $!";
     print {$noeol} 'no trailing newline';
     close $noeol;
-    run( [ $EE, '-i', $path ], [ "\x1b", 'a', 'a' ], { TERM => 'xterm' } );
+    run( [ $EE, '-i', $path ], [ "\x13", "\x11" ], { TERM => 'xterm' } );
     open my $normalized, '<:raw', $path or Carp::croak "open $path: $!";
     my $saved = do { local $/; <$normalized> };
     close $normalized;

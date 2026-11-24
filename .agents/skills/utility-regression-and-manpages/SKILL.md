@@ -137,7 +137,9 @@ strict build/source-policy check.
   report it; do not silently treat the suite as fully passing.
 
 For ee PTY cases, reset SIGPIPE for the editor child and use the wait status
-when asserting normal exit. Compare file bytes for newline tests. For GNU
+when asserting normal exit. Force a save before comparing file bytes in
+newline and round-trip tests, since quitting an unmodified buffer can skip
+serialization. For GNU
 truncate comparisons, check setup and measurement independently of the two
 commands being compared.
 
