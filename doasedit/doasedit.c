@@ -320,7 +320,7 @@ static int
 open_regular(const char *path)
 {
 	struct stat st;
-	int fd, saved_errno;
+	int	    fd, saved_errno;
 
 	fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
 	if (fd == -1)
@@ -1003,7 +1003,8 @@ main(int argc, char *argv[])
 			}
 		}
 
-		/* Give editor-created files a separate directory for each operand. */
+		/* Give editor-created files a separate directory for each
+		 * operand. */
 		if (asprintf(&editdir, "%s/edit.XXXXXXXXXX", tmpdir) == -1)
 			err(1, "asprintf");
 		if (mkdtemp(editdir) == nullptr) {
@@ -1246,8 +1247,9 @@ main(int argc, char *argv[])
 		 * Privileged write: doas install(1) copies the
 		 * temporary file into place atomically (mkstemp(3) in
 		 * the destination directory plus rename(2)), which is
-		 * intended for a stable regular target and preserves owner, group
-		 * and mode. install resolves its operands again after authentication.
+		 * intended for a stable regular target and preserves owner,
+		 * group and mode. install resolves its operands again after
+		 * authentication.
 		 */
 		{
 			const char *inst_argv[] = {"doas", "install", "-o",

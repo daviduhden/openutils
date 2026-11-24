@@ -287,15 +287,15 @@ const char *prog_name = "ee";
 int text_top;  /* first editor row (screen coordinates) */
 int text_rows; /* number of editor rows		*/
 
-unsigned char *point;	   /* points to current position in line	*/
-unsigned char *srch_str;   /* pointer for search string		*/
-unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
-unsigned char *srch_1;	   /* pointer to start of suspect string	*/
-unsigned char *srch_2;	   /* pointer to next character of string	*/
-unsigned char *srch_3;
+unsigned char	  *point;      /* points to current position in line	*/
+unsigned char	  *srch_str;   /* pointer for search string		*/
+unsigned char	  *u_srch_str; /* pointer to non-case sensitive search	*/
+unsigned char	  *srch_1;     /* pointer to start of suspect string	*/
+unsigned char	  *srch_2;     /* pointer to next character of string	*/
+unsigned char	  *srch_3;
 static struct stat loaded_version;
-static int loaded_version_known;
-static int loaded_file_exists;
+static int	   loaded_version_known;
+static int	   loaded_file_exists;
 
 unsigned char *in_file_name = nullptr; /* name of input file		*/
 char	      *tmp_file;	       /* temporary file name			*/
@@ -3147,7 +3147,8 @@ check_fp(void)
 		} else if (get_file(tmp_file)) {
 			if (input_file) {
 				loaded_version = buf;
-				loaded_version_known = loaded_file_exists = TRUE;
+				loaded_version_known = loaded_file_exists =
+				    TRUE;
 			}
 			break;
 		} else
@@ -3582,7 +3583,8 @@ write_file(char *file_name, int warn_if_exists)
 	exists = lstat(file_name, &original) == 0;
 	if (!exists && errno != ENOENT)
 		goto failed;
-	if (exists && (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
+	if (exists &&
+	    (!S_ISREG(original.st_mode) || original.st_nlink != 1 ||
 		original.st_uid != geteuid() || (original.st_mode & 07000) ||
 		access(file_name, W_OK) == -1))
 		goto failed;
@@ -3592,11 +3594,13 @@ write_file(char *file_name, int warn_if_exists)
 		(exists && !same_file_version(&original, &loaded_version)))) {
 		wmove(com_win, 0, 0);
 		wclrtoeol(com_win);
-		waddstr(com_win, "file changed on disk; save under a different name");
+		waddstr(com_win,
+		    "file changed on disk; save under a different name");
 		wrefresh(com_win);
 		return (FALSE);
 	}
-	if (exists) {		if (warn_if_exists &&
+	if (exists) {
+		if (warn_if_exists &&
 		    (in_file_name == nullptr ||
 			strcmp((char *)in_file_name, file_name) != 0) &&
 		    confirm("File exists.  Overwrite it?") != 1)
@@ -4445,9 +4449,10 @@ sh_command(char *string)
 				 pipe (to be read by the |  process forked and
 				 exec'd above as stdin)
 				 */
-				struct sigaction ignore = {.sa_handler = SIG_IGN};
+				struct sigaction ignore = {
+				    .sa_handler = SIG_IGN};
 				struct sigaction previous;
-				int pipe_error, restore_sigpipe;
+				int		 pipe_error, restore_sigpipe;
 
 				sigemptyset(&ignore.sa_mask);
 				restore_sigpipe =
@@ -4511,7 +4516,8 @@ sh_command(char *string)
 				}
 				close(pipe_out[1]);
 				if (restore_sigpipe)
-					(void)sigaction(SIGPIPE, &previous, nullptr);
+					(void)sigaction(
+					    SIGPIPE, &previous, nullptr);
 				out_pipe = FALSE;
 			}
 			for (;;) {
@@ -5605,7 +5611,8 @@ save_op(void)
 	}
 	if (write_file(string, 1)) {
 		if (!have_name) {
-			loaded_version_known = lstat(string, &loaded_version) == 0;
+			loaded_version_known =
+			    lstat(string, &loaded_version) == 0;
 			loaded_file_exists = TRUE;
 		}
 		in_file_name = (unsigned char *)string;
@@ -6327,7 +6334,8 @@ ee_init(void)
 		if (init_name[counter] == nullptr)
 			continue;
 		struct stat st;
-		int fd = open(init_name[counter], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		int	    fd =
+		    open(init_name[counter], O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 
 		if (fd == -1)
 			continue;

@@ -161,8 +161,8 @@ struct ent {
 static void report(void);
 static void dirwalk(const char *, const char *, int, const int *, dev_t,
     struct ent *, size_t, int);
-static void jsonwalk(
-    const char *, const char *, int, dev_t, int, const struct stat *, ino_t, struct ent *, size_t, int);
+static void jsonwalk(const char *, const char *, int, dev_t, int,
+    const struct stat *, ino_t, struct ent *, size_t, int);
 static void jsonentries(const char *, int, dev_t, int, struct ent *, size_t);
 [[nodiscard]] static int collect(const char *, struct ent **, size_t *);
 static void		 freeents(struct ent *, size_t);
@@ -866,8 +866,8 @@ collect(const char *path, struct ent **out, size_t *nout)
 
 	for (;;) {
 		struct ent entry = {0}, *e = &entry;
-		char	   *join = nullptr;
-		size_t	    plen, dlen;
+		char	  *join = nullptr;
+		size_t	   plen, dlen;
 
 		errno = 0;
 		if ((de = readdir(dirp)) == nullptr) {
@@ -948,8 +948,9 @@ collect(const char *path, struct ent **out, size_t *nout)
 		if ((dflag && !e->isdir) ||
 		    (!e->isdir && npatterns > 0 && !patinclude(e->name) &&
 			!(e->target != nullptr && patinclude(e->target))) ||
-		    (nipatterns > 0 && (patignore(e->name) ||
-			(e->target != nullptr && patignore(e->target))))) {
+		    (nipatterns > 0 &&
+			(patignore(e->name) ||
+			    (e->target != nullptr && patignore(e->target))))) {
 			free(e->target);
 			continue;
 		}
@@ -1146,9 +1147,9 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 	}
 
 	/* Find the last visible child before drawing branch connectors. */
-	size_t visible_end = n, cached_count = 0;
+	size_t	    visible_end = n, cached_count = 0;
 	struct ent *cached_children = nullptr;
-	int cached_match = 0;
+	int	    cached_match = 0;
 
 	if (pruneflag && !dflag && (maxdepth == 0 || depth + 1 < maxdepth)) {
 		while (visible_end > 0) {
@@ -1473,8 +1474,8 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
 			if (emitted)
 				jsep();
 			jindent(lvl);
-			jsonwalk(cp, e->name, d, xdev, lvl, &e->lst, e->st.st_ino,
-			    children, count, opened);
+			jsonwalk(cp, e->name, d, xdev, lvl, &e->lst,
+			    e->st.st_ino, children, count, opened);
 			free(cp);
 			emitted = 1;
 			continue;

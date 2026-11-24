@@ -575,7 +575,9 @@ main(int argc, char *argv[])
 		if (stat(ref_file, &sb) != 0)
 			err(1, "cannot stat '%s'", ref_file);
 		if (!S_ISREG(sb.st_mode) || sb.st_size < 0)
-			errx(1, "%s: reference must be a regular file with a valid size",
+			errx(1,
+			    "%s: reference must be a regular file with a valid "
+			    "size",
 			    ref_file);
 		file_size = sb.st_size;
 		if (!got_size)
