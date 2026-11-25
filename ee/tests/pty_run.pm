@@ -61,8 +61,9 @@ sub pid { my ($self) = @_; return $self->{pid} }
 sub pty { my ($self) = @_; return $self->{pty} }
 sub buf { my ($self) = @_; return $self->{buf} }
 
-# Drain output for up to $sec seconds.  Returns false at EOF so callers can
-# distinguish an exited child from a quiet one.
+# Accumulate PTY bytes until the deadline or a failed read.  A false
+# result means there is no more output to drain at this point.
+# wait_exit checks child status independently.
 sub pump {
     my ( $self, $sec ) = @_;
     my $deadline = time + $sec;

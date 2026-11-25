@@ -58,9 +58,8 @@ sub assert_eq {
     return;
 }
 
-# Return the file content with trailing newlines stripped, as a
-# shell command substitution would.
-# Read a file in binary mode so CR, NUL and non-UTF-8 bytes survive unchanged.
+# Read text for comparisons that ignore trailing LF, as shell command
+# substitution would.  Use byte-exact assertions to test serialization.
 sub read_text {
     my ($path) = @_;
     open my $fh, '<', $path or return q{};
@@ -72,11 +71,8 @@ sub read_text {
     return $data;
 }
 
-# Run a command with standard input connected to a pipe (not a
-# terminal) and return its exit status, like a subprocess with
-# stdin=PIPE, stdout inherited and stderr discarded.
-# Run ee without a terminal for the startup and usage checks; the caller gets
-# stdout, stderr and the exit status.
+# Supply a pipe as stdin to exercise ee's startup TTY check.  Inherit
+# stdout, discard stderr and return the child's exit code.
 sub run_no_tty {
     my (@cmd) = @_;
     pipe( my $rd, my $wr ) or Carp::croak "pipe: $!";
@@ -107,8 +103,6 @@ sub read_locale_list {
 # Locale policy: no locale configured means ee picks a UTF-8 one and the
 # interface is English; an explicitly configured non-UTF-8 locale is
 # rejected cleanly; an explicit UTF-8 locale works.
-# Verify that locale-related environment variables do not change ee's startup
-# messages or exit behavior; the interface is intentionally U.S. English only.
 sub test_locale_policy {
     my ( $ee, $work ) = @_;
 

@@ -38,6 +38,9 @@ you need to run one suite instead of `make test`, or when editing a
   covers vi bindings, settings-menu navigation and formatter behavior.
 - ee tests should isolate `HOME` to a temporary directory so a
   developer's `~/.init.ee` cannot change results.
+- The PTY suites use the shared driver in `ee/tests/pty_run.pm`.
+  `ee/tests/mkterminfo.pl` is a standalone helper for experiments
+  that need a binary terminfo fixture with custom capabilities.
 
 ## Procedure
 

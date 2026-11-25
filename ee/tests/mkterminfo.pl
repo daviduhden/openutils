@@ -1,8 +1,8 @@
 #!/usr/bin/env perl
 
-# Build a minimal terminfo entry for tests.  The strings may contain
-# % escapes (including malformed ones) to exercise the conditional
-# evaluator.  Terminfo binary layout (16-bit, little endian):
+# Build a standalone terminfo fixture for terminal experiments.  The
+# caller can supply capability strings containing terminfo % escapes.
+# Terminfo binary layout (16-bit, little endian):
 #   magic(2) names(2) booleans(2) numbers(2) strings(2) table(2)
 #   names NUL separated + terminating NUL
 #   booleans (1 byte each)
@@ -24,7 +24,7 @@ my $CM = 10;     # cursor motion
 my $KS = 89;     # keypad on
 my $KE = 88;     # keypad off
 my $PC = 104;    # pad character
-my $NS = 190;    # total number of string capabilities (see new_curse.c)
+my $NS = 190;    # string offset slots emitted by this fixture
 
 # Write one minimal little-endian terminfo entry.  The optional arguments
 # override the clear, cursor-address and pad strings so callers can inject

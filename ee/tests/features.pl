@@ -71,8 +71,8 @@ sub read_raw {
     return defined $data ? $data : q{};
 }
 
-# Run ee configured for vi bindings (through a private $HOME/.init.ee).
-# Drive one vi-mode editing session and return the PTY transcript.
+# Use a private $HOME/.init.ee to select vi bindings for this session
+# and return the PTY transcript.
 sub vi_session {
     my ( $work, $path ) = @_;
     write_raw( "$work/.init.ee", "VI\n" );

@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 
-# Second-phase regression tests for ee: resize in every modal state,
+# Integration tests for ee: resize in every modal state,
 # safe exit, strict UTF-8/NUL policy, Unicode insertion bounds, display
 # of wide and combining characters, tiny terminals, help paging and
 # shell command execution.
@@ -57,7 +57,6 @@ sub check {
 
 # TAP diagnostic: printed with a leading '#' so it is ignored by the
 # harness but shows up when a check fails.
-# Emit one diagnostic line prefixed for easy filtering in test output.
 sub diag {
     my ($msg) = @_;
     print "# $msg\n";
@@ -65,7 +64,6 @@ sub diag {
 }
 
 # Render a byte string with non-printable bytes escaped, for diagnostics.
-# Render nonprintable bytes in a readable escaped form for failure messages.
 sub escaped {
     my ($data) = @_;
     $data =~ s/([^\x20-\x7e])/sprintf('\\x%02x', ord($1))/gex;
@@ -106,7 +104,6 @@ sub resize {
 }
 
 # Open a file, type text, save with ^S and quit with ^Q.
-# Start ee with initial content and drive a short edit sequence.
 sub simple_edit {
     my ( $path, $text, $extra_inputs ) = @_;
     my @inputs = ( $text, "\x13", "\x11" );
@@ -391,9 +388,8 @@ sub test_resize_stress {
     return 1;
 }
 
-# Verify that the "!" shell-command path runs a command and leaves the
-# editor working.  This is not a pipe round trip: the '>' and '<'
-# buffer-pipe commands are not exercised here.
+# Check the terminal handoff and verify that the editor can still save
+# after the interactive "!" command returns.
 sub test_shell_command {
     my ($work) = @_;
     my $path = "$work/shell.txt";
@@ -418,6 +414,8 @@ sub test_shell_command {
     return ( $exited && read_raw($path) eq "before after\n" ) ? 1 : 0;
 }
 
+# Check both directions against byte-exact files so a broken import
+# cannot pass merely because the export reproduced the same bad data.
 sub test_shell_pipes {
     my ($work)  = @_;
     my $path    = "$work/pipe.txt";
@@ -447,6 +445,8 @@ sub test_shell_pipes {
       && read_raw($capture) eq "from pipe\n";
 }
 
+# Supply enough text to exercise the write path when the reader exits
+# immediately.  The editor should report failure and remain usable.
 sub test_closed_pipe {
     my ($work) = @_;
     my $path = "$work/closed-pipe.txt";

@@ -66,8 +66,8 @@ sub check {
     return;
 }
 
-# Write a minimal compiled terminfo entry (magic 282).
-# Generate a hostile terminfo entry for the unknown-terminal checks.
+# Write a compiled terminfo fixture (magic 282) with caller-supplied
+# terminal capability strings for the ncurses robustness checks.
 sub build_terminfo {
     my ( $path, $clear, $names ) = @_;
     my $NS      = 190;
@@ -152,9 +152,7 @@ sub sigwinch_test {
     return index( $data, 'kept text' ) >= 0 ? 1 : 0;
 }
 
-# Run ee against a synthetic entry with a hostile clear string.
-# Run ee against a deliberately malformed terminfo entry and require a clean
-# exit rather than a crash.
+# Drive ee with a synthetic terminfo entry and check its exit status.
 sub tinfo_test {
     my ( $work, $clear ) = @_;
     my $tdir = "$work/terminfo";
@@ -179,7 +177,6 @@ sub tinfo_test {
 
 # An unknown terminal name must be rejected by ncursesw with a clean,
 # non-zero exit, never a crash.
-# Run ee with an unknown TERM value and require a clean rejection.
 sub noterm_test {
     my ($work) = @_;
     my $session = Session->new(
