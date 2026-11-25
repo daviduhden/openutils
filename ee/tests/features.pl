@@ -87,17 +87,19 @@ sub test_vi_append_and_wq {
 
     my $s = vi_session( $work, $path );
     $s->pump(1.5);
-    $s->write_data("\x24");       # $ - end of line
+    $s->write_data("\xc3\xa9\x24")
+      ;    # Ignore é in normal mode, then move to the end.
     $s->pump(0.3);
-    $s->write_data("a world");    # a - append, then insert text
+    $s->write_data("a world\xc3\xa9")
+      ;    # Insert the same character in insert mode.
     $s->pump(0.4);
-    $s->write_data("\x1b");       # Esc - back to normal mode
+    $s->write_data("\x1b");     # Esc - back to normal mode
     $s->pump(0.3);
-    $s->write_data(":wq\r");      # write and quit
+    $s->write_data(":wq\r");    # write and quit
     $s->pump(1.2);
     my $exited = $s->wait_exit;
     $s->close_session;
-    return ( $exited && read_raw($path) eq "hello world\n" ) ? 1 : 0;
+    return ( $exited && read_raw($path) eq "hello world\xc3\xa9\n" ) ? 1 : 0;
 }
 
 sub test_vi_delete_line {
@@ -288,8 +290,9 @@ sub main {
         CLEANUP => 1
     );
 
-    check( 'vi: $ a append and :wq save', test_vi_append_and_wq($work) );
-    check( 'vi: dd deletes a line',       test_vi_delete_line($work) );
+    check( 'vi: UTF-8 inserts only in insert mode and :wq saves',
+        test_vi_append_and_wq($work) );
+    check( 'vi: dd deletes a line', test_vi_delete_line($work) );
     check( 'vi: settings menu round trip',
         test_settings_menu_roundtrip($work) );
     check( 'diff content is not corrupted', test_format_protects_diff($work) );

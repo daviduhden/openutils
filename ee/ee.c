@@ -963,7 +963,8 @@ main(int argc, char *argv[])
 			else if ((in == '\10') || (in == 127)) {
 				in = 8;
 				delete(TRUE);
-			} else if (in >= 0x80) {
+			} else if (in >= 0x80 &&
+			    !(keys_mode == EE_KEYS_VI && !vi_insert)) {
 				unsigned char mb[MB_LEN_MAX + 1];
 				mbstate_t     mbs;
 				memset(&mbs, 0, sizeof(mbs));
