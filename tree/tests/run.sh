@@ -209,6 +209,15 @@ assert_out "-J link target" '"target":"../sub/deep"' "$TREE" -J sub
 assert_out "-J escapes newlines" 'with\nnewline' "$TREE" -J sub
 assert_out "-J escapes embedded quote" 'quote\"name' "$TREE" -J sub
 assert_out "-J escapes embedded backslash" 'back\\slash' "$TREE" -J sub
+# Two aliases to a directory outside the root share one visited identity.
+mkdir -p aliases alias-target
+touch alias-target/leaf
+ln -s ../alias-target aliases/first
+ln -s ../alias-target aliases/second
+assert_out "JSON follows the first directory alias" \
+	'"name":"first","target":"../alias-target","contents":[' "$TREE" -Ji -l aliases
+assert_not_out "JSON does not expand an already visited directory alias" \
+	'"name":"second","target":"../alias-target","contents":[' "$TREE" -Ji -l aliases
 assert_not_out "JSON --filelimit blocks nested descent" '"name":"afile"' \
 	"$TREE" -J --filelimit 2 sub
 assert_out "JSON --filelimit keeps directory object" '"name":"sub"' \

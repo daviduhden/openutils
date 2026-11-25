@@ -1411,9 +1411,12 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
 					had_error = 1;
 				else {
 					if (filelimit == 0 ||
-					    count <= (size_t)filelimit)
+					    count <= (size_t)filelimit) {
+						addseen(
+						    e->st.st_dev, e->st.st_ino);
 						jsonentries(cp, d, xdev,
 						    lvl + 1, children, count);
+					}
 					freeents(children, count);
 				}
 				if (!iflag) {
