@@ -82,9 +82,8 @@ blksize() {
 	stat -c %o "$1" 2>/dev/null || stat -f %k "$1" 2>/dev/null
 }
 
-# run one size specification through both implementations and compare.
-# Without a GNU truncate there is no reference result, so the check is
-# skipped rather than counted as a pass.
+# Compare exit status and final size. Independent setup and size checks
+# prevent a broken fixture or stat command from creating a false match.
 # compare <desc> <size-arg> <initial-size>
 compare() {
 	desc=$1
@@ -397,7 +396,7 @@ assert_eq "-c does not create" "no" \
 "$TRUNC" --size +2 "$work/q1" >/dev/null 2>&1
 assert_eq "--size +N works" 10 "$(size "$work/q1")"
 
-# -o with a reference file is allowed; the size is scaled
+# With -o and -r, scale the adjustment by the target block size.
 "$TRUNC" -o -r "$work/ref" -s +1 "$work/q1" >/dev/null 2>&1
 assert_eq "-o -r -s +1 scales" \
 	"$((7 + $(blksize "$work/q1")))" \

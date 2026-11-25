@@ -119,11 +119,12 @@ help(void)
 
 /*
  * Parse a SIZE argument.  Returns 0 on success and fills in *val and
- * *relp (the relative mode in effect afterwards); *isrelp is set to 1
- * when this particular token carried a modifying character and 0 when
- * it was absolute.  Returns -1 on an invalid number (with errno set to
- * ERANGE on overflow); -2 when a sign is combined with a relative
- * modifier.
+ * *relp (the relative mode in effect afterwards). A token without a
+ * modifier can inherit the mode from an earlier -s. *isrelp records
+ * whether this token supplied its own modifier so -r can check the
+ * final token independently. Returns -1 on an invalid number
+ * (with errno set to ERANGE on overflow) and -2 when a sign is combined
+ * with a relative modifier.
  */
 [[nodiscard]] static int
 parse_size(const char *arg, off_t *val, enum relmode *relp, int *isrelp)
@@ -390,6 +391,10 @@ do_ftruncate(const char *fname, int fd, off_t ssize)
 	return (0);
 }
 
+/*
+ * Commit a size option or exit with a command-line diagnostic.
+ * Check the divisor here so per-file rounding can assume it is nonzero.
+ */
 static void
 set_size(const char *value, int *last_size_relative)
 {
@@ -571,6 +576,10 @@ main(int argc, char *argv[])
 			err(1, "pledge");
 	}
 
+	/*
+	 * Sample the reference once, before writing any operand. It is the
+	 * absolute request by itself, or the shared base for a relative -s.
+	 */
 	if (ref_file != nullptr) {
 		if (stat(ref_file, &sb) != 0)
 			err(1, "cannot stat '%s'", ref_file);
@@ -590,7 +599,8 @@ main(int argc, char *argv[])
 	 * Process every operand even after an error, so one failure does
 	 * not silently skip the remaining files; the final status is 1 if
 	 * anything failed.  O_NONBLOCK keeps open(2) from blocking on a
-	 * FIFO; ftruncate(2) on such a descriptor then fails normally.
+	 * FIFO. A FIFO open can fail immediately, or ftruncate(2) can reject
+	 * the descriptor if the open succeeded.
 	 * A close(2) error is also a failure because it can report a
 	 * deferred write error.
 	 */
