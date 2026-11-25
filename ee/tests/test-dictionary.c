@@ -18,8 +18,8 @@
 static int failures;
 
 /*
- * Assert one exact-word result.  The test is deliberately quiet on success so
- * the suite output stays focused on failures.
+ * Check full dictionary coverage, including forms accepted by affix rules.
+ * Emit diagnostics only when the expected and actual results differ.
  */
 static void
 expect(struct ee_spell *sp, const char *word, int want)

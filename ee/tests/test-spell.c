@@ -17,8 +17,8 @@
 static int failures;
 
 /*
- * Assert the engine's exact-word result and print a compact diagnostic line.
- * The failure counter is shared by all assertions and becomes the exit status.
+ * Check lookup after exact and affix matching.  Keep running after
+ * failures so a fixture regression shows every affected form.
  */
 static void
 expect_check(struct ee_spell *sp, const char *w, int want)
@@ -64,9 +64,8 @@ expect_suggest(struct ee_spell *sp, const char *w, const char *want)
 }
 
 /*
- * Open the tiny test dictionary, run exact-word and suggestion assertions, and
- * return the failure count.  The optional arguments override the default
- * affix/dictionary paths.
+ * The fixture isolates flag and condition checks from the bundled
+ * word list.  Optional arguments override both default input paths.
  */
 int
 main(int argc, char **argv)

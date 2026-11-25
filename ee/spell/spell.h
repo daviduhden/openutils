@@ -23,10 +23,13 @@ struct ee_spell;
 
 /*
  * Open a dictionary.  `aff_path` may be nullptr (only exact words are then
- * recognised).  `dic_path` is required.  Returns nullptr on failure.
+ * recognized).  `dic_path` is required.  The caller owns the returned
+ * dictionary and releases it with ee_spell_close().  Returns nullptr
+ * on failure.
  */
 struct ee_spell *ee_spell_open(const char *aff_path, const char *dic_path);
 
+/* Release the dictionary and its tables.  Accepts nullptr. */
 void ee_spell_close(struct ee_spell *sp);
 
 /*

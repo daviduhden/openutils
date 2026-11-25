@@ -14,7 +14,9 @@ Supported, i.e. the subset ee needs:
 - a dictionary given as a `.dic` word list with optional `/flags`;
 - `.aff` directives: `FLAG char|long`, `TRY`, `REP`, `PFX` and `SFX`;
 - exact word lookup, one prefix or one suffix at a time;
-- affix conditions: literals, `.`, `[...]`, `[^...]` and a trailing `*`;
+- affix conditions: byte literals, `.` byte wildcards, `[...]` and
+  `[^...]` sets, and `*` after a token for repetition. A standalone
+  `.` is special-cased to match any stem;
 - one-edit suggestions (replacement, deletion, transposition, substitution,
   insertion) driven by `TRY`.
 

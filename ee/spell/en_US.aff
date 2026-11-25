@@ -5,14 +5,15 @@
 # spell/README.md: exact lookup and at most one prefix or one suffix per
 # word (no cross product, no compounds).
 #
-# Condition syntax: a literal character, '.', a set '[...]' or '[^...]',
-# with an optional trailing '*'.  For a suffix the condition is matched
-# against the reconstructed stem, anchored at its end; for a prefix, at
-# its start.
+# Conditions test the reconstructed stem from the end for a suffix
+# and from the start for a prefix.  The standalone '.' accepts any
+# stem.  Sets such as '[^aeiou]y' test individual bytes.
 #
 # Licence: dedicated to the public domain (CC0-1.0); see
 # LICENSES/spell and spell/DICTIONARY-SOURCES.md.
 
+# FLAG controls the width of the flag IDs following / in en_US.dic.
+# The spell loader reads these rules before decoding dictionary flags.
 SET UTF-8
 FLAG char
 

@@ -72,6 +72,9 @@ sub doubles {
 }
 
 # --- the single regular form for each suffix flag -------------------------
+# Keep these transformations in step with en_US.aff.  Candidate
+# inflections enabled by the source lists can share an entry only when
+# the runtime rules can reconstruct their stem.
 
 sub _regular_s {
     my ($w)     = @_;

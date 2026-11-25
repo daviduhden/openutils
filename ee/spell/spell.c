@@ -226,8 +226,7 @@ build_index(struct ee_spell *sp)
 /* conditions							    */
 /* ---------------------------------------------------------------- */
 
-/* Test one condition token against a byte; non-ASCII bytes never match a set.
- */
+/* Only ASCII bytes can belong to a set.  Negation inverts membership. */
 static int
 tok_match(const struct spell_tok *t, unsigned char c)
 {
@@ -309,10 +308,10 @@ rule_matches(const struct spell_rule *r, const char *stem, int len, int suffix)
 }
 
 /*
- * Compile one affix condition into a token sequence.  The supported subset is
- * literal characters, "." wildcards, "[...]" and "[^...]" sets, and a single
- * trailing "*" repetition.  An empty condition, or ".", means "always match";
- * an unsupported shape returns -1 so the caller can disable the rule.
+ * Compile the condition into anchored byte tests.  A '*' after a token lets
+ * the matcher try zero or more occurrences before moving to the next token.
+ * An empty condition or a standalone "." matches any stem.  Return -1 when
+ * the condition exceeds the token array so the caller can disable the rule.
  */
 static int
 parse_condition(const char *s, struct spell_rule *r)
@@ -422,9 +421,10 @@ append_rule(struct spell_rule **list, int *n, const struct spell_rule *r)
 
 /*
  * Try one suffix or prefix rule at a time.  For each candidate, reconstruct the
- * stem by applying the rule's strip/add transformation, reject stems outside
- * the supported length, and require the dictionary entry to carry the rule's
- * flag.  Cross-product affixes are intentionally not attempted.
+ * stem by removing the word's added bytes and restoring the stripped bytes.
+ * The resulting stem must fit the length limit, satisfy the condition, and
+ * occur in the dictionary with the rule's flag.  Each lookup applies at most
+ * one affix.
  */
 static int
 check_affixes(struct ee_spell *sp, const char *word, int len)

@@ -1,3 +1,5 @@
+# Separate plural, consonant-y and unconditional prefix rules so tests
+# can exercise both anchored conditions and the entry's flag check.
 SET UTF-8
 TRY esianrtolcdugmphbyfvkwz
 SFX S Y 2
