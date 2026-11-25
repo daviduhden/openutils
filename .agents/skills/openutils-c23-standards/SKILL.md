@@ -72,6 +72,10 @@ callers have different open and publication rules.
 
 - Documentation-only changes: `git diff --check`, `git status`, and
   path/link checks. Do not run `make`.
+- For comment-only C edits, compare uncommented source across all
+  preprocessor branches and preserve whitespace where it matters to
+  macros. Keep line positions where they are expanded into diagnostics,
+  such as `CHECK` in `compat/tests/stdckdint.c`, which uses `__LINE__`.
 - For C formatting changes, review wrapped literals for identical text
   and keep layout changes in a separate commit from logic changes.
   A whitespace-insensitive diff still shows changes where a literal

@@ -114,6 +114,13 @@ For documentation-only changes, do not run `make`, `make check` or the
 test suites just to "validate" the documentation. Use static checks and
 state that no build or test was run.
 
+For comment-only changes, compare the effective source or configuration
+against the baseline. In C, account for line splicing, macro whitespace,
+and source locations used by `__LINE__`. In shell, Make and workflow
+scripts, check whether a comment-looking line is inside a string,
+here-document, recipe or YAML block scalar before treating it as inert.
+Preserve license notices and comments interpreted by tools.
+
 ## GitHub Actions pin maintenance
 
 The manual workflows are `.github/workflows/agent-knowledge-validation.yml`
