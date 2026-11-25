@@ -187,7 +187,7 @@ and tested elsewhere.
   parsed options.
 - `truncate`: `stdio wpath`, plus `cpath` unless `-c` and `rpath`
   only with `-r` — likewise chosen from the parsed options.
-- `ee`: restricted mode uses `stdio rpath wpath cpath fattr tty getpw`;
+- `ee`: restricted mode uses `stdio rpath wpath cpath fattr flock tty getpw`;
   normal mode stays unpledged because it executes shell commands.
   `unveil(2)` is not used where an editor must reach arbitrary files.
 

@@ -13,6 +13,7 @@ use warnings;
 
 use Carp           ();
 use Cwd            qw(abs_path);
+use Fcntl          qw(LOCK_EX LOCK_NB);
 use File::Basename qw(dirname);
 use File::Temp     qw(tempdir);
 use POSIX          qw(WNOHANG);
@@ -487,6 +488,36 @@ sub test_external_change {
       && $output =~ /file changed on disk/;
 }
 
+sub test_save_lock {
+    my ($work) = @_;
+    my $path = "$work/locked.txt";
+    open my $input, '>:raw', $path or Carp::croak "open $path: $!";
+    print {$input} "original\n";
+    close $input or Carp::croak "close $path: $!";
+
+    open my $dir, '<', $work or Carp::croak "open $work: $!";
+    flock $dir, LOCK_EX | LOCK_NB or Carp::croak "lock $work: $!";
+    my $s = Session->new( [ $EE, '-i', $path ], { TERM => 'xterm' } );
+    $s->pump(1.5);
+    $s->write_data("edited \x13");
+    $s->pump(0.8);
+    my $refused = read_raw($path) eq "original\n"
+      && $s->buf =~ /unable to save file/;
+    close $dir or Carp::croak "close $work: $!";
+
+    $s->write_data("\x13");
+    $s->pump(0.8);
+    $s->write_data("\x11");
+    my $exited = $s->wait_exit;
+    my $status = $?;
+    $s->close_session;
+    return
+         $refused
+      && $exited
+      && $status == 0
+      && read_raw($path) eq "edited original\n";
+}
+
 # Run the resize, UTF-8, bounds, tiny-terminal and shell-command cases and
 # report the accumulated failure count.
 sub main {
@@ -506,6 +537,8 @@ sub main {
         test_closed_pipe($work) );
     check( 'saving refuses a file changed since opening',
         test_external_change($work) );
+    check( 'a busy save lock leaves the buffer available for retry',
+        test_save_lock($work) );
     check( 'resize inside the menu',       test_resize_in_menu($work) );
     check( 'resize inside a prompt',       test_resize_in_prompt($work) );
     check( 'resize inside a confirmation', test_resize_in_confirm($work) );

@@ -23,6 +23,7 @@
 #define NCURSES_WIDECHAR 1
 #endif
 #include <sys/types.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -879,7 +880,8 @@ main(int argc, char *argv[])
 		get_options(argc, argv);
 	/* Restricted mode never executes a shell (sh_command checks it). */
 	if (restricted &&
-	    pledge("stdio rpath wpath cpath fattr tty getpw", nullptr) == -1)
+	    pledge("stdio rpath wpath cpath fattr flock tty getpw", nullptr) ==
+		-1)
 		err(1, "pledge");
 	/* Normal editing must remain unpledged to execute shell commands. */
 	set_up_term();
@@ -3569,6 +3571,38 @@ same_file_version(const struct stat *a, const struct stat *b)
 	    a->st_ctim.tv_nsec == b->st_ctim.tv_nsec);
 }
 
+/*
+ * Serialize publication by cooperating ee processes, including after
+ * the destination inode changes. The descriptor also lets the caller
+ * sync the directory after publishing.
+ */
+static int
+lock_save_directory(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+	char	   *parent = slash == nullptr ?
+	    nullptr :
+	    strndup(path, (size_t)(slash - path) + 1);
+	int	    fd;
+
+	if (slash != nullptr && parent == nullptr)
+		return (-1);
+	fd = open(parent == nullptr ? "." : parent,
+	    O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	free(parent);
+	if (fd != -1 && flock(fd, LOCK_EX | LOCK_NB) == -1) {
+		close(fd);
+		return (-1);
+	}
+	return (fd);
+}
+
+/*
+ * Serialize the line list to a sibling file and publish only after the
+ * stream closes successfully.  Confirm replacement of another name
+ * when requested.  Return TRUE after publication and leave the
+ * modified flag and active filename to the caller.
+ */
 static int
 write_file(char *file_name, int warn_if_exists)
 {
@@ -3578,6 +3612,8 @@ write_file(char *file_name, int warn_if_exists)
 	char	    *staged;
 	mode_t	     mode;
 	int	     fd, exists, lines = 0;
+	int	     dir_fd = -1;
+	int	     synced;
 	int	     write_ok = TRUE;
 
 	clear_com_win = TRUE;
@@ -3650,8 +3686,16 @@ write_file(char *file_name, int warn_if_exists)
 	}
 	if (write_ok && fchmod(fd, mode) == -1)
 		write_ok = FALSE;
+	if (write_ok && fsync(fd) == -1)
+		write_ok = FALSE;
 	if (fclose(temp_fp) != 0)
 		write_ok = FALSE;
+	if (write_ok && (dir_fd = lock_save_directory(file_name)) == -1)
+		write_ok = FALSE;
+	/*
+	 * Recheck existing paths immediately before rename.  For a new
+	 * name, link publishes the file only if the name is still free.
+	 */
 	if (write_ok && exists) {
 		if (lstat(file_name, &current) == -1 ||
 		    !same_file_version(&current, &original) ||
@@ -3661,16 +3705,25 @@ write_file(char *file_name, int warn_if_exists)
 		write_ok = FALSE;
 	unlink(staged);
 	free(staged);
-	if (!write_ok)
+	if (!write_ok) {
+		if (dir_fd != -1)
+			close(dir_fd);
 		goto failed;
+	}
+	synced = fsync(dir_fd) == 0;
 	if (in_file_name != nullptr &&
 	    strcmp((char *)in_file_name, file_name) == 0) {
 		loaded_version_known = lstat(file_name, &loaded_version) == 0;
 		loaded_file_exists = TRUE;
 	}
+	close(dir_fd);
 	wmove(com_win, 0, 0);
 	wclrtoeol(com_win);
-	wprintw(com_win, "\"%s\", %d lines written", file_name, lines);
+	if (synced)
+		wprintw(com_win, "\"%s\", %d lines written", file_name, lines);
+	else
+		wprintw(com_win, "\"%s\" saved, but directory sync failed",
+		    file_name);
 	wrefresh(com_win);
 	return (TRUE);
 
@@ -6449,6 +6502,8 @@ dump_ee_conf(void)
 	ssize_t	    linelen;
 	int	    option = 0;
 	int	    write_ok = TRUE;
+	int	    dir_fd = -1;
+	int	    published = FALSE;
 
 	if (restrict_mode())
 		return;
@@ -6543,9 +6598,14 @@ dump_ee_conf(void)
 	if (write_ok && old_name != nullptr &&
 	    fchmod(fileno(init_file), buf.st_mode & 0777) != 0)
 		write_ok = FALSE;
+	if (write_ok && fsync(fileno(init_file)) == -1)
+		write_ok = FALSE;
 	if (fclose(init_file) != 0)
 		write_ok = FALSE;
 	if (!write_ok)
+		goto rotate_fail;
+	dir_fd = lock_save_directory(file_name);
+	if (dir_fd == -1)
 		goto rotate_fail;
 	if (old_name != nullptr) {
 		struct stat current;
@@ -6561,18 +6621,29 @@ dump_ee_conf(void)
 			goto rotate_fail;
 	} else if (link(staged, file_name) != 0)
 		goto rotate_fail;
-	wprintw(com_win, "ee configuration saved in file %s", file_name);
+	published = TRUE;
 	goto cleanup;
 
 rotate_fail:
 	waddstr(com_win, conf_dump_err_msg);
 cleanup:
-	wrefresh(com_win);
-	clear_com_win = TRUE;
 	if (old_init_file != nullptr)
 		fclose(old_init_file);
 	if (staged != nullptr)
 		unlink(staged);
+	if (published) {
+		if (fsync(dir_fd) == 0)
+			wprintw(com_win, "ee configuration saved in file %s",
+			    file_name);
+		else
+			wprintw(com_win,
+			    "\"%s\" saved, but directory sync failed",
+			    file_name);
+	}
+	if (dir_fd != -1)
+		close(dir_fd);
+	wrefresh(com_win);
+	clear_com_win = TRUE;
 	free(staged);
 	free(old_name);
 	if (resolved != home_dir)

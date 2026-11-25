@@ -111,6 +111,19 @@ checking, but only ASCII words are checked; non-ASCII text is not
 examined.  The spell engine accepts and ignores a `SET` directive in
 the affix file; `SET` is not an ee setting.
 
+## Saving files
+
+Saves stage and sync a sibling file before publication. The editor
+takes a nonblocking advisory lock on the parent directory for the
+final identity check and publication. A busy lock leaves the buffer
+available for retry. The directory must be readable and support
+advisory locking. The lock coordinates ee processes saving in the
+same directory. Other programs can still modify files independently.
+
+After publication, ee syncs the directory and reports a warning if
+that sync fails. The file has already been published when this
+warning appears.
+
 ## Building and testing
 
 ```
