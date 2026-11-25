@@ -1,2 +1,3 @@
 [validator]
+# Select the shared contract and inherit its default rules and thresholds.
 contract_version = "1.0.0"

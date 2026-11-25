@@ -23,24 +23,37 @@ perl scripts/validate-agent-knowledge.pl \
 prove tests/agent_knowledge_validator/test_validator.pl
 ```
 
-`worktree` includes staged and unstaged tracked changes, untracked non-ignored
-files, renames, and deletions. `range` compares the merge base of `BASE_REF`
-and `HEAD_REF` with `HEAD_REF`. For committed comparisons, fetch sufficient
-history and pass the base and head commit SHAs; the validator resolves their
-common ancestor itself.
-
-
-Run range validation from a clean checkout of the requested head revision,
-as the manual workflow does. The version 1.0.0 validator reads instructions,
-configuration and local references from the checkout. Two contract cases
-should be reviewed upstream before changing this behavior: a requested head
-different from the checkout and worktree edits that cancel an index-only
-change in the net diff against HEAD. Coordinate any corresponding validator
-and contract-suite update across adopting repositories.
-
 Exit codes are consistent across repositories: `0` means no policy errors,
 `1` means a policy violation, and `2` means invalid arguments, configuration,
 Git state, or execution. Warnings do not change a successful exit code.
+
+## Change discovery and evaluation
+
+`worktree` takes the net tracked diff against `HEAD` and adds non-ignored
+untracked paths. An unstaged edit can therefore cancel a staged change to
+the same file in the net diff. `range` compares the merge base of the two
+requested commits with the requested head. Both modes disable Git rename
+detection, so a rename contributes a deletion and an addition.
+
+The scope selects the source of changed paths and instruction diffs.
+Configuration, instruction structure, and local references are evaluated
+against the checkout in both modes. For a committed comparison, fetch enough
+history to resolve the common ancestor and use a clean checkout of the
+requested head, as the manual workflow does. Review changes to these
+snapshot semantics upstream with the other adopting repositories.
+
+The synchronization gate classifies the changed paths and measures effective
+instruction edits. It trims and normalizes whitespace, skips headings and
+timestamp-like lines, and cancels matching added and removed lines before
+counting the remaining lines and alphanumeric characters. The structural
+and reference checks discover instruction files independently of the changed
+path list, so an unchanged instruction can still fail those checks.
+
+The black-box suite copies the canonical script into temporary Git
+repositories and invokes it as a subprocess. Assertions cover output,
+exit status, and how the public CLI responds to fixture changes. The manual
+workflow also validates its own checkout and committed range against the
+actual repository instructions.
 
 ## Rules
 

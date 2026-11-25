@@ -19,6 +19,8 @@ jobs:
 
   linux:
     runs-on: ubuntu-24.04
+    # The container supplies the C23 toolchains and libc independently of
+    # the host runner image. The matrix applies both compilers to both checks.
     container: ubuntu:26.04
     timeout-minutes: 20
     strategy:
@@ -44,6 +46,8 @@ jobs:
           "$TEST_CC" --version
           make check CC="$TEST_CC" CHECK_CC="$TEST_CC"
           make test CC="$TEST_CC"
+      # Seed the staging root with a neighboring dictionary to check ownership
+      # boundaries for both install and uninstall.
       - name: Verify staged dictionary installation
         env:
           TEST_CC: ${{ matrix.compiler }}
@@ -68,6 +72,8 @@ jobs:
           make -C truncate clean
           make -C tree test CFLAGS="-O1 -g -fsanitize=address,undefined"
           make -C truncate test CFLAGS="-O1 -g -fsanitize=address,undefined"
+      # This step follows the sanitizer run in the same job. A clean tree
+      # build restores ordinary compiler flags before collecting timings.
       - name: Measure wide trees and large editor inputs
         if: inputs.profile && matrix.compiler == 'clang'
         env:
@@ -97,6 +103,8 @@ jobs:
           done
 
   openbsd:
+    # The guest exercises native libc and pledge. The Linux job exercises
+    # the build with compatibility shims where its libc needs them.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

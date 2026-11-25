@@ -24,8 +24,11 @@ jobs:
       - name: Check out repository history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The range check needs the base ref and its common ancestor with HEAD.
           fetch-depth: 0
           persist-credentials: false
+      # Contract tests create their own repositories. The worktree and
+      # range checks below inspect this checkout.
       - name: Run canonical contract tests
         run: prove tests/agent_knowledge_validator/test_validator.pl
       - name: Run canonical worktree validation
