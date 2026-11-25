@@ -73,10 +73,9 @@ debug:
 #
 # CHECK_CC defaults to clang; override it on the command line for a
 # build with another compiler.  doasedit, tree and truncate are checked
-# with the full CHECK_WARNINGS set below, with one intentional
-# exception: GCC's -Wformat-nonliteral (implied by -Wformat=2)
-# diagnoses do_date()'s runtime strftime(3) format string, which comes
-# from the --timefmt option and is user-supplied by design.  ee is
+# with the full CHECK_WARNINGS set below. Tree scopes GCC's
+# -Wformat-nonliteral exception to the strftime(3) call that formats
+# the runtime --timefmt argument. ee is
 # checked with EE_WARNINGS, which omits -Wconversion and
 # -Wsign-conversion; those two flags are not part of the routine check
 # target.  -Werror is deliberately not used, so a newer compiler's new

@@ -298,8 +298,16 @@ do_date(time_t t)
 	if (tm == nullptr)
 		return ("");
 	if (timefmt != nullptr) {
+		/* --timefmt deliberately supplies a runtime strftime format. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
 		if (strftime(buf, sizeof(buf), timefmt, tm) == 0)
 			buf[0] = '\0';
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 	} else {
 		time_t c = time(nullptr);
 

@@ -90,6 +90,9 @@ callers have different open and publication rules.
   -Wpedantic`; `make check` adds `-Wshadow -Wformat=2 -Wundef
   -Wstrict-prototypes -Wmissing-prototypes` and, for the non-ee tools,
   `-Wconversion -Wsign-conversion`. `-Werror` is not used.
+- Keep the GCC `-Wformat-nonliteral` exception local to the `strftime`
+  call in tree that uses the runtime `--timefmt` argument. The default
+  timestamp formats remain subject to the full format checks.
 - If you cannot build (for example, no C23 compiler or no ncursesw),
   report that the change is statically reviewed but unbuilt. Do not
   claim a successful build or test.
