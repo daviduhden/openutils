@@ -1,13 +1,13 @@
 /*
- * Independent conformance test for the <stdckdint.h> shim.
+ * Checked arithmetic conformance test shared by both header selections.
  *
- * The system header (compiler resource header or libc) is not trusted here:
- * the fallback in compat/stdckdint.h is forced so that the code under test is
- * always the vendored implementation.  Every case checks both the overflow
- * indication and the value actually stored in the destination, and the
- * destination is compared against an independent arbitrary-precision oracle
- * built on __int128 rather than against another wrapper around the same
- * compiler builtin.
+ * run.sh builds this translation unit with ordinary discovery and with
+ * the local fallback forced. Every arithmetic case checks the overflow
+ * flag and the stored value. When __int128 is available, it provides
+ * enough precision for the reference calculation on operands up to
+ * 64 bits. The hand-written cases also run without that extension.
+ * The reference uses ordinary arithmetic so it can detect mistakes
+ * in the checked builtins instead of repeating their results.
  *
  * The oracle reimplements the C23 7.20.1 contract from the mathematical
  * definition: interpret each operand's width-bit pattern in its own type,
@@ -325,7 +325,7 @@ test_hand_written(void)
 		CHECK(ov && q == ULLONG_MAX, "mixed -1+0u wraps to ULLONG_MAX");
 	}
 
-	/* signed result, unsigned operand wider than result. */
+	/* Same-width signed result cannot represent the unsigned maximum. */
 	ll = 0;
 	ov = ckd_add(&ll, (unsigned long long)-1, 0ULL);
 	CHECK(ov && ll == -1, "ull -1 into long long wraps to -1");

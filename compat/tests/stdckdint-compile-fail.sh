@@ -8,11 +8,10 @@
 # compilers diagnose.  The diagnostic text is not compared, only whether the
 # translation unit is accepted.
 #
-# Two invalid uses are knowingly not covered here because GCC's overflow
-# builtins accept them without a diagnostic: a plain char result/operand and
-# an enumerated operand.  They are documented in the audit report; a valid
-# C23 program never uses them, so they do not affect conformance of accepted
-# programs.
+# Plain char and enumeration operands lack portable rejection checks here.
+# Some compiler builtins accept uses that C23 excludes. The valid controls
+# below catch a compiler or flag failure that would otherwise make every
+# negative case appear to pass.
 #
 # Exits non-zero if a rejected use was accepted or a valid use was rejected.
 

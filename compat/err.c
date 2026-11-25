@@ -1,5 +1,5 @@
 /*
- * err(3) family for libcs that declare but do not provide them.
+ * Local warn/err implementations selected by the libc guard below.
  * OpenBSD, the other BSDs and glibc provide them natively; this file
  * compiles to nothing on all of them.
  */

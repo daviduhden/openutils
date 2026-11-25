@@ -2,8 +2,8 @@
  * <stdckdint.h> compatibility shim.
  *
  * C23 places the checked-integer macros in the C library, but a system can
- * have a C23-capable compiler while its libc still lacks the header (OpenBSD
- * at the time of writing).  compat/ is searched ahead of the system
+ * have a C23-capable compiler while its libc still lacks the header.
+ * compat/ is searched ahead of the system
  * directories (-I), so this file is what
  *
  *	#include <stdckdint.h>
@@ -31,9 +31,9 @@
  * 1685535458.git.Jens.Gustedt@inria.fr>); no code is copied from either, only
  * the builtin contract they all express.
  *
- * OPENUTILS_STDCKDINT_FORCE_FALLBACK exists so that the test suite can
- * exercise the fallback on hosts whose libc already provides the header.  The
- * build never defines it.
+ * OPENUTILS_STDCKDINT_FORCE_FALLBACK lets tests bypass header discovery
+ * and exercise the local macros even when a compiler or libc supplies
+ * its own header. Production builds use ordinary header discovery.
  */
 
 #ifndef OPENUTILS_COMPAT_STDCKDINT_H

@@ -1,7 +1,7 @@
 /*
  * openutils portability shims.
  *
- * Every translation unit includes this header first.  On OpenBSD it
+ * Every production C source includes this header first.  On OpenBSD it
  * checks the language revision and selects the BSD libc branch, but
  * all of the interfaces below are native to the base system.  On other
  * hosts it does two things:
@@ -18,10 +18,8 @@
  *     tested on other systems.  These shims compile to nothing on
  *     OpenBSD.
  *
- * The header deliberately does not touch locale handling: the
- * interface language (U.S. English) and the character encoding
- * (UTF-8) are decided by the individual programs, never by the
- * environment.
+ * Each utility owns its locale policy. For example, ee checks the
+ * active LC_CTYPE before it opens the curses interface.
  */
 
 #ifndef OPENUTILS_BSDCOMPAT_H
@@ -61,7 +59,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* the BSDs provide everything below natively */
+/* Select native BSD libc interfaces independently of the kernel shims. */
 #if defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__NetBSD__) ||     \
     defined(__DragonFly__)
 #define OPENUTILS_BSD_LIBC 1
@@ -97,7 +95,9 @@ unveil(const char *, const char *)
  * a static in this header: setprogname() is called from the program's
  * main source file, while compat/err.c reads the name through
  * getprogname().  Per-translation-unit storage would leave err.c with
- * an empty name.
+ * an empty name. Programs initialize the buffer during startup. The
+ * returned pointer borrows this storage and its contents can change
+ * on the next setprogname() call.
  */
 #if !OPENUTILS_BSD_LIBC && (defined(__GLIBC__) || !defined(__linux__))
 extern char openutils_progname_buf[64];

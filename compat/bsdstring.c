@@ -5,7 +5,6 @@
  *
  * This file also defines the shared setprogname(3)/getprogname(3)
  * buffer declared in bsdcompat.h.
- *
  */
 
 // clang-format off
@@ -61,10 +60,9 @@ strlcpy(char *dst, const char *src, size_t dsize)
 /*
  * Append src to the NUL-terminated string in dst, truncating so that the
  * result and its terminator fit in dsize bytes.  Returns
- * strlen(dst) + strlen(src), the length the combined string would have
- * had; a return value of dsize or larger means truncation (or that dst
- * was not terminated within dsize).  The destination is not modified
- * when dsize is zero.
+ * strnlen(dst, dsize) + strlen(src), using the original destination
+ * length. A result of dsize or larger signals insufficient room.
+ * If the initial scan finds no terminator, dst is left untouched.
  */
 size_t
 strlcat(char *dst, const char *src, size_t dsize)
@@ -111,8 +109,8 @@ strlcat(char *dst, const char *src, size_t dsize)
 /*
  * Allocate or resize an array of nmemb elements of size bytes each.
  * The multiplication is checked: on overflow, errno is set to ENOMEM
- * and nullptr is returned.  Otherwise the call is delegated to
- * realloc(3), which sets errno itself when it fails.
+ * and nullptr is returned with the original allocation intact.
+ * Otherwise realloc(3) supplies the allocation and ownership semantics.
  */
 void *
 reallocarray(void *optr, size_t nmemb, size_t size)
