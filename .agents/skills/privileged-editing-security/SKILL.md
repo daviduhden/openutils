@@ -41,7 +41,8 @@ Preserve all of these unless the user explicitly requests a redesign:
   be dangerous.
 - The target's identity is captured in a `struct snapshot` (device,
   inode, mode, owner, group, size, modification time) and compared
-  before write-back.
+  before write-back. A privileged copy checks the named target after
+  the read, while a local copy can check its open descriptor.
 - After opening a descriptor, compare its `fstat(2)` identity against
   the snapshot, not only device/inode.
 - Temporary files live in a private `mkdtemp(3)` directory with `0600`
@@ -55,6 +56,8 @@ Preserve all of these unless the user explicitly requests a redesign:
 - Require a successful editor exit before installation, including
   configuration re-edits. Repeat target checks before each privileged
   attempt. Authentication can still intervene before replacement.
+- The startup zero-byte `doas dd` probe checks authorization for that
+  invocation. Later commands have separate authorization decisions.
 - Termination handlers record a `sig_atomic_t` value. Clean up only
   after waiting for children. Recovery is opt-in and retains only the
   edited file under the private temporary directory.

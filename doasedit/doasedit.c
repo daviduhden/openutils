@@ -21,15 +21,15 @@
  * doasedit: edit a file with an unprivileged editor and save the result
  * with doas(1).
  *
- * The program is deliberately built around file descriptors and
- * identity snapshots instead of pathname-based copies:
+ * The editor works on a private copy. File descriptors and metadata
+ * snapshots provide checks at the read and publication boundaries:
  *
- *   1. The target's parent directory is resolved with realpath(3), and
- *      the final component is kept separate.  The target itself is never
- *      resolved through a symlink.
- *   2. An lstat(2)/stat(2) snapshot records the device, inode, mode,
- *      owner, group, size and modification time.  It is compared before
- *      every read and write to detect a swap during editing.
+ *   1. Resolve the target's parent directory with realpath(3), keeping
+ *      the final component separate so validation can reject symlinks.
+ *   2. An lstat(2) snapshot records device, inode, mode, owner, group,
+ *      size and modification time for an existing target. The local
+ *      copy checks its open descriptor, and the privileged copy checks
+ *      the named target after the read.
  *   3. A private mkdtemp(3) directory holds the editable copy and an
  *      untouched copy used to detect "no changes".  Both files are
  *      created with O_EXCL and mode 0600.
@@ -38,7 +38,9 @@
  *   5. A changed buffer is written back either through the already-open
  *      descriptor (for a user-writable file, preserving the inode) or
  *      with "doas install", which replaces the target atomically by
- *      rename(2) for a stable regular destination.
+ *      rename(2) for a stable regular destination. The privileged
+ *      operation still relies on trusted paths during authentication
+ *      and publication.
  *
  * The doas.conf check runs before the final save: replacing a
  * configuration file that doas itself would reject is a lockout risk,
@@ -50,9 +52,8 @@
  */
 
 /*
- * Path of the doas(1) binary.  The absolute path is preferred so that
- * a malicious PATH cannot substitute another program for the
- * privileged one; execvp(3) is used as a fallback for unusual setups.
+ * Prefer the OpenBSD base doas(1). If that exec fails, the fallback
+ * searches the invoking user's PATH.
  */
 #define DOAS_PATH "/usr/bin/doas"
 
@@ -238,6 +239,11 @@ run_editor(char *const *editor, const char *file)
 		free(argv);
 		return (-1);
 	}
+	/*
+	 * Keep SIGCHLD and cancellation blocked across fork and the
+	 * waitpid(2) check. sigsuspend(2) then changes the mask and sleeps
+	 * atomically, so an exit between the check and sleep wakes us.
+	 */
 	pid = fork();
 	if (pid == 0) {
 		(void)sigprocmask(SIG_SETMASK, &previous, nullptr);
@@ -316,6 +322,11 @@ doas_exec(const char *const *argv, int outfd, int infd)
 
 [[nodiscard]] static int fd_copy_to(int, int);
 
+/*
+ * Open an editor-side regular file and transfer its fd to the caller.
+ * O_NONBLOCK lets the type check reject a FIFO without waiting for a
+ * writer. On failure, preserve the open or validation error.
+ */
 static int
 open_regular(const char *path)
 {
@@ -514,9 +525,9 @@ snapshot_of(const char *path, struct snapshot *snap)
 
 /*
  * Compare every field recorded by snapshot_of().  Device and inode
- * detect replacement; mode, owner and group detect a metadata change;
- * size and nanosecond mtime detect an in-place rewrite, including the
- * file system's reuse of a just-freed inode number.
+ * can identify a replacement. Mode, owner and group reflect permission
+ * and ownership changes. Size and nanosecond mtime can reflect content
+ * changes without an inode change.
  */
 static int
 stat_matches_snapshot(const struct stat *st, const struct snapshot *snap)
@@ -643,10 +654,10 @@ command_exists(const char *cmd)
  * Run "doas -C <tmpfile>" when the target is a doas configuration file.
  * doas -C parses the named configuration and exits nonzero if it is
  * invalid, so this exercises the edited file before it can replace a
- * working configuration.  On failure the user may edit again, overwrite
- * anyway, or abort; the function returns 0 for "continue with saving"
- * and 1 for "abort this file".  A read error on stdin is treated as
- * abort, matching a non-interactive caller that cannot answer.
+ * working configuration. The check covers syntax only. On failure the
+ * user may edit again, overwrite anyway, or abort. Returns 0 to
+ * continue and 1 to abort this file. EOF or a read error on stdin
+ * aborts the file as well.
  */
 static int
 check_doas_conf(const char *target, const char *tmpfile, char *const *editor)
@@ -701,11 +712,11 @@ static char **editor_cmd;
  * "doas dd" is permitted, resolves the editor command and creates the
  * private temporary directory.  The argument loop then processes each
  * operand in this order: resolve, validate, snapshot, copy in, edit,
- * compare, write back.  Every failure applies only to the current
- * operand; the exit status is 0 if at least one file was saved or found
- * unchanged, and 1 if no operand succeeded.  A later failure does not
- * turn an earlier success back into failure.  The temporary directory
- * is shared by all operands and removed after the last one.
+ * compare, write back. Ordinary operand failures let the loop continue.
+ * The aggregate status is 0 after any successful save or unchanged
+ * comparison. Cancellation returns 128 plus the signal number, and
+ * retaining a failed edit stops processing with status 1.
+ * Each operand has its own subdirectory under the session directory.
  */
 int
 main(int argc, char *argv[])
@@ -767,10 +778,9 @@ main(int argc, char *argv[])
 		errx(1, "using this program as root is not permitted");
 
 	/*
-	 * Check in advance that modifications can actually be saved:
-	 * the same probe as the original implementation.  "doas dd"
-	 * confirms that the configuration permits the privileged
-	 * operations before the user spends time editing.
+	 * Retain the original zero-byte doas dd probe. Authorization is
+	 * decided again for each actual cat, install or configuration
+	 * check because each invocation has its own arguments.
 	 */
 	{
 		const char *probe[] = {"doas", "dd", "status=none", "count=0",
@@ -818,9 +828,9 @@ main(int argc, char *argv[])
 		memcpy(tdir_tmpl + dlen, suffix, sizeof(suffix));
 	}
 	/*
-	 * mkdtemp(3) creates the directory with mode 0700 and replaces
-	 * the Xs in the template, so the temporary names inside it are
-	 * not predictable from outside.
+	 * mkdtemp(3) creates the session directory with mode 0700.
+	 * TMPDIR supplies its parent, which must remain trusted because
+	 * privileged publication reopens the edited copy by pathname.
 	 */
 	tmpdir = mkdtemp(tdir_tmpl);
 	if (tmpdir == nullptr)
@@ -984,9 +994,9 @@ main(int argc, char *argv[])
 			 * cannot fully access.  A file that is both readable
 			 * and writable could simply be edited directly, so
 			 * editing it through doas would add privilege for no
-			 * reason; reject it.  A read-only or write-only file
-			 * selects the doas cat copy or the direct-write path
-			 * below.
+			 * reason; reject it. Read access determines whether
+			 * loading uses doas cat. Write access determines
+			 * whether saving can use a local descriptor.
 			 */
 			readable = open(target, O_RDONLY | O_NOFOLLOW);
 			if (readable != -1) {
@@ -1003,8 +1013,11 @@ main(int argc, char *argv[])
 			}
 		}
 
-		/* Give editor-created files a separate directory for each
-		 * operand. */
+		/*
+		 * Isolate editor-created side files across operands. Keep
+		 * the original basename so the editor can recognize its
+		 * extension, and choose a distinct comparison filename.
+		 */
 		if (asprintf(&editdir, "%s/edit.XXXXXXXXXX", tmpdir) == -1)
 			err(1, "asprintf");
 		if (mkdtemp(editdir) == nullptr) {
@@ -1084,9 +1097,10 @@ main(int argc, char *argv[])
 			} else {
 				/*
 				 * Not readable by the user: copy with
-				 * doas.  Verify afterwards that the
-				 * target was not replaced while cat(1)
-				 * read it, and retry a few times.
+				 * doas. Compare the named target with
+				 * the snapshot after cat(1) returns.
+				 * This observes metadata at the end of
+				 * the read. cat opens its own input.
 				 */
 				const char *cat_argv[] = {
 				    "doas", "cat", target, nullptr};
@@ -1206,8 +1220,12 @@ main(int argc, char *argv[])
 			goto next;
 		}
 
-		/* direct write path (write-only files the user can
-		 * open): write into the existing inode */
+		/*
+		 * For a locally writable target, verify the descriptor
+		 * before updating the existing inode. Truncation follows
+		 * the copy so it removes the old suffix at the new end.
+		 * A failure or interruption can leave partial contents.
+		 */
 		fd = -1;
 		if (access(target, W_OK) == 0)
 			fd = open(target, O_WRONLY | O_NOFOLLOW);
