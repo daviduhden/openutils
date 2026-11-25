@@ -3,10 +3,9 @@
 # Top-level build driver.  Works with OpenBSD make(1); no GNU make
 # extensions are used.
 #
-# Build variables are propagated to the per-utility Makefiles through
-# the environment. Utility-specific include paths are passed separately
-# from CPPFLAGS. CC and CSTD have fixed defaults; override them on the
-# make command line (for example, make CC=gcc).
+# Shared settings travel through the environment. Recursive make also
+# carries command-line overrides (for example, make CC=gcc). Each
+# utility owns its compiler inputs and mandatory include directories.
 
 CC = clang
 CFLAGS ?= -O2 -pipe
@@ -56,10 +55,12 @@ ee:
 truncate:
 	$(MAKE_ENV) $(MAKE) -C truncate all
 
+# The shell drivers use the freshly built binaries and keep their
+# fixtures in temporary directories. ee owns its test build and runner.
 test: all
 	CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" sh compat/tests/run.sh && CC="$(CC)" CFLAGS="$(CFLAGS)" CSTD="$(CSTD)" FORCE=OPENUTILS_STDCKDINT_FORCE_FALLBACK sh compat/tests/stdckdint-compile-fail.sh && sh tree/tests/run.sh && sh truncate/tests/run.sh && $(MAKE_ENV) $(MAKE) -C ee test
 
-# build one utility with -g -O0 and run it under lldb(1)
+# Delegate the unoptimized build and debugger invocation to the utility.
 debug:
 	@if [ -z "$(PROG)" ]; then \
 		echo "usage: make debug PROG=<doasedit|tree|ee|truncate>" >&2; \
@@ -67,7 +68,8 @@ debug:
 	fi
 	$(MAKE_ENV) $(MAKE) -C $(PROG) debug
 
-# strict-warning build of every component (developer target).
+# Check source policy, then rebuild with extra warnings. Finish with
+# normal builds so later commands use the default warning settings.
 #
 # CHECK_CC defaults to clang; override it on the command line for a
 # build with another compiler.  doasedit, tree and truncate are checked

@@ -13,4 +13,5 @@ ee/tests/test-dictionary
 *.o
 core
 core.*
+# Stamp for the compiled dictionary path, independent of DESTDIR.
 /ee/.dictdir

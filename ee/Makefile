@@ -2,8 +2,7 @@
 #
 # Terminal handling uses ncursesw (the wide-character ncurses), so the
 # editor depends on an external curses implementation instead of the
-# historical bundled mini-curses.  The code builds warning-free with
-# strict flags.
+# historical bundled mini-curses.
 
 PROG = ee
 SRCS = ee.c utf8.c help.c spell/spell.c
@@ -29,7 +28,8 @@ NCURSES_LIBS != $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw
 PROJECT_CPPFLAGS = -I. -I../compat $(NCURSES_CFLAGS)
 LDLIBS = $(NCURSES_LIBS)
 
-# compat shims for non-OpenBSD hosts (they compile to nothing there)
+# Compile the shared shims with the utility. Each shim checks whether libc
+# already supplies its interfaces.
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
 
 PREFIX ?= /usr/local
@@ -42,7 +42,8 @@ DICTDIR ?= $(PREFIX)/share/openutils/ee
 
 all: $(PROG)
 
-# Rebuild if the configured dictionary path changes, including for staged installs.
+# Track the compiled runtime search path.  DESTDIR is applied only to
+# the installation paths, so a staging root stays out of the binary.
 .dictdir: FORCE
 	@printf '%s\n' '$(DICTDIR)' | cmp -s - $@ || printf '%s\n' '$(DICTDIR)' > $@
 
@@ -62,6 +63,7 @@ clean:
 	rm -f $(PROG) $(PROG)_debug .dictdir ee.o utf8.o help.o spell/spell.o \
 	    tests/test-spell tests/test-dictionary
 
+# The editor chooses restricted mode from its invocation name (ree).
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1 $(DESTDIR)$(DICTDIR)
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG) && install -m 644 $(PROG).1 $(DESTDIR)$(MANDIR)1/$(PROG).1
@@ -74,6 +76,8 @@ uninstall:
 	    $(DESTDIR)$(BINDIR)/edit $(DESTDIR)$(MANDIR)1/$(PROG).1 \
 	    $(DESTDIR)$(DICTDIR)/en_US.aff $(DESTDIR)$(DICTDIR)/en_US.dic
 
+# The small fixture isolates affix rules.  The bundled data check
+# covers generation output before PTY tests exercise the whole editor.
 test: $(PROG)
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o tests/test-spell tests/test-spell.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-spell tests/spell-test.aff tests/spell-test.dic
 	$(CC) $(CFLAGS) $(CSTD) $(WARNINGS) $(PROJECT_CPPFLAGS) $(CPPFLAGS) -o tests/test-dictionary tests/test-dictionary.c spell/spell.c $(COMPAT_SRCS) $(LDFLAGS) && ./tests/test-dictionary spell/en_US.aff spell/en_US.dic

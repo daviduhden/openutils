@@ -11,7 +11,8 @@ PROJECT_CPPFLAGS = -I../compat
 DEBUGGER ?= lldb
 DEBUG_CFLAGS ?= -O0 -g
 
-# compat shims for non-OpenBSD hosts (they compile to nothing there)
+# Compile the shared shims with the utility. Each shim checks whether libc
+# already supplies its interfaces.
 COMPAT_SRCS = ../compat/strtonum.c ../compat/err.c ../compat/bsdstring.c
 
 PREFIX ?= /usr/local
@@ -33,6 +34,7 @@ debug: $(PROG)_debug
 clean:
 	rm -f $(PROG) $(PROG)_debug $(PROG).o
 
+# Prepend DESTDIR when staging the installed binary and manual page.
 install: $(PROG)
 	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)1
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)/$(PROG)
