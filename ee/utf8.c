@@ -30,7 +30,9 @@
 static_assert(CHAR_BIT == 8, "the UTF-8 helpers assume 8-bit bytes");
 
 /*
- * Strict UTF-8 decoder.  See utf8.h for the contract.
+ * Assemble the scalar from the lead byte and six payload bits per
+ * continuation byte.  Commit the result only after checking the
+ * encoding length and scalar range.
  */
 int
 ee_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp, size_t *len)

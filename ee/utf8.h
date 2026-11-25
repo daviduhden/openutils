@@ -19,8 +19,8 @@
  *   - a truncated sequence, a stray continuation byte or an invalid
  *     lead byte is rejected.
  *
- * A byte that begins an invalid sequence has length one and is not a
- * character; callers that have validated their input never see one.
+ * Decoding validates each sequence.  The navigation helpers assume
+ * valid text, and the editor applies its own NUL policy.
  */
 
 #include <stddef.h>
@@ -29,9 +29,8 @@
 /*
  * Decode the UTF-8 sequence at s, examining at most n bytes.  On
  * success stores the code point in *cp and its byte length in *len and
- * returns 1.  On any invalid or truncated sequence returns 0 and leaves
- * *cp and *len unspecified.  A NUL byte terminates the sequence and is
- * treated as invalid for the purpose of text decoding.
+ * returns 1.  Returns 0 on an invalid or truncated sequence without
+ * writing either output.  A NUL byte decodes to U+0000.
  */
 int ee_utf8_decode(const unsigned char *s, size_t n, uint32_t *cp, size_t *len);
 

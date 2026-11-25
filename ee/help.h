@@ -25,9 +25,10 @@
 int ee_help_count(int keys_mode);
 
 /*
- * Fill out with logical help line `index` (0-based), NUL-terminated and
- * truncated to outsz.  Sets *is_header to 1 for a section header.  If
- * index is out of range, out is set to the empty string.
+ * Fill out with logical help line `index` (0-based), including a NUL
+ * within outsz bytes.  outsz must be positive.  Sets *is_header to 1
+ * for a section header and 0 otherwise.  An index outside the range
+ * leaves an empty string.
  */
 void ee_help_line(
     int keys_mode, int index, char *out, size_t outsz, int *is_header);

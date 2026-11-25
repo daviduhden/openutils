@@ -222,8 +222,8 @@ ee_help_count(int keys_mode)
  * index it formats the header, the item (selecting the emacs key label
  * when applicable), the blank separator, or one of the trailing usage
  * lines.  Out-of-range indices leave out empty, as the header contract
- * requires, and key labels are bounded so a long label cannot push the
- * description out of the caller's buffer.
+ * requires.  Key labels use a bounded intermediate buffer before the
+ * complete line is formatted to the caller's size.
  */
 void
 ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
@@ -257,9 +257,8 @@ ee_help_line(int keys_mode, int index, char *out, size_t outsz, int *is_header)
 				    (sec->items[j].emacs != nullptr))
 					key = sec->items[j].emacs;
 				/*
-				 * Bound the key field so that a long
-				 * label can never push the description
-				 * out of the caller's buffer.
+				 * Cap the key label independently of
+				 * the destination line size.
 				 */
 				snprintf(keybuf, sizeof(keybuf), "%s", key);
 				snprintf(out, outsz, "  %-12s %s", keybuf,

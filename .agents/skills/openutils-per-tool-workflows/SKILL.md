@@ -73,28 +73,35 @@ drivers default to absolute paths derived from their own location.
   vector. Apply depth and device checks before opening children in
   either path. Pruning skips readable empty ordinary directories
   within the descent boundary and retains directory links.
-- The visited `(dev, ino)` set is global to the walk; a symlink to any
-  directory already visited is reported as recursive. It is not an
-  ancestor-only detector.
+- The visited `(dev, ino)` set is global to the walk. Follow decisions
+  consult registered identities across branches and root operands.
+  Review registration in each walker before assuming they detect the
+  same repeats.
 - `-x` applies to ordinary subdirectories and followed symlinks; a
   mount point is printed but not descended.
 - `-o` opens with `O_NOFOLLOW | O_NONBLOCK`, checks for a regular file
   with `fstat` and only then truncates it. Output write/close errors set
   exit status 2.
-- `-N` deliberately prints raw names; do not use it when output is
-  consumed by a terminal or a strict JSON parser.
+- `-N` prints raw names in text output. JSON always encodes names
+  through `json_enc()`.
 - Tests: `sh tree/tests/run.sh`. Use `TREE=/absolute/path`.
 
 ## ee
 
-- The buffer is a doubly linked list of lines. `line_length` includes
-  the terminating NUL; `write_file` writes `line_length - 1` bytes plus
-  a newline. Document writes stage a sibling file and publish after a
-  successful close. Check the owner, links, permissions and original
-  identity at the boundaries. Validate the extra `fattr` operations in
-  `ree` on OpenBSD.
-- Input is validated before it enters the buffer: NUL and malformed
-  UTF-8 are rejected. Do not add a byte-oriented mode.
+- The buffer is a doubly linked list of lines. Import stores LF as a
+  line boundary. `line_length` includes the terminating NUL, and
+  `write_file` writes `line_length - 1` bytes plus a newline for each
+  node. A save adds the final LF if it was absent. Document writes
+  stage and sync a sibling file, then close it before publication.
+  Document and configuration saves lock the parent directory during
+  the final identity check and publication. Existing files use rename
+  and new names use link. A directory sync failure after publication
+  is reported as a durability warning. Verify `fattr` and `flock`
+  operations in `ree` on OpenBSD.
+- Input is validated before it enters the buffer. The bounded UTF-8
+  decoder accepts U+0000 as a scalar, and the text validator rejects
+  NUL separately to preserve the buffer representation. Do not add a
+  byte-oriented mode.
 - The editor is always UTF-8; `LC_CTYPE` must be UTF-8 or ee refuses to
   start. The interface is U.S. English.
 - `ree` is selected by `argv[0]`; it may save the named file but refuses

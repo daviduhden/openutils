@@ -59,9 +59,11 @@
  * cursor is the pair (curr_line, point), where point is a byte pointer
  * on a character boundary.  position is the 1-based byte offset of
  * point, scr_horz the display column in terminal cells and horiz_offset
- * the first visible column.  Characters are never split: all movement
- * and deletion goes through utf8_prev()/utf8_len(), and the helpers in
- * utf8.c are the only UTF-8 implementation.
+ * the first visible column.  Text movement uses UTF-8 sequence
+ * boundaries.  utf8.c handles byte-level validation and traversal,
+ * while ncursesw and the locale handle terminal input and cell widths.
+ * A sequence represents one Unicode scalar, which can be part of a
+ * larger visible character.
  *
  * Terminal layout
  * ---------------
@@ -3202,9 +3204,9 @@ check_fp(void)
 }
 
 /*
- * Read the whole of fd into a freshly allocated buffer.  The buffer is
- * grown geometrically with reallocarray(3); overflow and allocation
- * failure are reported as an error rather than silently truncating.
+ * Read through EOF so the caller can validate an entire input before
+ * changing the document.  On success the caller owns *out, a byte
+ * span of *outlen bytes.  The descriptor remains open on either path.
  */
 [[nodiscard]] static int
 read_all(int fd, unsigned char **out, size_t *outlen)
@@ -3321,6 +3323,10 @@ get_file(char *file_name)
 	}
 
 	can_read = (len > 0);
+	/*
+	 * LF separates line nodes.  A final LF closes the last line
+	 * without creating a second, empty node after it.
+	 */
 	for (size_t pos = 0; pos < len;) {
 		const unsigned char *newline =
 		    memchr(data + pos, '\n', len - pos);
@@ -3528,14 +3534,10 @@ confirm(const char *question)
 }
 
 /*
- * Write the whole buffer to file_name, one line at a time, each line
- * followed by '\n'.  When warn_if_exists is true and the name differs
- * from the current buffer's file, an existing file is confirmed before
- * it is truncated.  Returns TRUE only if every fwrite(3)/fputc(3) and
- * the final fflush(3)/fclose(3) succeeded; an I/O failure prints a
- * message in com_win, while a declined overwrite simply returns FALSE.
- * The caller is responsible for updating in_file_name and the modified
- * flag on success.
+ * Create a private sibling so the caller can publish it on the same
+ * file system.  On success the caller owns both the stream and the
+ * pathname and must close the stream, unlink the staging name, and
+ * free the pathname.  Failure leaves *staged null.
  */
 static FILE *
 stage_file(const char *path, char **staged)
@@ -3562,6 +3564,11 @@ stage_file(const char *path, char **staged)
 	return (nullptr);
 }
 
+/*
+ * Compare the identity and change stamp used to detect ordinary edits
+ * or replacement since load or save setup.  This comparison is a
+ * snapshot and acquires no lock on the pathname.
+ */
 static int
 same_file_version(const struct stat *a, const struct stat *b)
 {
@@ -3661,9 +3668,8 @@ write_file(char *file_name, int warn_if_exists)
 	wrefresh(com_win);
 
 	/*
-	 * The buffer is written byte for byte and the result is only
-	 * reported as successful once fflush(3) and fclose(3) have
-	 * confirmed that no deferred error occurred.
+	 * Every line node becomes its UTF-8 bytes and one newline.  The
+	 * final newline is therefore present even if the input lacked it.
 	 */
 	out_line = first_line;
 	while ((out_line != nullptr) && write_ok) {
@@ -4342,10 +4348,10 @@ from_top(void)
  *   - plain command: curses is temporarily shut down, the shell inherits
  *     the terminal, and the editor waits for it before restoring the
  *     screen;
- *   - in_pipe ("<cmd"): a pipe is created and the shell's stdout/stderr
+ *   - in_pipe ("<!cmd"): a pipe is created and the shell's stdout/stderr
  *     are read into the buffer by get_file(); the editor stays in curses
  *     mode;
- *   - out_pipe (">cmd"): the buffer is written to the shell's stdin.
+ *   - out_pipe (">!cmd"): the buffer is written to the shell's stdin.
  * The shell is executed directly with execl(3) and "-c"; the editor does
  * not wrap the command in another shell.  Restricted mode returns before
  * any of this.  After a terminal-mode command the layout
@@ -4427,7 +4433,8 @@ sh_command(char *string)
 			 */
 		} else /* if the parent	*/ {
 			/*
-			 |  prepare editor to read from the pipe
+			 * Drain stdout and stderr before waiting, so a child
+			 * producing more than one pipe buffer can finish.
 			 */
 			line_holder = curr_line;
 			tmp_vert = scr_vert;
@@ -4581,16 +4588,9 @@ sh_command(char *string)
 					break;
 			}
 			/*
-			 |  if this process is actually the child of the editor,
-			 exit.  Here's how it |  works: |  The editor forks a
-			 process.  If output must be sent to the command to be
-			 |  exec'd another process is forked, and that process
-			 (the child's child) |  will exec the command.  In this
-			 case, "shell_fork" will be FALSE.  If no |  output is
-			 to be performed to the shell command, "shell_fork" will
-			 be TRUE. |  If this is the editor process, shell_fork
-			 will be true, otherwise this is |  the child of the
-			 edit process.
+			 * During capture, the intermediate child reaps the
+			 * shell and relays its success or failure to the
+			 * editor.  Only the editor resumes the UI.
 			 */
 			command_failed |= return_val == -1 ||
 			    !WIFEXITED(status) || WEXITSTATUS(status) != 0;
@@ -6476,14 +6476,12 @@ ee_init(void)
 
 /*
  * Save the current settings to .init.ee, either in the current
- * directory or in $HOME.  Restricted mode refuses.  The existing file
- * is first rotated to .init.ee.old with link(2), so the old inode and
- * contents survive as the backup until the rewrite succeeds; then all
- * non-setting lines (comments, ECHO output, unknown text) are copied
- * from the backup before the current values are written.  A failure at
- * any point reports a message, and the original is never removed when
- * the backup could not be created.  fflush(3) and fclose(3) are checked
- * so a deferred write error is not reported as success.
+ * directory or in $HOME.  Restricted mode refuses.  The staged copy
+ * keeps non-setting lines (including ECHO commands) and appends the
+ * current settings.  After checking the stream, recheck the old file,
+ * link it to .init.ee.old, and publish the staged copy with rename.
+ * Creating a new configuration uses link so an intervening creation
+ * cannot be overwritten.
  */
 
 static void
