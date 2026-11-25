@@ -43,7 +43,7 @@ assert() {
 	fi
 }
 
-# Assert that captured output contains a literal substring.
+# Require command success before matching a literal substring in stdout.
 assert_out() {
 	desc=$1
 	pattern=$2
@@ -56,7 +56,7 @@ assert_out() {
 	fi
 }
 
-# Assert that captured output does not contain a literal substring.
+# A failed producer cannot pass a negative assertion on empty output.
 assert_not_out() {
 	desc=$1
 	pattern=$2
@@ -78,7 +78,7 @@ assert_eq() {
 	fi
 }
 
-# build the hierarchy
+# Build fixtures for tests that use relative display paths.
 work=$(mktemp -d "${TMPDIR:-/tmp}/tree-test.XXXXXX") || exit 1
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
@@ -223,7 +223,7 @@ assert_not_out "JSON --filelimit blocks nested descent" '"name":"afile"' \
 assert_out "JSON --filelimit keeps directory object" '"name":"sub"' \
 	"$TREE" -J --filelimit 2 sub
 
-# JSON filelimit also applies to the contents of a followed symlink
+# Keep the link object when its target exceeds the entry limit.
 mkdir -p fl/holder
 ln -s ../../sub/wide fl/holder/link
 assert_out "JSON -l shows followed link" '"name":"link"' \
@@ -236,7 +236,7 @@ assert_out "text filelimit counts filtered entries" "3 entries exceeds filelimit
 assert_out "JSON emits metadata for a file operand" '"size":' \
 	"$TREE" -Js sub/afile
 
-# -o output file
+# Exercise regular output and early rejection of special files.
 "$TREE" -o "$work/out.txt" sub 2>/dev/null
 assert "output file written" [ -s "$work/out.txt" ]
 assert_out "output file has content" "afile" grep . "$work/out.txt"

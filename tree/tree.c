@@ -31,15 +31,15 @@
  * The walk is split into two layers.  collect() reads one directory with
  * readdir(3), attaches lstat(2)/stat(2) data (following a symlink to
  * classify its target), applies the -d, -P and -I filters, and sorts the
- * surviving entries.  dirwalk()/jsonentries() then own that array, print
- * or emit it, and recurse into directories.  freeents() releases the
- * entry names and targets; the array itself is consumed by the walk.
+ * surviving entries.  dirwalk() and jsonwalk() consume their arrays.
+ * jsonentries() borrows its input and owns any child vectors it collects.
+ * Use freeents() to release a vector and its names and targets.
  *
  * The text and JSON walkers are separate because their output shape and
  * bookkeeping differ, but they share collect(), the sorting rules, the
- * visited-directory set and the -L/--filelimit/--prune logic.  Visited
- * directories are recorded by (device, inode), never by path, so
- * symlink loops are detected without relying on string comparison.
+ * visited-directory set. Each walker handles depth, file limits and
+ * pruning according to its output format. The set tracks directory
+ * identities by device and inode across branches and root operands.
  *
  * Display depth is tracked with dirbars[]: one slot per ancestor level
  * records whether that ancestor was the last sibling, which selects the
@@ -101,7 +101,7 @@ static long nfiles;
 static long ndirs;
 static int  had_error;
 
-/* (dev, ino) set of every directory already visited in the walk */
+/* Directory identities registered by the walkers for -l. */
 struct seen {
 	dev_t dev;
 	ino_t ino;
@@ -154,7 +154,7 @@ struct ent {
 	char	   *target; /* symlink target or nullptr */
 	struct stat lst;    /* lstat(2) */
 	struct stat st;	    /* stat(2) of target for symlinks */
-	int	    broken; /* symlink whose target is missing */
+	int	    broken; /* stat(2) failed for this symlink target */
 	int	    isdir;  /* directory or dir symlink */
 };
 
@@ -506,10 +506,9 @@ fillinfo(const struct stat *st)
  *   -Q  surround the name in double quotes and escape '"' and '\\'.
  *   -q  print characters that are not printable as '?' instead of an
  *       octal escape.
- * default: backslash-escape control characters and '\\' with C-style
- *       or three-digit octal escapes, so the output stays unambiguous
- *       and line-oriented.  In the byte-oriented fallback a space is
- *       escaped as "\\ " as well, preserving the historical output.
+ * default: escape backslashes and nonprintable characters to keep the
+ *       output line-oriented. The byte-oriented fallback also escapes
+ *       unquoted spaces and uses short escapes for ASCII controls 7–13.
  *
  * In a multibyte locale the input is decoded as UTF-8 and printable
  * wide characters are emitted unchanged; an invalid sequence falls back
@@ -645,8 +644,9 @@ utf8seqlen(const unsigned char *s)
 /*
  * Emit a string as a JSON string body.  Valid UTF-8 passes through
  * unchanged; each byte that does not begin a valid sequence is escaped
- * as \u00xx so that the resulting document is always valid JSON and
- * valid UTF-8.
+ * as \u00xx. This keeps the string body valid UTF-8 even in the ASCII
+ * locale fallback. Decoding those escapes yields Unicode code points,
+ * which need not reproduce the source bytes.
  */
 static void
 json_enc(const char *s)
@@ -755,8 +755,8 @@ seen(dev_t dev, ino_t ino)
 
 /*
  * Record a directory identity in the visited set, growing the array by
- * doubling (starting at 64 entries).  reallocarray(3) failure is fatal:
- * without the set the walk could loop forever on symlinks.
+ * doubling from 64 entries. The set is needed only when following
+ * directory links, which -d suppresses even when -l is also present.
  */
 static void
 addseen(dev_t dev, ino_t ino)
@@ -816,11 +816,6 @@ entcmp(const void *va, const void *vb)
 		break;
 	}
 	if (r == 0)
-		/*
-		 * Byte-wise comparison, deliberately not strcoll(3):
-		 * the ordering must not depend on locale collation
-		 * rules.  For UTF-8 names this is code point order.
-		 */
 		r = strcmp(a->name, b->name);
 	if (rflag)
 		r = -r;
@@ -840,14 +835,15 @@ entcmp(const void *va, const void *vb)
  * Filtering is applied after all metadata is known: -d drops
  * non-directories, -P keeps only matching files (patterns are also
  * tried against a symlink's target), and -I drops matches.  Filtered
- * entries are removed by a stable in-place compaction, preserving the
- * original order for -U.  Surviving entries are sorted with entcmp()
- * unless -U was given.
+ * entries are discarded before appending, preserving readdir(3) order
+ * for -U. Exceeding --filelimit discards the whole vector and continues
+ * counting matches so the caller can report the actual count.
  *
- * On success the out array holds *nout entries and each entry owns its
- * name and optional target; the caller must release both with
- * freeents().  Returns -1 when opendir(2) fails, in which case the out
- * array is null and *nout is zero.
+ * On success, *out owns *nout entries unless the limit was exceeded,
+ * in which case *out is nullptr and *nout is the count only.
+ * A scan error sets had_error but can still return partial results.
+ * Failure to open or to obtain any usable metadata after a scan error
+ * returns -1 with null *out and zero *nout.
  */
 [[nodiscard]] static int
 collect(const char *path, struct ent **out, size_t *nout)
@@ -995,7 +991,8 @@ collect(const char *path, struct ent **out, size_t *nout)
 
 /*
  * Release every name and symlink target in the array, then the array
- * itself.  Safe with a nullptr array and n == 0.
+ * itself. A nullptr array is valid with any count, including an
+ * over-limit count with no allocated entries.
  */
 static void
 freeents(struct ent *ents, size_t n)
@@ -1146,7 +1143,11 @@ dirwalk(const char *path, const char *disp, int depth, const int *bars,
 		return;
 	}
 
-	/* Find the last visible child before drawing branch connectors. */
+	/*
+	 * Pruning can hide the trailing siblings. Inspect them first so
+	 * the final visible connector closes the branch. Reuse the final
+	 * child's scan (or open failure) in the forward pass.
+	 */
 	size_t	    visible_end = n, cached_count = 0;
 	struct ent *cached_children = nullptr;
 	int	    cached_match = 0;
@@ -1364,9 +1365,10 @@ json_info(const struct stat *st)
  * Symlinks are always emitted as "link" objects with a "target" string.
  * A link to a directory is expanded recursively only when -l applies,
  * it is not broken, it has not been visited, -x allows it, and the
- * depth limit has not been reached.  Directories on another file
- * system under -x are emitted as empty directory objects, matching the
- * text walker's decision not to descend.
+ * depth limit has not been reached. Followed links have a "contents"
+ * array even if opening fails or the entry count exceeds the limit.
+ * An ordinary directory across a device boundary under -x has no
+ * "contents" member.
  *
  * The caller retains ownership of the collected entries.
  */
@@ -1499,15 +1501,14 @@ jsonentries(const char *path, int depth, dev_t xdev, int lvl, struct ent *ents,
 
 /*
  * Emit one JSON directory object at indentation level lvl.  The caller
- * has already positioned the indentation.  disp is the name to show
- * (which may differ from path for a followed symlink).  lstat(2) is
- * repeated here for the object's own metadata; failure is not fatal,
- * the missing fields are simply zeroed.
+ * has already positioned the indentation and supplied the metadata.
+ * For a directory-link operand this is the link's own metadata, while
+ * xdev and inode describe its target.
  *
- * At the -L boundary, or when a directory cannot be opened, is empty,
- * or exceeds --filelimit, the object is closed without a "contents"
- * member.  Only an unreadable directory sets had_error, because a
- * depth/filelimit stop is expected behavior.
+ * opened is 0 when collection is deferred, 1 when the caller transfers
+ * a result, and -1 after an open failure. The object omits "contents"
+ * at the depth boundary, on open failure, when empty, or over the
+ * entry limit. An open failure sets had_error.
  */
 static void
 jsonwalk(const char *path, const char *disp, int depth, dev_t xdev, int lvl,
