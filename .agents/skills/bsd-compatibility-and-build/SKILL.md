@@ -24,8 +24,10 @@ style, pair it with `openutils-c23-standards`.
 - `compat/stdckdint.h` is a shim for a libc without `<stdckdint.h>`.
   It uses `#include_next` when a real header is reachable, otherwise
   defines `ckd_add`/`ckd_sub`/`ckd_mul` from compiler overflow builtins.
-  Because `compat/` is on the include path, this shim may be active on
-  OpenBSD too; do not claim all compat files compile to nothing there.
+  Discovery can find a compiler resource header before libc's headers.
+  The shim may therefore be active on any host where neither supplies
+  the C23 header. The positive corpus uses normal selection and forced
+  fallback. The negative compilation checks use forced fallback.
 - `strtonum.c`, `bsdstring.c` and `err.c` supply interfaces that are
   native on BSD and may already exist in glibc. Their `#if` conditions
   are deliberate; do not broaden them without checking for duplicate
@@ -35,6 +37,9 @@ style, pair it with `openutils-c23-standards`.
   so `compat/err.c` sees the name set by the program's `main`.
 - `pledge`/`unveil` are no-ops outside OpenBSD. A successful non-OpenBSD
   build does not prove the OpenBSD sandbox behavior.
+- The local `warn` and `err` implementation captures `errno` before
+  writing to stderr. A glibc build selects native diagnostics, so
+  coverage of the fallback requires exercising its separate branch.
 
 ## Build system facts
 

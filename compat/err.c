@@ -25,21 +25,21 @@
 /*
  * Shared implementation of warn(3) and err(3): "<progname>: <fmt>: <errno
  * text>\n".  The format and its arguments are optional; a nullptr fmt
- * omits both the message and its separating colon.  The system error
- * text is produced from the errno value still in effect when
- * strerror(3) is reached.  This implementation does not save errno
- * around the stdio calls; callers rely on stdio leaving it unchanged,
- * whereas the native BSD versions save and restore it explicitly.
+ * omits both the message and its separating colon. Preserve the
+ * incoming errno across diagnostic output, including failed writes.
  */
 static void
 vwarn_impl(const char *fmt, va_list ap)
 {
+	int saved_errno = errno;
+
 	fprintf(stderr, "%s: ", getprogname());
 	if (fmt != nullptr) {
 		vfprintf(stderr, fmt, ap);
 		fprintf(stderr, ": ");
 	}
-	fprintf(stderr, "%s\n", strerror(errno));
+	fprintf(stderr, "%s\n", strerror(saved_errno));
+	errno = saved_errno;
 }
 
 void
